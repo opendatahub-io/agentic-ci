@@ -7,6 +7,29 @@ name = "agentic-ci"
 version = "0.1.0"
 description = "Tooling for running AI coding agents in CI/CD environments"
 requires-python = ">=3.9"
+license = "Apache-2.0"
+readme = "README.md"
+authors = [
+    { name = "Russell Bryant", email = "rbryant@redhat.com" },
+]
+keywords = ["ci", "cd", "ai", "agents", "claude", "llm", "telemetry"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/russellb/agentic-ci"
+Repository = "https://github.com/russellb/agentic-ci"
+Issues = "https://github.com/russellb/agentic-ci/issues"
 
 [project.scripts]
 agentic-ci = "agentic_ci.cli:main"

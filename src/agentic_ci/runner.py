@@ -17,17 +17,22 @@ from agentic_ci.otel_summary import print_summary
 from agentic_ci.stream import StreamProcessor
 
 
-def run(prompt, workdir=".", model=None, user="claude-ci"):
+def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
     """Run Claude Code with telemetry and streaming output.
 
+    extra_args are passed directly to the claude CLI (e.g. --plugin-dir).
     Returns the exit code (0 for success).
     """
+    if extra_args is None:
+        extra_args = []
+
     if os.getuid() == 0:
         os.execvp("runuser", [
             "runuser", "-u", user, "--",
             sys.executable, "-m", "agentic_ci.runner",
             prompt, workdir,
             *(["--model", model] if model else []),
+            *(["--"] + extra_args if extra_args else []),
         ])
 
     if model is None:
@@ -110,6 +115,7 @@ def run(prompt, workdir=".", model=None, user="claude-ci"):
                 "--output-format", "stream-json",
                 "--include-partial-messages",
                 "--verbose",
+                *extra_args,
             ],
             stdout=subprocess.PIPE,
             stderr=stderr_f,
@@ -181,9 +187,9 @@ def main(args=None):
                         help="Working directory (default: .)")
     parser.add_argument("--model", default=None,
                         help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)")
-    parsed = parser.parse_args(args)
+    parsed, extra = parser.parse_known_args(args)
 
-    sys.exit(run(parsed.prompt, parsed.workdir, model=parsed.model))
+    sys.exit(run(parsed.prompt, parsed.workdir, model=parsed.model, extra_args=extra))
 
 
 if __name__ == "__main__":

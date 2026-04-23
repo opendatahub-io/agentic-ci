@@ -1,0 +1,2 @@
+# agentic-ci has no third-party runtime dependencies.
+# All imports are from the Python standard library.

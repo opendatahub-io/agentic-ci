@@ -40,7 +40,7 @@ def main():
     p_extract.add_argument("stream_file")
     p_extract.add_argument("output_dir")
 
-    args = parser.parse_args()
+    args, extra = parser.parse_known_args()
 
     if args.command == "setup":
         from agentic_ci.setup import setup
@@ -48,7 +48,7 @@ def main():
 
     elif args.command == "run":
         from agentic_ci.runner import run
-        sys.exit(run(args.prompt, args.workdir, model=args.model))
+        sys.exit(run(args.prompt, args.workdir, model=args.model, extra_args=extra))
 
     elif args.command == "stream":
         from agentic_ci.stream import StreamProcessor
