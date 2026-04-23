@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-ci"
+version = "0.1.0"
+description = "Tooling for running AI coding agents in CI/CD environments"
+requires-python = ">=3.9"
+
+[project.scripts]
+agentic-ci = "agentic_ci.cli:main"
