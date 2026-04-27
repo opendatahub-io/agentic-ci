@@ -44,14 +44,17 @@ def main():
 
     if args.command == "setup":
         from agentic_ci.setup import setup
+
         setup(workspace=args.workspace, user=args.user)
 
     elif args.command == "run":
         from agentic_ci.runner import run
+
         sys.exit(run(args.prompt, args.workdir, model=args.model, extra_args=extra))
 
     elif args.command == "stream":
         from agentic_ci.stream import StreamProcessor
+
         processor = StreamProcessor(
             color=not args.no_color,
             wrap=args.wrap,
@@ -62,15 +65,19 @@ def main():
 
     elif args.command == "otel-collect":
         from agentic_ci.otel_collector import main as collector_main
+
         collector_main()
 
     elif args.command == "otel-summary":
         from agentic_ci.otel_summary import print_summary
+
         print_summary(args.log_file)
 
     elif args.command == "extract":
-        from agentic_ci.extract import extract_text_from_stream, parse_result, write_outputs
         import json
+
+        from agentic_ci.extract import extract_text_from_stream, parse_result, write_outputs
+
         text = extract_text_from_stream(args.stream_file)
         if not text:
             print("Error: no text content found", file=sys.stderr)

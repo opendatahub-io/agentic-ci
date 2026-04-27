@@ -172,8 +172,9 @@ class StreamProcessor:
                     if isinstance(content, str) and "FULL RUN COMPLETE" in content:
                         self._end_block()
                         if self.claude_pid:
-                            print("--- FULL RUN COMPLETE detected, terminating Claude ---",
-                                  flush=True)
+                            print(
+                                "--- FULL RUN COMPLETE detected, terminating Claude ---", flush=True
+                            )
                             os.kill(self.claude_pid, signal.SIGTERM)
                         return True
             return False
@@ -227,13 +228,19 @@ class StreamProcessor:
             out = usage.get("output_tokens", 0)
             if out > 0:
                 self._total_output = out
-                total = (self._total_input + self._total_output
-                         + self._total_cache_read + self._total_cache_write)
+                total = (
+                    self._total_input
+                    + self._total_output
+                    + self._total_cache_read
+                    + self._total_cache_write
+                )
                 if total - self._last_emitted_total >= 5_000 or self._last_emitted_total == 0:
                     now = time.monotonic()
                     rate = 0.0
                     try:
-                        with open(os.environ.get("OTEL_RATE_FILE", "/tmp/claude-otel-rate.json")) as rf:
+                        with open(
+                            os.environ.get("OTEL_RATE_FILE", "/tmp/claude-otel-rate.json")
+                        ) as rf:
                             rd = json.load(rf)
                         rate = rd.get("rate", 0)
                     except Exception:
@@ -281,12 +288,19 @@ def main(args=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Parse Claude Code stream-json output")
-    parser.add_argument("--wrap", type=int, default=0, metavar="COLS",
-                        help="Word-wrap output at COLS columns (0 = no wrapping)")
-    parser.add_argument("--no-color", action="store_true",
-                        help="Disable ANSI color codes in output")
-    parser.add_argument("--claude-pid", type=int, default=0,
-                        help="PID of Claude Code process to kill on completion")
+    parser.add_argument(
+        "--wrap",
+        type=int,
+        default=0,
+        metavar="COLS",
+        help="Word-wrap output at COLS columns (0 = no wrapping)",
+    )
+    parser.add_argument(
+        "--no-color", action="store_true", help="Disable ANSI color codes in output"
+    )
+    parser.add_argument(
+        "--claude-pid", type=int, default=0, help="PID of Claude Code process to kill on completion"
+    )
     parsed = parser.parse_args(args)
 
     processor = StreamProcessor(

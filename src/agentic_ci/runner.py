@@ -7,12 +7,10 @@ When run as root, re-execs itself as a non-root user.
 """
 
 import os
-import signal
 import subprocess
 import sys
 import time
 
-from agentic_ci.otel_collector import main as collector_main
 from agentic_ci.otel_summary import print_summary
 from agentic_ci.stream import StreamProcessor
 
@@ -27,13 +25,22 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
         extra_args = []
 
     if os.getuid() == 0:
-        os.execvp("runuser", [
-            "runuser", "-u", user, "--",
-            sys.executable, "-m", "agentic_ci.runner",
-            prompt, workdir,
-            *(["--model", model] if model else []),
-            *(["--"] + extra_args if extra_args else []),
-        ])
+        os.execvp(
+            "runuser",
+            [
+                "runuser",
+                "-u",
+                user,
+                "--",
+                sys.executable,
+                "-m",
+                "agentic_ci.runner",
+                prompt,
+                workdir,
+                *(["--model", model] if model else []),
+                *(["--"] + extra_args if extra_args else []),
+            ],
+        )
 
     if model is None:
         model = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
@@ -50,6 +57,7 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
         run_tmp = os.path.join(workspace, "_run")
     else:
         import tempfile
+
         run_tmp = tempfile.mkdtemp(prefix="agentic-ci-run.")
     os.makedirs(run_tmp, exist_ok=True)
 
@@ -93,8 +101,9 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
 
     with open(otel_port_file) as f:
         otel_port = f.read().strip()
-    print(f"--- OTEL collector started (pid {collector_proc.pid}, port {otel_port}) ---",
-          flush=True)
+    print(
+        f"--- OTEL collector started (pid {collector_proc.pid}, port {otel_port}) ---", flush=True
+    )
 
     # Configure Claude to export OTEL data
     os.environ["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
@@ -109,10 +118,14 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
     with open(stderr_log, "w") as stderr_f, open(stream_capture, "w") as capture_f:
         claude_proc = subprocess.Popen(
             [
-                "claude", "-p", prompt,
-                "--model", model,
+                "claude",
+                "-p",
+                prompt,
+                "--model",
+                model,
                 "--dangerously-skip-permissions",
-                "--output-format", "stream-json",
+                "--output-format",
+                "stream-json",
                 "--include-partial-messages",
                 "--verbose",
                 *extra_args,
@@ -142,8 +155,10 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
 
     # SIGTERM produces 143 (128+15). Treat as success when stream detected completion.
     if stream_complete and rc != 0:
-        print(f"--- stream processor detected run complete (claude rc={rc}), treating as success ---",
-              flush=True)
+        print(
+            f"--- stream processor detected run complete (claude rc={rc}), treating as success ---",
+            flush=True,
+        )
         rc = 0
 
     # Wait for Claude's final OTEL flush
@@ -169,6 +184,7 @@ def run(prompt, workdir=".", model=None, user="claude-ci", extra_args=None):
     artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
     if artifact_dir:
         import shutil
+
         for src in [otel_log, stderr_log]:
             try:
                 shutil.copy2(src, artifact_dir)
@@ -183,10 +199,10 @@ def main(args=None):
 
     parser = argparse.ArgumentParser(description="Run Claude Code in CI with telemetry")
     parser.add_argument("prompt", help="Prompt to send to Claude")
-    parser.add_argument("workdir", nargs="?", default=".",
-                        help="Working directory (default: .)")
-    parser.add_argument("--model", default=None,
-                        help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)")
+    parser.add_argument("workdir", nargs="?", default=".", help="Working directory (default: .)")
+    parser.add_argument(
+        "--model", default=None, help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)"
+    )
     parsed, extra = parser.parse_known_args(args)
 
     sys.exit(run(parsed.prompt, parsed.workdir, model=parsed.model, extra_args=extra))

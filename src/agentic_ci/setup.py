@@ -8,7 +8,6 @@ import os
 import pwd
 import shutil
 import subprocess
-import sys
 import tempfile
 import urllib.request
 
@@ -41,8 +40,7 @@ def _write_gitconfig(user, entries):
     shutil.chown(gitconfig, user, user)
 
 
-def setup(workspace=None, user="claude-ci",
-          install_url="https://claude.ai/install.sh"):
+def setup(workspace=None, user="claude-ci", install_url="https://claude.ai/install.sh"):
     """Bootstrap a CI container for running Claude Code.
 
     Installs system dependencies, creates a non-root user, and installs
@@ -52,9 +50,18 @@ def setup(workspace=None, user="claude-ci",
     if workspace is None:
         workspace = os.environ.get("WORKSPACE_DIR", "/workspace")
 
-    _run("microdnf", "install", "-y", "--nodocs",
-         "git-core", "shadow-utils", "util-linux",
-         "python3", "python3-pip", "diffutils")
+    _run(
+        "microdnf",
+        "install",
+        "-y",
+        "--nodocs",
+        "git-core",
+        "shadow-utils",
+        "util-linux",
+        "python3",
+        "python3-pip",
+        "diffutils",
+    )
 
     _run("useradd", "-m", user)
 
@@ -70,19 +77,26 @@ def setup(workspace=None, user="claude-ci",
 
     if os.path.isdir(workspace):
         _chown_recursive(workspace, user, user)
-        _write_gitconfig(user, [
-            ("safe", "directory", workspace),
-        ])
+        _write_gitconfig(
+            user,
+            [
+                ("safe", "directory", workspace),
+            ],
+        )
 
 
 def main(args=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Bootstrap CI container for Claude Code")
-    parser.add_argument("--workspace", default=None,
-                        help="Working directory (default: $WORKSPACE_DIR or /workspace)")
-    parser.add_argument("--user", default="claude-ci",
-                        help="Non-root user to create (default: claude-ci)")
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Working directory (default: $WORKSPACE_DIR or /workspace)",
+    )
+    parser.add_argument(
+        "--user", default="claude-ci", help="Non-root user to create (default: claude-ci)"
+    )
     parsed = parser.parse_args(args)
     setup(workspace=parsed.workspace, user=parsed.user)
 

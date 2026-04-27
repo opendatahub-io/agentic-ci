@@ -13,7 +13,7 @@ import signal
 import sys
 import time
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _token_samples = []
 _WINDOW_SECS = 60
@@ -91,8 +91,10 @@ def main(args=None):
             f.write(str(actual_port))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log_file = os.environ.get("OTEL_LOG_FILE", "/tmp/claude-otel.jsonl")
-    print(f"OTLP collector listening on 127.0.0.1:{actual_port}, writing to {log_file}",
-          file=sys.stderr)
+    print(
+        f"OTLP collector listening on 127.0.0.1:{actual_port}, writing to {log_file}",
+        file=sys.stderr,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
