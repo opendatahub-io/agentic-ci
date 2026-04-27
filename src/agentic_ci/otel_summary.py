@@ -1,7 +1,6 @@
 """Parse OTLP JSONL log and print a human-readable token/cost summary."""
 
 import json
-import sys
 from collections import defaultdict
 
 
@@ -91,7 +90,7 @@ def print_summary(log_file):
         for model in models:
             print(f"\n  Model: {model}")
             print(f"  {'Token Type':<20} {'Count':>12}")
-            print(f"  {'-'*20} {'-'*12}")
+            print(f"  {'-' * 20} {'-' * 12}")
             model_tokens = {t: c for (m, t), c in token_totals.items() if m == model}
             for token_type in ["input", "cacheRead", "cacheCreation", "output"]:
                 if token_type in model_tokens:
@@ -101,7 +100,7 @@ def print_summary(log_file):
 
     if cost_totals:
         print(f"\n  {'Model':<30} {'Cost (USD)':>12}")
-        print(f"  {'-'*30} {'-'*12}")
+        print(f"  {'-' * 30} {'-' * 12}")
         grand_total = 0.0
         for model in sorted(cost_totals.keys()):
             cost = cost_totals[model]
@@ -111,7 +110,7 @@ def print_summary(log_file):
             print(f"  {'TOTAL':<30} ${grand_total:>11.4f}")
 
     if active_time:
-        print(f"\n  Active Time:")
+        print("\n  Active Time:")
         for time_type, seconds in sorted(active_time.items()):
             mins, secs = divmod(int(seconds), 60)
             print(f"    {time_type}: {mins}m {secs}s")
@@ -120,7 +119,7 @@ def print_summary(log_file):
         print(f"\n  API Requests: {len(api_requests)}")
         total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
         if total_duration:
-            print(f"  Total API time: {total_duration/1000:.1f}s")
+            print(f"  Total API time: {total_duration / 1000:.1f}s")
 
     print("=" * 60)
 
@@ -129,8 +128,9 @@ def main(args=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Print Claude OTEL token/cost summary")
-    parser.add_argument("log_file", nargs="?", default="/tmp/claude-otel.jsonl",
-                        help="Path to OTEL JSONL log file")
+    parser.add_argument(
+        "log_file", nargs="?", default="/tmp/claude-otel.jsonl", help="Path to OTEL JSONL log file"
+    )
     parsed = parser.parse_args(args)
     print_summary(parsed.log_file)
 

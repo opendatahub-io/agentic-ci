@@ -58,7 +58,7 @@ def parse_result(text):
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[brace_start:i + 1])
+                        return json.loads(text[brace_start : i + 1])
                     except json.JSONDecodeError:
                         pass
                     break

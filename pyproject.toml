@@ -33,3 +33,15 @@ Issues = "https://github.com/russellb/agentic-ci/issues"
 
 [project.scripts]
 agentic-ci = "agentic_ci.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "N"]
