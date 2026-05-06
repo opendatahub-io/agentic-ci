@@ -1,0 +1,16 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  tox:
+    name: Run Tox
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run all envs
+        uses: fedora-python/tox-github-action@main
+        with:
+          tox_env: ${{ matrix.tox_env }}
+    strategy:
+      matrix:
+        tox_env: [py39, py310, py311, py312, py313, lint, check-format]
+    runs-on: ubuntu-latest
