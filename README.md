@@ -1,8 +1,34 @@
 # agentic-ci
 
-Tooling for running AI coding agents in CI/CD environments. Handles
-container setup, telemetry collection, streaming output, and process
-lifecycle so your CI workflows don't have to.
+Run Claude Code in sandboxed CI environments with streaming output and
+telemetry. Supports multiple isolation backends so you can choose the
+right tradeoff between simplicity and security.
+
+## Backends
+
+### Podman (default)
+
+Runs Claude inside a Podman container. Each `run` creates a fresh
+container that auto-deletes on exit. The work directory is mounted
+into the container and gcloud credentials are mounted read-only.
+
+Good for: local development, CI runners that already have Podman,
+quick one-off runs where full network policy enforcement isn't needed.
+
+Requires: `podman`, a container image with Claude Code installed
+(e.g. `ghcr.io/opendatahub-io/ai-helpers:latest`).
+
+### OpenShell
+
+Runs Claude inside an [OpenShell](https://github.com/NVIDIA/OpenShell)
+sandbox with network policy enforcement, filesystem isolation, and
+Landlock-based access control. An embedded gateway starts per CI job —
+no external infrastructure required.
+
+Good for: production CI where you need to control what the agent can
+access on the network (e.g. only Vertex AI, GitHub, PyPI).
+
+Requires: `openshell` and `openshell-gateway` installed on the host.
 
 ## Install
 
@@ -10,80 +36,132 @@ lifecycle so your CI workflows don't have to.
 pip install ./agentic-ci/
 ```
 
-## Commands
+## Usage
 
-### `agentic-ci setup`
-
-Bootstrap a CI container for running Claude Code. Installs system
-dependencies, creates a non-root user (`claude-ci`), and installs
-Claude Code.
+### Run a prompt
 
 ```bash
-WORKSPACE_DIR=/workspace agentic-ci setup
+# Podman (default backend)
+agentic-ci run "Fix the flaky test in test_auth.py" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest
+
+# OpenShell
+agentic-ci --backend openshell run "Fix the flaky test in test_auth.py"
 ```
 
-### `agentic-ci run`
+### Setup and stop
 
-Run Claude Code with telemetry and streaming output. Starts an OTEL
-collector, runs Claude with stream-json output, displays
-human-readable progress, and prints a token/cost summary.
-
-When run as root, automatically re-execs as `claude-ci`.
+`setup` creates and starts the sandbox environment. `stop` tears it
+down. `run` auto-calls `setup` if the sandbox isn't already running.
 
 ```bash
-agentic-ci run "your prompt here" /path/to/workdir
-agentic-ci run "prompt" . --model claude-sonnet-4-6
+# Start the sandbox
+agentic-ci setup --image ghcr.io/opendatahub-io/ai-helpers:latest
+
+# Run multiple prompts in the same sandbox
+agentic-ci run "Fix the flaky test" --image ghcr.io/opendatahub-io/ai-helpers:latest
+agentic-ci run "Update the changelog" --image ghcr.io/opendatahub-io/ai-helpers:latest
+
+# Tear down the sandbox
+agentic-ci stop --image ghcr.io/opendatahub-io/ai-helpers:latest
 ```
 
-### `agentic-ci stream`
+### Options
 
-Parse Claude Code stream-json from stdin into human-readable CI logs
-with token tracking.
+```
+agentic-ci [--backend {podman,openshell}] {setup,run,stop} [options]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--backend` | `podman` | Sandbox backend to use |
+| `--workdir PATH` | `.` | Working directory to mount |
+| `--image IMAGE` | — | Container or sandbox base image |
+| `--model MODEL` | `claude-opus-4-6` | Claude model (`run` only) |
+| `--no-streaming` | off | Disable pretty-printed stream output (`run` only) |
+| `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
+| `--policy PATH` | — | OpenShell policy file override (`openshell` backend only) |
+| `--timeout SECS` | `1200` | Container timeout (`podman` backend only) |
+
+Extra arguments after the prompt are passed through to the Claude CLI.
+
+### Examples
 
 ```bash
-claude -p "prompt" --output-format stream-json | agentic-ci stream
+# Use a specific model
+agentic-ci run "Update the changelog" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest \
+    --model claude-sonnet-4-6
+
+# Disable streaming for raw output
+agentic-ci run "Run the test suite" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest \
+    --no-streaming
+
+# Disable telemetry
+agentic-ci run "Fix lint errors" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest \
+    --no-otel
+
+# OpenShell with custom policy
+agentic-ci --backend openshell run "Deploy staging" \
+    --policy custom-policy.yml
+
+# OpenShell with repo-level policy (auto-discovered from
+# .agentic-ci/openshell-policy.yml in the workdir)
+agentic-ci --backend openshell run "Add input validation"
 ```
 
-### `agentic-ci otel-collect`
+## Credentials
 
-Start a lightweight OTLP HTTP/JSON receiver for capturing token and
-cost metrics. Binds to an OS-assigned port and writes it to
-`$OTEL_PORT_FILE` for discovery.
+Both backends use Vertex AI for Claude API access via gcloud
+Application Default Credentials.
 
-### `agentic-ci otel-summary`
+The **podman** backend checks credentials in this order:
 
-Print a human-readable token/cost summary from an OTEL JSONL log.
+1. `GCLOUD_CREDENTIALS` env var (raw JSON or base64-encoded)
+2. `GCP_SERVICE_ACCOUNT_KEY` env var (base64-encoded)
+3. `~/.config/gcloud/application_default_credentials.json`
+4. Path in `GOOGLE_APPLICATION_CREDENTIALS` env var
 
-```bash
-agentic-ci otel-summary /path/to/claude-otel.jsonl
-```
-
-### `agentic-ci extract`
-
-Extract a structured JSON result from Claude's stream-json output.
-
-```bash
-agentic-ci extract stream-capture.jsonl output-dir/
-```
+The **openshell** backend uploads the local ADC file
+(`~/.config/gcloud/application_default_credentials.json` or
+`GOOGLE_APPLICATION_CREDENTIALS`) into the sandbox.
 
 ## Environment Variables
 
-| Variable | Default | Used by |
+| Variable | Default | Description |
 |---|---|---|
-| `WORKSPACE_DIR` | `/workspace` | `setup`, `run` |
-| `CLAUDE_MODEL` | `claude-opus-4-6` | `run` |
-| `OTEL_LOG_FILE` | `/tmp/claude-otel.jsonl` | `otel-collect` |
-| `OTEL_RATE_FILE` | `/tmp/claude-otel-rate.json` | `otel-collect`, `stream` |
-| `OTEL_COLLECTOR_PORT` | `4318` | `otel-collect` |
-| `OTEL_PORT_FILE` | — | `otel-collect` |
-| `STREAM_CAPTURE_FILE` | `<run_tmp>/claude-stream-capture.jsonl` | `run` |
+| `CLAUDE_MODEL` | `claude-opus-4-6` | Default model (overridden by `--model`) |
+| `CLAUDE_CONTAINER_IMAGE` | — | Default container image for podman backend |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
+| `GCP_PROJECT_ID` | — | Fallback for `ANTHROPIC_VERTEX_PROJECT_ID` |
+| `CLOUD_ML_REGION` | `global` | Vertex AI region |
+| `GCLOUD_CREDENTIALS` | — | Raw JSON or base64 gcloud credentials |
+| `GCP_SERVICE_ACCOUNT_KEY` | — | Base64-encoded service account key |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to ADC credentials file |
+
+## Streaming Output
+
+By default, Claude's stream-json output is parsed into human-readable
+CI logs with:
+
+- Colored ANSI output (thinking in red, tool calls in gray)
+- Tool call summaries (bash commands, file paths, agent dispatches)
+- Token count display with throughput rate
+- OTEL token/cost summary at completion
+
+Disable with `--no-streaming` for raw output or `--no-otel` to skip
+the summary.
 
 ## Python API
 
-All commands are also importable:
-
 ```python
-from agentic_ci.runner import run
+from agentic_ci.backends import create_backend
 from agentic_ci.stream import StreamProcessor
-from agentic_ci.otel_summary import print_summary
+from agentic_ci.otel import print_summary
+
+backend = create_backend("podman", workdir="/path/to/repo", image="my-image:latest")
+backend.setup()
+rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
 ```

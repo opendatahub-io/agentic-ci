@@ -1,12 +1,12 @@
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.9.3,<1"]
+build-backend = "uv_build"
 
 [project]
 name = "agentic-ci"
 version = "0.1.1"
 description = "Tooling for running AI coding agents in CI/CD environments"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 readme = "README.md"
 authors = [
@@ -17,11 +17,11 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Build Tools",
     "Topic :: Software Development :: Testing",
 ]
