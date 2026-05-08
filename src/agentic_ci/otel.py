@@ -14,23 +14,13 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-_token_samples: list[tuple[float, int]] = []
+_token_samples = []
 _WINDOW_SECS = 60
-
-
-MAX_BODY_SIZE = 1_048_576
 
 
 class OTLPHandler(BaseHTTPRequestHandler):
     def do_POST(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-        except ValueError:
-            self.send_error(400, "Invalid Content-Length")
-            return
-        if length > MAX_BODY_SIZE:
-            self.send_error(413, "Payload Too Large")
-            return
+        length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(body) if body else {}

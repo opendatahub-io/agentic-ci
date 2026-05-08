@@ -6,21 +6,45 @@ import shutil
 import sys
 import tempfile
 
-from agentic_ci import otel
-from agentic_ci.backends import create_backend
+from agentic_ci import claude, gateway, otel, policy, sandbox
 
 
-def cmd_setup(args, backend):
-    backend.setup()
+def _ensure_gateway():
+    if not gateway.is_running():
+        print("--- Starting OpenShell gateway ---", flush=True)
+        gateway.start()
+    else:
+        print("--- OpenShell gateway already running ---", flush=True)
+
+
+def _ensure_sandbox(args):
+    """Create the sandbox and upload credentials if it doesn't exist."""
+    if sandbox.exists():
+        print("--- Sandbox already exists ---", flush=True)
+        return
+
+    policy_path = policy.resolve(
+        flag_path=getattr(args, "policy", None),
+        workdir=getattr(args, "workdir", "."),
+    )
+    image = getattr(args, "image", None)
+
+    print(f"--- Creating sandbox (policy: {policy_path}) ---", flush=True)
+    sandbox.create(image=image, policy_path=policy_path)
+
+    print("--- Uploading credentials ---", flush=True)
+    claude.setup_credentials()
+
+
+def cmd_setup(args):
+    _ensure_gateway()
+    _ensure_sandbox(args)
     print("--- Setup complete ---", flush=True)
 
 
-def cmd_stop(args, backend):
-    backend.stop()
-
-
-def cmd_run(args, backend):
-    backend.setup()
+def cmd_run(args):
+    _ensure_gateway()
+    _ensure_sandbox(args)
 
     model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
 
@@ -39,8 +63,8 @@ def cmd_run(args, backend):
             flush=True,
         )
 
-    print(f"--- Running Claude ({model}) via {args.backend} backend ---", flush=True)
-    rc = backend.run(
+    print(f"--- Running Claude ({model}) in sandbox ---", flush=True)
+    rc = claude.run(
         prompt=args.prompt,
         model=model,
         otel_port=otel_port,
@@ -70,42 +94,24 @@ def cmd_run(args, backend):
 def main():
     parser = argparse.ArgumentParser(
         prog="agentic-ci",
-        description="Run Claude Code in a sandboxed CI environment",
+        description="Run Claude Code in a sandboxed CI environment via OpenShell",
     )
-    parser.add_argument(
-        "--backend",
-        choices=["podman", "openshell"],
-        default="podman",
-        help="Sandbox backend (default: podman)",
-    )
-
     sub = parser.add_subparsers(dest="command")
 
-    # Common arguments shared by both subcommands
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
-    common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
-    common.add_argument(
-        "--policy",
-        default=None,
-        metavar="PATH",
-        help="Policy file override (openshell backend only)",
+    p_setup = sub.add_parser("setup", help="Start gateway, create sandbox, upload credentials")
+    p_setup.add_argument(
+        "--policy", default=None, metavar="PATH", help="Explicit policy file override"
     )
-    common.add_argument(
-        "--timeout",
-        type=int,
-        default=1200,
-        metavar="SECS",
-        help="Container timeout in seconds (podman backend only, default: 1200)",
-    )
+    p_setup.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
+    p_setup.add_argument("--image", default=None, metavar="IMAGE", help="Sandbox base image")
 
-    sub.add_parser("setup", parents=[common], help="Prepare the AI agent sandbox environment")
-    sub.add_parser("stop", parents=[common], help="Tear down the sandbox environment")
-
-    p_run = sub.add_parser(
-        "run", parents=[common], help="Execute a prompt in a sandbox environment"
-    )
+    p_run = sub.add_parser("run", help="Execute a prompt inside the sandbox")
     p_run.add_argument("prompt", help="Prompt to send to Claude")
+    p_run.add_argument(
+        "--policy", default=None, metavar="PATH", help="Explicit policy file override"
+    )
+    p_run.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
+    p_run.add_argument("--image", default=None, metavar="IMAGE", help="Sandbox base image")
     p_run.add_argument(
         "--no-streaming", action="store_true", help="Disable pretty-printed stream output"
     )
@@ -123,24 +129,13 @@ def main():
     else:
         args.extra_args = []
 
-    if args.command not in ("setup", "run", "stop"):
+    if args.command == "setup":
+        cmd_setup(args)
+    elif args.command == "run":
+        cmd_run(args)
+    else:
         parser.print_help()
         sys.exit(1)
-
-    backend = create_backend(
-        args.backend,
-        workdir=args.workdir,
-        image=args.image,
-        policy=args.policy,
-        timeout=args.timeout,
-    )
-
-    if args.command == "setup":
-        cmd_setup(args, backend)
-    elif args.command == "stop":
-        cmd_stop(args, backend)
-    elif args.command == "run":
-        cmd_run(args, backend)
 
 
 if __name__ == "__main__":
