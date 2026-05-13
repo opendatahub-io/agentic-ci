@@ -1,4 +1,12 @@
-"""CLI entry point for agentic-ci."""
+"""CLI entry point for agentic-ci.
+
+Supports two execution backends:
+- **OpenShell** (``setup`` subcommand + ``run`` with gateway): sandboxed execution
+  via the OpenShell gateway and policy system.
+- **Direct** (``run`` without gateway): runs Claude directly on the host using
+  ``runner.py``. This is the default when no OpenShell gateway is available,
+  and is the mode used inside Podman containers.
+"""
 
 import argparse
 import os
@@ -6,10 +14,18 @@ import shutil
 import sys
 import tempfile
 
-from agentic_ci import claude, gateway, otel, policy, sandbox
+
+def _openshell_available():
+    """Check if OpenShell modules and gateway binary are available."""
+    try:
+        from agentic_ci import gateway
+        return gateway.is_running()
+    except (ImportError, FileNotFoundError, OSError):
+        return False
 
 
 def _ensure_gateway():
+    from agentic_ci import gateway
     if not gateway.is_running():
         print("--- Starting OpenShell gateway ---", flush=True)
         gateway.start()
@@ -18,7 +34,7 @@ def _ensure_gateway():
 
 
 def _ensure_sandbox(args):
-    """Create the sandbox and upload credentials if it doesn't exist."""
+    from agentic_ci import claude, policy, sandbox
     if sandbox.exists():
         print("--- Sandbox already exists ---", flush=True)
         return
@@ -37,17 +53,20 @@ def _ensure_sandbox(args):
 
 
 def cmd_setup(args):
+    """OpenShell setup: start gateway, create sandbox, upload credentials."""
     _ensure_gateway()
     _ensure_sandbox(args)
     print("--- Setup complete ---", flush=True)
 
 
-def cmd_run(args):
+def cmd_run_openshell(args):
+    """Run Claude inside an OpenShell sandbox."""
+    from agentic_ci import claude, otel
+
     _ensure_gateway()
     _ensure_sandbox(args)
 
     model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
-
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
     otel_port = None
@@ -81,6 +100,36 @@ def cmd_run(args):
     else:
         print(f"\n--- Claude exit code: {rc} ---", flush=True)
 
+    _copy_artifacts(otel_log)
+    sys.exit(rc)
+
+
+def cmd_run_direct(args):
+    """Run Claude directly on the host (no sandbox)."""
+    from agentic_ci.runner import run
+
+    model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+
+    rc = run(
+        prompt=args.prompt,
+        workdir=getattr(args, "workdir", "."),
+        model=model,
+        extra_args=args.extra_args,
+        streaming=not args.no_streaming,
+        otel=not args.no_otel,
+    )
+    sys.exit(rc)
+
+
+def cmd_run(args):
+    """Run Claude — auto-selects OpenShell or direct backend."""
+    if _openshell_available():
+        cmd_run_openshell(args)
+    else:
+        cmd_run_direct(args)
+
+
+def _copy_artifacts(otel_log):
     artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
     if artifact_dir and otel_log:
         try:
@@ -88,38 +137,30 @@ def cmd_run(args):
         except (OSError, FileNotFoundError):
             pass
 
-    sys.exit(rc)
-
 
 def main():
     parser = argparse.ArgumentParser(
         prog="agentic-ci",
-        description="Run Claude Code in a sandboxed CI environment via OpenShell",
+        description="Run Claude Code in CI with telemetry, streaming, and optional sandboxing",
     )
     sub = parser.add_subparsers(dest="command")
 
-    p_setup = sub.add_parser("setup", help="Start gateway, create sandbox, upload credentials")
-    p_setup.add_argument(
-        "--policy", default=None, metavar="PATH", help="Explicit policy file override"
-    )
+    p_setup = sub.add_parser("setup", help="Start OpenShell gateway and create sandbox")
+    p_setup.add_argument("--policy", default=None, metavar="PATH", help="Policy file override")
     p_setup.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
     p_setup.add_argument("--image", default=None, metavar="IMAGE", help="Sandbox base image")
 
-    p_run = sub.add_parser("run", help="Execute a prompt inside the sandbox")
+    p_run = sub.add_parser("run", help="Execute a prompt (auto-selects backend)")
     p_run.add_argument("prompt", help="Prompt to send to Claude")
-    p_run.add_argument(
-        "--policy", default=None, metavar="PATH", help="Explicit policy file override"
-    )
+    p_run.add_argument("--policy", default=None, metavar="PATH", help="Policy file override")
     p_run.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
     p_run.add_argument("--image", default=None, metavar="IMAGE", help="Sandbox base image")
     p_run.add_argument(
         "--no-streaming", action="store_true", help="Disable pretty-printed stream output"
     )
-    p_run.add_argument("--no-otel", action="store_true", help="Disable OTEL telemetry collection")
+    p_run.add_argument("--no-otel", action="store_true", help="Disable OTEL telemetry")
     p_run.add_argument(
-        "--model",
-        default=None,
-        metavar="MODEL",
+        "--model", default=None, metavar="MODEL",
         help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)",
     )
 
