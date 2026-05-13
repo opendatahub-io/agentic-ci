@@ -70,12 +70,13 @@ def setup_gcp_credentials(
     env_var: str = "GCLOUD_CREDENTIALS",
     fallback: str = "GCP_SERVICE_ACCOUNT_KEY",
     home: str | Path | None = None,
+    set_env: bool = True,
 ) -> Path:
     """Decode credentials and write ADC file under ``home``.
 
-    Also sets ``GOOGLE_APPLICATION_CREDENTIALS`` in the current process
-    environment and normalizes ``GCP_PROJECT_ID`` to
-    ``ANTHROPIC_VERTEX_PROJECT_ID`` when applicable.
+    When ``set_env`` is True (default), sets ``GOOGLE_APPLICATION_CREDENTIALS``
+    in the current process environment. Set to False when writing to a staging
+    directory to avoid pointing the host env at an ephemeral path.
 
     Returns the path to the written ADC file.
     """
@@ -90,7 +91,9 @@ def setup_gcp_credentials(
 
     adc_path = home / _DEFAULT_ADC_REL
     adc_path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(adc_path.parent, 0o700)
     adc_path.write_text(creds_json, encoding="utf-8")
+    os.chmod(adc_path, 0o600)
 
     cfg_path = home / _DEFAULT_CFG_REL
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,8 +105,10 @@ def setup_gcp_credentials(
         f"[core]\nproject = {project}\ndisable_prompts = true\n",
         encoding="utf-8",
     )
+    os.chmod(cfg_path, 0o600)
 
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(adc_path)
+    if set_env:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(adc_path)
     log.info("GCP credentials written to %s", adc_path)
     return adc_path
 
@@ -122,4 +127,6 @@ def stage_credentials_for_mount(
     Returns the staging directory path.
     """
     staging = Path(staging_dir)
-    return setup_gcp_credentials(env_var=env_var, fallback=fallback, home=staging)
+    return setup_gcp_credentials(
+        env_var=env_var, fallback=fallback, home=staging, set_env=False,
+    )

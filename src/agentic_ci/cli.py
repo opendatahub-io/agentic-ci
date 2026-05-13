@@ -16,11 +16,11 @@ import tempfile
 
 
 def _openshell_available():
-    """Check if OpenShell modules and gateway binary are available."""
+    """Check if OpenShell modules are importable."""
     try:
-        from agentic_ci import gateway
-        return gateway.is_running()
-    except (ImportError, FileNotFoundError, OSError):
+        from agentic_ci import gateway  # noqa: F401
+        return True
+    except ImportError:
         return False
 
 
@@ -67,40 +67,41 @@ def cmd_run_openshell(args):
     _ensure_sandbox(args)
 
     model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
-    run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
-    otel_port = None
-    otel_log = None
-    otel_rate = None
-    otel_proc = None
+    with tempfile.TemporaryDirectory(prefix="agentic-ci-run.") as run_dir:
+        otel_port = None
+        otel_log = None
+        otel_rate = None
+        otel_proc = None
 
-    if not args.no_otel:
-        print("--- Starting OTEL collector ---", flush=True)
-        otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
-        print(
-            f"--- OTEL collector started (pid {otel_proc.pid}, port {otel_port}) ---",
-            flush=True,
+        if not args.no_otel:
+            print("--- Starting OTEL collector ---", flush=True)
+            otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
+            print(
+                f"--- OTEL collector started (pid {otel_proc.pid}, port {otel_port}) ---",
+                flush=True,
+            )
+
+        print(f"--- Running Claude ({model}) in sandbox ---", flush=True)
+        rc = claude.run(
+            prompt=args.prompt,
+            model=model,
+            otel_port=otel_port,
+            otel_rate_file=otel_rate,
+            extra_args=args.extra_args,
+            streaming=not args.no_streaming,
         )
 
-    print(f"--- Running Claude ({model}) in sandbox ---", flush=True)
-    rc = claude.run(
-        prompt=args.prompt,
-        model=model,
-        otel_port=otel_port,
-        otel_rate_file=otel_rate,
-        extra_args=args.extra_args,
-        streaming=not args.no_streaming,
-    )
+        if otel_proc:
+            otel.stop_collector(otel_proc)
+            print(f"\n--- Claude exit code: {rc} ---", flush=True)
+            print("--- OTEL Token/Cost Summary ---", flush=True)
+            otel.print_summary(otel_log)
+        else:
+            print(f"\n--- Claude exit code: {rc} ---", flush=True)
 
-    if otel_proc:
-        otel.stop_collector(otel_proc)
-        print(f"\n--- Claude exit code: {rc} ---", flush=True)
-        print("--- OTEL Token/Cost Summary ---", flush=True)
-        otel.print_summary(otel_log)
-    else:
-        print(f"\n--- Claude exit code: {rc} ---", flush=True)
+        _copy_artifacts(otel_log)
 
-    _copy_artifacts(otel_log)
     sys.exit(rc)
 
 
@@ -165,8 +166,10 @@ def main():
     )
 
     args, extra = parser.parse_known_args()
-    if hasattr(args, "prompt"):
+    if args.command == "run" and hasattr(args, "prompt"):
         args.extra_args = extra
+    elif extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
     else:
         args.extra_args = []
 

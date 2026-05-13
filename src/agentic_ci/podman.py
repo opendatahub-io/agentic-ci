@@ -58,9 +58,12 @@ def run_container(
     if os.getuid() == 0:
         try:
             for root, dirs, files in os.walk(workdir):
-                os.chown(root, 1000, 1000)
+                if not os.path.islink(root):
+                    os.chown(root, 1000, 1000, follow_symlinks=False)
                 for name in dirs + files:
-                    os.chown(os.path.join(root, name), 1000, 1000)
+                    path = os.path.join(root, name)
+                    if not os.path.islink(path):
+                        os.chown(path, 1000, 1000, follow_symlinks=False)
         except OSError as exc:
             log.debug("chown failed (non-fatal): %s", exc)
 
@@ -133,24 +136,30 @@ def run_container(
     if not streaming:
         cmd.append("--no-streaming")
 
+    cmd.append("Read and follow all instructions in /tmp/.claude-prompt.txt exactly.")
+
     if extra_claude_args:
         cmd.extend(["--"] + extra_claude_args)
-
-    # The prompt is read from the mounted file
-    cmd.append("Read and follow all instructions in /tmp/.claude-prompt.txt exactly.")
 
     log.info("Launching container: %s (model=%s, timeout=%ds)", image, model, timeout)
 
     try:
-        result = subprocess.run(cmd, capture_output=False)
+        result = subprocess.run(cmd, capture_output=False, timeout=timeout + 30)
         rc = result.returncode
 
-        # Move container output log if present
         container_output = workdir / ".claude-output.txt"
-        if output_file and container_output.exists():
+        if (
+            output_file
+            and container_output.exists()
+            and container_output.is_file()
+            and not container_output.is_symlink()
+        ):
             shutil.move(str(container_output), str(output_file))
 
         return rc
+    except subprocess.TimeoutExpired:
+        log.error("Podman subprocess timed out after %ds", timeout + 30)
+        return 124
     finally:
         prompt_tmp.unlink(missing_ok=True)
         if cleanup_creds:

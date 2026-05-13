@@ -51,13 +51,13 @@ class SkillConfig:
     skill_ref: str = "main"
 
     prompt_builder: Callable[..., str] = lambda **kw: ""
-    context_writer: Callable[..., None] = staticmethod(_noop)
-    verdict_loader: Callable[..., dict] = staticmethod(_noop_verdict)
+    context_writer: Callable[..., None] = _noop
+    verdict_loader: Callable[..., dict] = _noop_verdict
     verdict_path_fn: Callable[[Path], Path] = lambda wd: wd / "verdict.json"
     comment_formatter: Callable[[dict], str] = lambda v: str(v)
-    label_applier: Callable[..., None] = staticmethod(_noop)
+    label_applier: Callable[..., None] = _noop
     cost_formatter: Callable[[dict | None], str | None] = lambda d: None
-    extension_config_writer: Callable[..., None] = staticmethod(_noop)
+    extension_config_writer: Callable[..., None] = _noop
 
     pre_gates: list[Callable[..., str | None]] = field(default_factory=list)
     post_gates: list[Callable[..., tuple[dict | None, list[str]]]] = field(default_factory=list)
@@ -74,12 +74,17 @@ class SkillConfig:
 def _load_otel_cost(work_dir: Path) -> dict | None:
     """Load OTEL cost data from the run directory, if available."""
     otel_log = work_dir / "_run" / "claude-otel.jsonl"
+    try:
+        otel_log.resolve().relative_to(work_dir.resolve())
+    except ValueError:
+        log.warning("OTEL log path escapes work_dir, skipping: %s", otel_log)
+        return None
     if not otel_log.exists():
         return None
     try:
         from agentic_ci.otel import parse_metrics
         records = []
-        with open(otel_log) as f:
+        with open(otel_log, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
@@ -98,7 +103,7 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
 
 
-def _default_run_container(work_dir, config_dir, prompt, output_file, *, image=None):
+def _default_run_container(work_dir, prompt, output_file, *, image=None):
     """Default container runner using Podman."""
     return _podman_run_container(
         image=image,
@@ -169,7 +174,7 @@ def run_skill(
             shutil.copy2(dry_run_verdict_path, verdict_dest)
         rc = 0
     else:
-        rc = runner(work_dir, config_dir, prompt, output_file, image=config.container_image)
+        rc = runner(work_dir, prompt, output_file, image=config.container_image)
 
         if (
             rc != 0
@@ -178,7 +183,7 @@ def run_skill(
             and config.max_retries > 0
         ):
             log.warning("[%s] Transient failure (exit %d), retrying once", ticket_key, rc)
-            rc = runner(work_dir, config_dir, prompt, output_file, image=config.container_image)
+            rc = runner(work_dir, prompt, output_file, image=config.container_image)
 
     if rc != 0:
         log.error("[%s] Container exited with code %d", ticket_key, rc)
@@ -218,7 +223,7 @@ def run_skill(
             ):
                 log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
                 rc = runner(
-                    work_dir, config_dir, prompt, output_file,
+                    work_dir, prompt, output_file,
                     image=config.container_image,
                 )
                 if rc == 0:

@@ -13,6 +13,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 log = logging.getLogger(__name__)
 
@@ -66,30 +68,24 @@ def _validate_gitlab_url(url: str) -> bool:
     repo_path = url.split("gitlab.com/", 1)[-1]
     encoded = urlquote(repo_path, safe="")
     try:
-        result = subprocess.run(
-            ["curl", "-sf", "-o", "/dev/null",
-             "--connect-timeout", "5", "--max-time", "10",
-             "-H", f"PRIVATE-TOKEN: {token}",
-             f"https://gitlab.com/api/v4/projects/{encoded}"],
-            capture_output=True, timeout=15,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
+        req = Request(f"https://gitlab.com/api/v4/projects/{encoded}")
+        req.add_header("PRIVATE-TOKEN", token)
+        with urlopen(req, timeout=10):
+            return True
+    except (HTTPError, URLError, OSError):
         return False
 
 
 def _validate_github_url(url: str) -> bool:
     repo_path = url.split("github.com/", 1)[-1]
-    cmd = ["curl", "-sf", "-o", "/dev/null",
-           "--connect-timeout", "5", "--max-time", "10"]
-    token = os.environ.get("GITHUB_TOKEN")
-    if token:
-        cmd += ["-H", f"Authorization: Bearer {token}"]
-    cmd.append(f"https://api.github.com/repos/{repo_path}")
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=15)
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
+        req = Request(f"https://api.github.com/repos/{repo_path}")
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urlopen(req, timeout=10):
+            return True
+    except (HTTPError, URLError, OSError):
         return False
 
 
@@ -123,26 +119,50 @@ def validate_repo_url(url: str) -> bool:
     """Check that a repo URL points to an allowed host with no path traversal."""
     if not url:
         return False
-    try:
-        parsed = urlparse(url)
-    except ValueError:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
         return False
-    if parsed.hostname not in ALLOWED_HOSTS:
+    if not parsed.hostname or parsed.hostname not in ALLOWED_HOSTS:
+        return False
+    if parsed.username or parsed.password:
         return False
     if ".." in (parsed.path or ""):
         return False
-    return parsed.scheme == "https"
+    return True
+
+
+_SAFE_REF_RE = re.compile(r"^[A-Za-z0-9._/\-~^]+$")
+
+
+def _validate_ref(name: str) -> bool:
+    """Validate a git ref name against injection attacks."""
+    if not name or name.startswith("-"):
+        return False
+    if ".." in name or "@{" in name:
+        return False
+    return bool(_SAFE_REF_RE.match(name))
 
 
 def clone_repo(url: str, dest: Path, branch: str | None = None,
                depth: int | None = None) -> bool:
     """Clone a repository. Returns True on success."""
-    cmd = ["git", "clone"]
+    if not validate_repo_url(url):
+        log.error("clone_repo: invalid or disallowed URL: %s", url)
+        return False
+    if branch and not _validate_ref(branch):
+        log.error("clone_repo: invalid branch name: %s", branch)
+        return False
+    cmd = [
+        "git",
+        "-c", "protocol.ext.allow=never",
+        "-c", "protocol.file.allow=never",
+        "clone",
+    ]
     if depth:
         cmd += ["--depth", str(depth)]
     if branch:
         cmd += ["--branch", branch]
-    cmd += [url, str(dest)]
+    cmd += ["--", url, str(dest)]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         return True
@@ -153,20 +173,26 @@ def clone_repo(url: str, dest: Path, branch: str | None = None,
 
 def create_branch(repo_dir: Path, branch_name: str) -> bool:
     """Create and checkout a new branch."""
+    if not _validate_ref(branch_name):
+        log.error("create_branch: invalid branch name: %s", branch_name)
+        return False
     try:
         subprocess.run(
-            ["git", "checkout", "-b", branch_name],
+            ["git", "switch", "-c", branch_name],
             cwd=str(repo_dir), check=True, capture_output=True, text=True,
         )
         return True
     except subprocess.CalledProcessError as exc:
-        log.error("git checkout -b failed: %s", exc.stderr)
+        log.error("git switch -c failed: %s", exc.stderr)
         return False
 
 
 def push_branch(repo_dir: Path, remote: str = "origin",
                 branch: str | None = None) -> bool:
     """Push the current branch to remote. Returns True on success."""
+    if branch and not _validate_ref(branch):
+        log.error("push_branch: invalid branch name: %s", branch)
+        return False
     cmd = ["git", "push", "--set-upstream", remote]
     if branch:
         cmd.append(branch)
@@ -226,6 +252,8 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
 
     Raises GitDiffError if the git command fails.
     """
+    if not _validate_ref(base_ref):
+        raise GitDiffError(f"Invalid ref name: {base_ref}")
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", base_ref],
