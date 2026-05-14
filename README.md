@@ -12,8 +12,14 @@ Runs Claude inside a Podman container. Each `run` creates a fresh
 container that auto-deletes on exit. The work directory is mounted
 into the container and gcloud credentials are mounted read-only.
 
+**Important:** The Podman backend provides only basic container-level
+isolation. It uses `--network host`, so the agent has unrestricted
+network access. There is no filesystem sandboxing beyond the container
+boundary itself and no network policy enforcement. Use the OpenShell
+backend if you need stronger security controls.
+
 Good for: local development, CI runners that already have Podman,
-quick one-off runs where full network policy enforcement isn't needed.
+quick one-off runs in trusted environments.
 
 Requires: `podman`, a container image with Claude Code installed
 (e.g. `ghcr.io/opendatahub-io/ai-helpers:latest`).
@@ -21,12 +27,15 @@ Requires: `podman`, a container image with Claude Code installed
 ### OpenShell
 
 Runs Claude inside an [OpenShell](https://github.com/NVIDIA/OpenShell)
-sandbox with network policy enforcement, filesystem isolation, and
-Landlock-based access control. An embedded gateway starts per CI job —
-no external infrastructure required.
+sandbox with network policy enforcement, Landlock-based filesystem
+access control, and fine-grained endpoint restrictions. Network
+policies limit which hosts the agent can reach (e.g. only Vertex AI,
+GitHub, PyPI) and filesystem policies restrict which paths are
+writable. An embedded gateway starts per CI job — no external
+infrastructure required.
 
 Good for: production CI where you need to control what the agent can
-access on the network (e.g. only Vertex AI, GitHub, PyPI).
+access on the network and filesystem.
 
 Requires: `openshell` and `openshell-gateway` installed on the host.
 
