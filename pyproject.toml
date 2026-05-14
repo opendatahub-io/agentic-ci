@@ -27,9 +27,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/russellb/agentic-ci"
-Repository = "https://github.com/russellb/agentic-ci"
-Issues = "https://github.com/russellb/agentic-ci/issues"
+Homepage = "https://github.com/opendatahub-io/agentic-ci"
+Repository = "https://github.com/opendatahub-io/agentic-ci"
+Issues = "https://github.com/opendatahub-io/agentic-ci/issues"
 
 [project.scripts]
 agentic-ci = "agentic_ci.cli:main"
