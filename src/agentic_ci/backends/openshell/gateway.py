@@ -48,7 +48,7 @@ def start():
         [
             "openshell-gateway",
             "--bind-address",
-            "0.0.0.0",
+            "127.0.0.1",
             "--port",
             str(GATEWAY_PORT),
             "--health-port",

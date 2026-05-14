@@ -1,6 +1,7 @@
 """OpenShell sandbox backend for agentic-ci."""
 
 import os
+import shlex
 import shutil
 import tempfile
 
@@ -75,8 +76,8 @@ class OpenShellBackend(Backend):
         cloud_region = os.environ.get("CLOUD_ML_REGION", "global")
         lines = [
             "export CLAUDE_CODE_USE_VERTEX=1",
-            f'export CLOUD_ML_REGION="{cloud_region}"',
-            f'export ANTHROPIC_VERTEX_PROJECT_ID="{vertex_project}"',
+            f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
+            f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
             "export DISABLE_AUTOUPDATER=1",
             "export GOOGLE_APPLICATION_CREDENTIALS="
             '"$HOME/.config/gcloud/application_default_credentials.json"',
