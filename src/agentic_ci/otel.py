@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-_token_samples = []
+_token_samples: list[tuple[float, int]] = []
 _WINDOW_SECS = 60
 
 
