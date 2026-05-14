@@ -149,6 +149,7 @@ The **openshell** backend uploads the local ADC file
 | `GCLOUD_CREDENTIALS` | — | Raw JSON or base64 gcloud credentials |
 | `GCP_SERVICE_ACCOUNT_KEY` | — | Base64-encoded service account key |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to ADC credentials file |
+| `OPENSHELL_SUPERVISOR_IMAGE` | `openshell/supervisor:dev` | OpenShell supervisor image (openshell backend only) |
 
 ## Streaming Output
 
@@ -167,10 +168,9 @@ the summary.
 
 ```python
 from agentic_ci.backends import create_backend
-from agentic_ci.stream import StreamProcessor
-from agentic_ci.otel import print_summary
 
 backend = create_backend("podman", workdir="/path/to/repo", image="my-image:latest")
 backend.setup()
 rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
+backend.stop()
 ```

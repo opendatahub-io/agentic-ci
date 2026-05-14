@@ -28,7 +28,7 @@ src/agentic_ci/
     otel.py             # OTLP collector + token/cost summary
 ```
 
-- **`cli.py`**: Argparse entry point with `setup` and `run` subcommands plus `--backend` flag. Delegates to backend for setup/execution, handles OTEL lifecycle.
+- **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` flag. Delegates to backend for setup/execution, handles OTEL lifecycle.
 
 - **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads stream-json from a subprocess through `StreamProcessor`.
 
