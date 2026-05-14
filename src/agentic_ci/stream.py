@@ -1,5 +1,6 @@
 """Parse Claude Code stream-json output into a human-readable CI log."""
 
+import argparse
 import json
 import os
 import signal
@@ -285,8 +286,6 @@ class StreamProcessor:
 
 
 def main(args=None):
-    import argparse
-
     parser = argparse.ArgumentParser(description="Parse Claude Code stream-json output")
     parser.add_argument(
         "--wrap",

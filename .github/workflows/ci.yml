@@ -12,5 +12,5 @@ jobs:
           tox_env: ${{ matrix.tox_env }}
     strategy:
       matrix:
-        tox_env: [py39, py310, py311, py312, py313, lint, check-format]
+        tox_env: [py310, py311, py312, py313, lint, check-format]
     runs-on: ubuntu-latest

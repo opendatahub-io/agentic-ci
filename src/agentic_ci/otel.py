@@ -1,10 +1,145 @@
-"""Parse OTLP JSONL log and print a human-readable token/cost summary."""
+"""OTLP HTTP/JSON receiver and token/cost summary.
+
+Lightweight collector that accepts OTLP exports for metrics and logs,
+tracks token usage over a sliding window, and prints a summary.
+"""
 
 import json
+import os
+import signal
+import subprocess
+import sys
+import time
 from collections import defaultdict
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+_token_samples = []
+_WINDOW_SECS = 60
+
+
+MAX_BODY_SIZE = 1_048_576
+
+
+class OTLPHandler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            self.send_error(400, "Invalid Content-Length")
+            return
+        if length > MAX_BODY_SIZE:
+            self.send_error(413, "Payload Too Large")
+            return
+        body = self.rfile.read(length) if length else b""
+        try:
+            payload = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            payload = {"raw": body.decode("utf-8", errors="replace")}
+
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "path": self.path,
+            "payload": payload,
+        }
+        log_file = os.environ.get("OTEL_LOG_FILE", "/tmp/claude-otel.jsonl")
+        with open(log_file, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+        if "/v1/metrics" in self.path:
+            _update_token_rate(payload)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"partialSuccess":{}}')
+
+    def log_message(self, format, *args):
+        pass
+
+
+def _update_token_rate(payload):
+    global _token_samples
+    now = time.monotonic()
+    total = 0
+    for rm in payload.get("resourceMetrics", []):
+        for sm in rm.get("scopeMetrics", []):
+            for metric in sm.get("metrics", []):
+                if metric.get("name") == "claude_code.token.usage":
+                    data = metric.get("sum", metric.get("gauge", {}))
+                    for dp in data.get("dataPoints", []):
+                        total += dp.get("asDouble", dp.get("asInt", 0))
+    if total <= 0:
+        return
+
+    _token_samples.append((now, total))
+    cutoff = now - _WINDOW_SECS
+    _token_samples = [(t, v) for t, v in _token_samples if t >= cutoff]
+
+    rate = 0.0
+    if len(_token_samples) >= 2:
+        dt = _token_samples[-1][0] - _token_samples[0][0]
+        dv = _token_samples[-1][1] - _token_samples[0][1]
+        if dt > 0:
+            rate = dv / dt
+
+    rate_file = os.environ.get("OTEL_RATE_FILE", "/tmp/claude-otel-rate.json")
+    tmp = rate_file + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"total": total, "rate": rate, "ts": time.time()}, f)
+    os.replace(tmp, rate_file)
+
+
+def start_collector(run_dir):
+    """Start the OTEL collector as a subprocess. Returns (proc, port)."""
+    otel_log = os.path.join(run_dir, "claude-otel.jsonl")
+    otel_rate = os.path.join(run_dir, "claude-otel-rate.json")
+    port_file = os.path.join(run_dir, "otel-port")
+
+    for f in [otel_log, port_file]:
+        try:
+            os.unlink(f)
+        except FileNotFoundError:
+            pass
+
+    env = {
+        **os.environ,
+        "OTEL_LOG_FILE": otel_log,
+        "OTEL_RATE_FILE": otel_rate,
+        "OTEL_COLLECTOR_PORT": "0",
+        "OTEL_PORT_FILE": port_file,
+    }
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "agentic_ci.otel"],
+        env=env,
+    )
+
+    for _ in range(50):
+        if os.path.exists(port_file):
+            break
+        time.sleep(0.1)
+    else:
+        proc.kill()
+        raise RuntimeError("OTEL collector did not write port file")
+
+    with open(port_file) as f:
+        port = int(f.read().strip())
+
+    return proc, port, otel_log, otel_rate
+
+
+def stop_collector(proc):
+    """Stop the OTEL collector subprocess."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
 
 def parse_metrics(records):
+    """Parse OTLP JSONL records into structured token/cost data."""
     token_totals = defaultdict(float)
     cost_totals = defaultdict(float)
     api_requests = []
@@ -61,6 +196,7 @@ def parse_metrics(records):
 
 
 def print_summary(log_file):
+    """Print a human-readable token/cost summary from an OTEL JSONL log."""
     records = []
     try:
         with open(log_file) as f:
@@ -124,15 +260,26 @@ def print_summary(log_file):
     print("=" * 60)
 
 
-def main(args=None):
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Print Claude OTEL token/cost summary")
-    parser.add_argument(
-        "log_file", nargs="?", default="/tmp/claude-otel.jsonl", help="Path to OTEL JSONL log file"
+def main():
+    """Run the OTEL collector server."""
+    port = int(os.environ.get("OTEL_COLLECTOR_PORT", "4318"))
+    server = HTTPServer(("127.0.0.1", port), OTLPHandler)
+    actual_port = server.server_address[1]
+    port_file = os.environ.get("OTEL_PORT_FILE")
+    if port_file:
+        with open(port_file, "w") as f:
+            f.write(str(actual_port))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    log_file = os.environ.get("OTEL_LOG_FILE", "/tmp/claude-otel.jsonl")
+    print(
+        f"OTLP collector listening on 127.0.0.1:{actual_port}, writing to {log_file}",
+        file=sys.stderr,
     )
-    parsed = parser.parse_args(args)
-    print_summary(parsed.log_file)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    server.server_close()
 
 
 if __name__ == "__main__":
