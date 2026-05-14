@@ -54,16 +54,18 @@ tox -e lint                      # ruff lint
 tox -e lint-fix                  # ruff lint with auto-fix
 tox -e check-format              # ruff format check
 tox -e format                    # ruff format with auto-fix
+tox -e typecheck                 # mypy type check
 ```
 
 ## Verification
 
-After every code change, run all three checks before reporting the task as done:
+After every code change, run all four checks before reporting the task as done:
 
 ```bash
 tox -e py313                     # tests
 tox -e lint                      # ruff lint
 tox -e check-format              # ruff format check
+tox -e typecheck                 # mypy type check
 ```
 
 Fix any failures before moving on. Do not skip any of these checks.
