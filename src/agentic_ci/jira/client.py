@@ -733,8 +733,9 @@ class JiraClient:
         """
         field_id = self._resolve_field_id(field_name)
 
+        parsed_value: str | dict | list | int | float | bool | None
         try:
-            parsed_value: object = json.loads(value)
+            parsed_value = json.loads(value)
         except json.JSONDecodeError:
             schema_type = self._get_field_schema_type(field_name)
             if schema_type in ("string", "any", ""):
