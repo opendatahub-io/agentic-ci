@@ -1,0 +1,616 @@
+"""Pure-Python Jira REST API v3 client.
+
+Provides a ``JiraClient`` class that handles all Jira operations via the
+REST API using ``requests``.  No external CLI tools (e.g. acli) required.
+
+Usage::
+
+    from agentic_ci.jira import JiraClient
+
+    client = JiraClient.from_env(url="https://myorg.atlassian.net")
+    ticket = client.get_issue("PROJ-123")
+    client.add_comment("PROJ-123", "Fixed in PR #42")
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from pathlib import Path
+
+import requests
+
+from agentic_ci.jira.adf import adf_to_text, text_to_adf
+
+log = logging.getLogger(__name__)
+
+API_VERSION = "3"
+
+
+class JiraError(Exception):
+    """Raised when a Jira API call fails."""
+
+    def __init__(self, message: str, status_code: int | None = None, response_text: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_text = response_text
+
+
+class JiraClient:
+    """Jira REST API v3 client.
+
+    All operations go through the REST API using HTTP basic auth
+    (email + API token).  The URL is configurable so any Jira Cloud
+    instance can be used.
+    """
+
+    def __init__(self, url: str, email: str, token: str, *, timeout: int = 30):
+        self.url = url.rstrip("/")
+        self.auth = (email, token)
+        self.timeout = timeout
+        self._field_cache: dict[str, str] | None = None
+
+    @classmethod
+    def from_env(cls, url: str | None = None) -> JiraClient:
+        """Create a client from environment variables.
+
+        Reads ``JIRA_URL``, ``JIRA_EMAIL`` (or ``JIRA_USER``), and
+        ``JIRA_API_TOKEN``.
+
+        Raises ``RuntimeError`` if required variables are missing.
+        """
+        jira_url = url or os.environ.get("JIRA_URL", "")
+        if not jira_url:
+            raise RuntimeError("JIRA_URL environment variable not set and no url provided")
+        email = os.environ.get("JIRA_EMAIL") or os.environ.get("JIRA_USER", "")
+        token = os.environ.get("JIRA_API_TOKEN", "")
+        missing = []
+        if not email:
+            missing.append("JIRA_EMAIL (or JIRA_USER)")
+        if not token:
+            missing.append("JIRA_API_TOKEN")
+        if missing:
+            raise RuntimeError(f"Missing environment variable(s): {', '.join(missing)}")
+        timeout = int(os.environ.get("JIRA_API_TIMEOUT", "30"))
+        return cls(jira_url, email, token, timeout=timeout)
+
+    def _api_url(self, path: str) -> str:
+        return f"{self.url}/rest/api/{API_VERSION}/{path}"
+
+    def _headers(self, *, json_content: bool = True) -> dict[str, str]:
+        h: dict[str, str] = {}
+        if json_content:
+            h["Content-Type"] = "application/json"
+        return h
+
+    def _check(self, resp: requests.Response, *, expected: int | tuple[int, ...] = 200) -> None:
+        if isinstance(expected, int):
+            expected = (expected,)
+        if resp.status_code not in expected:
+            raise JiraError(
+                f"Jira API error: HTTP {resp.status_code}",
+                status_code=resp.status_code,
+                response_text=resp.text,
+            )
+
+    # ------------------------------------------------------------------
+    # Field metadata
+    # ------------------------------------------------------------------
+
+    def _resolve_field_id(self, field_name: str) -> str:
+        """Resolve a human-readable field name to its ``customfield_XXXXX`` ID."""
+        if self._field_cache is None:
+            resp = requests.get(
+                self._api_url("field"),
+                headers=self._headers(),
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+            self._check(resp)
+            self._field_cache = {f.get("name", ""): f.get("id", "") for f in resp.json()}
+        fid = self._field_cache.get(field_name)
+        if not fid:
+            raise JiraError(f"Field '{field_name}' not found in Jira metadata")
+        return fid
+
+    # ------------------------------------------------------------------
+    # Read operations
+    # ------------------------------------------------------------------
+
+    def get_issue(self, key: str) -> dict:
+        """Fetch a single issue with comments. Returns a normalised dict.
+
+        The returned dict has keys: ``key``, ``summary``, ``description``
+        (plain text), ``issue_type``, ``labels``, ``status``, ``project``,
+        ``components``, ``reporter_name``, ``reporter_email``, ``comments``.
+        """
+        req_fields = "summary,description,issuetype,labels,status,reporter,components,project"
+        resp = requests.get(
+            self._api_url(f"issue/{key}") + f"?fields={req_fields}",
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+        issue = resp.json()
+        fields = issue.get("fields", {})
+
+        desc_field = fields.get("description")
+        if isinstance(desc_field, dict):
+            description = adf_to_text(desc_field)
+        else:
+            description = desc_field or ""
+
+        comments = self._fetch_comments(key)
+        reporter = fields.get("reporter") or {}
+        components = [{"name": c.get("name", "")} for c in fields.get("components", [])]
+
+        return {
+            "key": issue.get("key", ""),
+            "summary": fields.get("summary", ""),
+            "description": description,
+            "issue_type": fields.get("issuetype", {}).get("name", ""),
+            "labels": fields.get("labels", []),
+            "status": fields.get("status", {}).get("name", ""),
+            "project": {"key": fields.get("project", {}).get("key", "")},
+            "components": components,
+            "reporter_name": reporter.get("displayName", ""),
+            "reporter_email": reporter.get("emailAddress", ""),
+            "comments": comments,
+        }
+
+    def _fetch_comments(self, key: str) -> list[dict]:
+        resp = requests.get(
+            self._api_url(f"issue/{key}/comment"),
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        if resp.status_code != 200:
+            return []
+        comments = []
+        for c in resp.json().get("comments", []):
+            body_field = c.get("body", "")
+            body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
+            comments.append(
+                {
+                    "author": c.get("author", {}).get("displayName", "Unknown"),
+                    "author_email": c.get("author", {}).get("emailAddress", ""),
+                    "body": body,
+                    "created": c.get("created", ""),
+                    "visibility": c.get("visibility"),
+                }
+            )
+        return comments
+
+    def search(self, jql: str, *, max_results: int = 500) -> list[dict]:
+        """Search issues by JQL. Returns a list of normalised dicts."""
+        results: list[dict] = []
+        next_page_token: str | None = None
+        search_url = self._api_url("search/jql")
+
+        while True:
+            payload: dict = {
+                "jql": jql,
+                "fields": ["summary", "description", "issuetype", "labels", "comment", "status"],
+                "maxResults": min(50, max_results - len(results)),
+            }
+            if next_page_token:
+                payload["nextPageToken"] = next_page_token
+
+            resp = requests.post(
+                search_url,
+                headers=self._headers(),
+                json=payload,
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+            self._check(resp)
+
+            data = resp.json()
+            for issue in data.get("issues", []):
+                fields = issue.get("fields", {})
+                desc_field = fields.get("description")
+                if isinstance(desc_field, dict):
+                    description = adf_to_text(desc_field)
+                else:
+                    description = desc_field or ""
+
+                comments_data = fields.get("comment", {})
+                comments = []
+                for c in comments_data.get("comments", []):
+                    body_field = c.get("body", "")
+                    body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
+                    comments.append(
+                        {
+                            "author": c.get("author", {}).get("displayName", "Unknown"),
+                            "author_email": c.get("author", {}).get("emailAddress", ""),
+                            "body": body,
+                            "created": c.get("created", ""),
+                            "visibility": c.get("visibility"),
+                        }
+                    )
+
+                results.append(
+                    {
+                        "key": issue.get("key", ""),
+                        "summary": fields.get("summary", ""),
+                        "description": description,
+                        "issue_type": fields.get("issuetype", {}).get("name", ""),
+                        "labels": fields.get("labels", []),
+                        "status": fields.get("status", {}).get("name", ""),
+                        "comments": comments,
+                    }
+                )
+
+            if len(results) >= max_results:
+                break
+            if data.get("isLast", True) or not data.get("issues"):
+                break
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break
+
+        return results
+
+    def get_label_author(self, key: str, label: str) -> dict:
+        """Find who most recently added a label via the changelog.
+
+        Returns ``{"found": True, "email": ..., "displayName": ...}``
+        or ``{"found": False}``.
+
+        Falls back to the ticket reporter if the label was set at
+        creation time (no changelog entry).
+        """
+        author_email: str | None = None
+        author_name: str | None = None
+        start_at = 0
+
+        while True:
+            resp = requests.get(
+                self._api_url(f"issue/{key}/changelog"),
+                headers=self._headers(),
+                params={"startAt": start_at, "maxResults": 100},
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+            self._check(resp)
+
+            data = resp.json()
+            for entry in data.get("values", []):
+                for item in entry.get("items", []):
+                    if item.get("field") != "labels":
+                        continue
+                    from_str = item.get("fromString") or ""
+                    to_str = item.get("toString") or ""
+                    from_labels = set(from_str.split()) if from_str else set()
+                    to_labels = set(to_str.split()) if to_str else set()
+                    if label in to_labels and label not in from_labels:
+                        author = entry.get("author", {})
+                        author_email = author.get("emailAddress", "")
+                        author_name = author.get("displayName", "Unknown")
+
+            total = data.get("total", 0)
+            values = data.get("values", [])
+            start_at += len(values)
+            if start_at >= total or not values:
+                break
+
+        if author_email is None:
+            resp = requests.get(
+                self._api_url(f"issue/{key}") + "?fields=labels,reporter",
+                headers=self._headers(),
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+            if resp.status_code == 200:
+                fields = resp.json().get("fields", {})
+                if label in fields.get("labels", []):
+                    reporter = fields.get("reporter") or {}
+                    author_email = reporter.get("emailAddress", "")
+                    author_name = reporter.get("displayName", "Unknown")
+
+        if author_email is None:
+            return {"found": False}
+        return {"found": True, "email": author_email, "displayName": author_name}
+
+    def get_custom_field(self, key: str, *field_names: str) -> dict[str, object]:
+        """Read custom fields by name. Returns ``{name: value}``."""
+        field_ids = {name: self._resolve_field_id(name) for name in field_names}
+        ids_csv = ",".join(field_ids.values())
+
+        resp = requests.get(
+            self._api_url(f"issue/{key}") + f"?fields={ids_csv}",
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+
+        fields = resp.json().get("fields", {})
+        result: dict[str, object] = {}
+        for name, fid in field_ids.items():
+            value = fields.get(fid)
+            if isinstance(value, dict) and "value" in value:
+                value = value["value"]
+            result[name] = value
+        return result
+
+    def search_parent_epics(self, jql: str) -> list[str]:
+        """Find parent Epic keys for issues matching a child JQL query."""
+        parent_keys: set[str] = set()
+        next_page_token: str | None = None
+        search_url = self._api_url("search/jql")
+
+        while True:
+            payload: dict = {"jql": jql, "fields": ["parent"], "maxResults": 50}
+            if next_page_token:
+                payload["nextPageToken"] = next_page_token
+
+            resp = requests.post(
+                search_url,
+                headers=self._headers(),
+                json=payload,
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+            self._check(resp)
+
+            data = resp.json()
+            for issue in data.get("issues", []):
+                parent = issue.get("fields", {}).get("parent")
+                if parent and parent.get("key"):
+                    parent_keys.add(parent["key"])
+
+            if data.get("isLast", True) or not data.get("issues"):
+                break
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break
+
+        return sorted(parent_keys)
+
+    # ------------------------------------------------------------------
+    # Write operations
+    # ------------------------------------------------------------------
+
+    def add_comment(
+        self,
+        key: str,
+        body: str,
+        *,
+        visibility_group: str | None = None,
+    ) -> bool:
+        """Post a comment, optionally restricted to a visibility group.
+
+        The body is plain text with wiki markup (converted to ADF).
+        Returns True on success, False on failure.
+        """
+        payload: dict = {"body": text_to_adf(body)}
+        if visibility_group:
+            payload["visibility"] = {"type": "group", "value": visibility_group}
+
+        resp = requests.post(
+            self._api_url(f"issue/{key}/comment"),
+            headers=self._headers(),
+            json=payload,
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        if resp.status_code == 201:
+            log.info("Commented on %s", key)
+            return True
+        log.warning("Failed to comment on %s: HTTP %d", key, resp.status_code)
+        return False
+
+    def edit_labels(
+        self,
+        key: str,
+        *,
+        add: list[str] | None = None,
+        remove: list[str] | None = None,
+    ) -> None:
+        """Add and/or remove labels on an issue (atomic update)."""
+        update: dict = {}
+        if add:
+            update.setdefault("labels", []).extend({"add": lbl} for lbl in add)
+        if remove:
+            update.setdefault("labels", []).extend({"remove": lbl} for lbl in remove)
+        if not update:
+            return
+
+        resp = requests.put(
+            self._api_url(f"issue/{key}"),
+            headers=self._headers(),
+            json={"update": update},
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=(200, 204))
+        log.debug("Labels updated on %s", key)
+
+    def transition(self, key: str, status: str) -> None:
+        """Transition an issue to a new status by name.
+
+        Looks up available transitions and picks the one matching
+        ``status`` (case-insensitive).
+        """
+        resp = requests.get(
+            self._api_url(f"issue/{key}/transitions"),
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+
+        transition_id = None
+        for t in resp.json().get("transitions", []):
+            if t.get("name", "").lower() == status.lower():
+                transition_id = t["id"]
+                break
+            if t.get("to", {}).get("name", "").lower() == status.lower():
+                transition_id = t["id"]
+                break
+
+        if transition_id is None:
+            available = [t.get("name", "") for t in resp.json().get("transitions", [])]
+            raise JiraError(f"No transition to '{status}' found for {key}. Available: {available}")
+
+        resp = requests.post(
+            self._api_url(f"issue/{key}/transitions"),
+            headers=self._headers(),
+            json={"transition": {"id": transition_id}},
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=(200, 204))
+        log.info("Transitioned %s to %s", key, status)
+
+    def assign(self, key: str, assignee: str) -> None:
+        """Assign an issue to a user by account ID or email.
+
+        For Jira Cloud, ``assignee`` should be an ``accountId``.
+        """
+        resp = requests.put(
+            self._api_url(f"issue/{key}/assignee"),
+            headers=self._headers(),
+            json={"accountId": assignee},
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=(200, 204))
+        log.info("Assigned %s to %s", key, assignee)
+
+    def create_issue(
+        self,
+        project: str,
+        issue_type: str,
+        summary: str,
+        *,
+        description: str = "",
+        parent_epic: str = "",
+        **extra_fields: object,
+    ) -> str:
+        """Create a new issue. Returns the issue key."""
+        fields: dict = {
+            "project": {"key": project},
+            "summary": summary,
+            "issuetype": {"name": issue_type},
+        }
+        if description:
+            fields["description"] = text_to_adf(description)
+        if parent_epic:
+            epic_field = self._resolve_field_id("Epic Link")
+            fields[epic_field] = parent_epic
+        fields.update(extra_fields)
+
+        resp = requests.post(
+            self._api_url("issue"),
+            headers=self._headers(),
+            json={"fields": fields},
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=201)
+        key = resp.json().get("key", "")
+        log.info("Created issue %s", key)
+        return key
+
+    def link_issues(self, source: str, target: str, link_type: str) -> None:
+        """Link two issues with a named link type.
+
+        Resolves the link type from its name, inward, or outward
+        description and sets direction so the relationship reads
+        ``source <link_type> target``.
+        """
+        resp = requests.get(
+            self._api_url("issueLinkType"),
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+
+        resolved_name = None
+        direction = "outward"
+        link_lower = link_type.lower()
+        for lt in resp.json().get("issueLinkTypes", []):
+            if lt.get("name", "").lower() == link_lower:
+                resolved_name = lt["name"]
+                direction = "outward"
+                break
+            if lt.get("inward", "").lower() == link_lower:
+                resolved_name = lt["name"]
+                direction = "inward"
+                break
+            if lt.get("outward", "").lower() == link_lower:
+                resolved_name = lt["name"]
+                direction = "outward"
+                break
+
+        if not resolved_name:
+            available = [lt.get("name", "") for lt in resp.json().get("issueLinkTypes", [])]
+            raise JiraError(f"Link type '{link_type}' not found. Available: {', '.join(available)}")
+
+        if direction == "inward":
+            payload = {
+                "type": {"name": resolved_name},
+                "inwardIssue": {"key": source},
+                "outwardIssue": {"key": target},
+            }
+        else:
+            payload = {
+                "type": {"name": resolved_name},
+                "inwardIssue": {"key": target},
+                "outwardIssue": {"key": source},
+            }
+
+        resp = requests.post(
+            self._api_url("issueLink"),
+            headers=self._headers(),
+            json=payload,
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=201)
+        log.info("Linked %s '%s' %s", source, link_type, target)
+
+    def attach_file(self, key: str, filepath: str | Path) -> None:
+        """Attach a file to an issue."""
+        path = Path(filepath)
+        if not path.is_file():
+            raise JiraError(f"File '{filepath}' not found or not readable")
+
+        with open(path, "rb") as f:
+            resp = requests.post(
+                self._api_url(f"issue/{key}/attachments"),
+                headers={"X-Atlassian-Token": "no-check"},
+                files={"file": (path.name, f)},
+                auth=self.auth,
+                timeout=self.timeout,
+            )
+        self._check(resp)
+        log.info("Attached '%s' to %s", path.name, key)
+
+    def set_custom_field(self, key: str, field_name: str, value: str) -> None:
+        """Set a custom field by name.
+
+        Handles both simple values and select-list values.
+        """
+        field_id = self._resolve_field_id(field_name)
+
+        try:
+            parsed_value: object = json.loads(value)
+        except json.JSONDecodeError:
+            parsed_value = {"value": value}
+
+        resp = requests.put(
+            self._api_url(f"issue/{key}"),
+            headers=self._headers(),
+            json={"fields": {field_id: parsed_value}},
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp, expected=(200, 204))
+        log.info("Set '%s' on %s", field_name, key)
