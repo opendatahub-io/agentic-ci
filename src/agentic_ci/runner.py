@@ -40,9 +40,15 @@ def run(
         os.execvp(
             "runuser",
             [
-                "runuser", "-u", user, "--",
-                sys.executable, "-m", "agentic_ci.runner",
-                prompt, workdir,
+                "runuser",
+                "-u",
+                user,
+                "--",
+                sys.executable,
+                "-m",
+                "agentic_ci.runner",
+                prompt,
+                workdir,
                 *(["--model", model] if model else []),
                 *([] if streaming else ["--no-streaming"]),
                 *([] if otel else ["--no-otel"]),
@@ -65,6 +71,7 @@ def run(
         run_dir = os.path.join(workspace, "_run")
     else:
         import tempfile
+
         run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
     os.makedirs(run_dir, exist_ok=True)
 
@@ -102,10 +109,15 @@ def run(
     with open(stderr_log, "w") as stderr_f, open(stream_capture, "w") as capture_f:
         claude_proc = subprocess.Popen(
             [
-                "claude", "-p", prompt,
-                "--model", model,
-                "--permission-mode", "bypassPermissions",
-                "--output-format", "stream-json",
+                "claude",
+                "-p",
+                prompt,
+                "--model",
+                model,
+                "--permission-mode",
+                "bypassPermissions",
+                "--output-format",
+                "stream-json",
                 "--include-partial-messages",
                 "--verbose",
                 *extra_args,
@@ -179,14 +191,16 @@ def main(args=None):
     parser.add_argument("--no-otel", action="store_true", help="Disable OTEL telemetry")
     parsed, extra = parser.parse_known_args(args)
 
-    sys.exit(run(
-        parsed.prompt,
-        parsed.workdir,
-        model=parsed.model,
-        extra_args=extra,
-        streaming=not parsed.no_streaming,
-        otel=not parsed.no_otel,
-    ))
+    sys.exit(
+        run(
+            parsed.prompt,
+            parsed.workdir,
+            model=parsed.model,
+            extra_args=extra,
+            streaming=not parsed.no_streaming,
+            otel=not parsed.no_otel,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -11,17 +11,18 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 log = logging.getLogger(__name__)
 
 ALLOWED_HOSTS = frozenset({"github.com", "gitlab.com"})
 
 _GITLAB_URL_RE = re.compile(
-    r"https://gitlab\.com/[a-zA-Z0-9/_.-]+", re.IGNORECASE,
+    r"https://gitlab\.com/[a-zA-Z0-9/_.-]+",
+    re.IGNORECASE,
 )
 _GITHUB_URL_RE = re.compile(
     r"https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+",
@@ -143,8 +144,7 @@ def _validate_ref(name: str) -> bool:
     return bool(_SAFE_REF_RE.match(name))
 
 
-def clone_repo(url: str, dest: Path, branch: str | None = None,
-               depth: int | None = None) -> bool:
+def clone_repo(url: str, dest: Path, branch: str | None = None, depth: int | None = None) -> bool:
     """Clone a repository. Returns True on success."""
     if not validate_repo_url(url):
         log.error("clone_repo: invalid or disallowed URL: %s", url)
@@ -154,8 +154,10 @@ def clone_repo(url: str, dest: Path, branch: str | None = None,
         return False
     cmd = [
         "git",
-        "-c", "protocol.ext.allow=never",
-        "-c", "protocol.file.allow=never",
+        "-c",
+        "protocol.ext.allow=never",
+        "-c",
+        "protocol.file.allow=never",
         "clone",
     ]
     if depth:
@@ -179,7 +181,10 @@ def create_branch(repo_dir: Path, branch_name: str) -> bool:
     try:
         subprocess.run(
             ["git", "switch", "-c", branch_name],
-            cwd=str(repo_dir), check=True, capture_output=True, text=True,
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
         )
         return True
     except subprocess.CalledProcessError as exc:
@@ -187,8 +192,7 @@ def create_branch(repo_dir: Path, branch_name: str) -> bool:
         return False
 
 
-def push_branch(repo_dir: Path, remote: str = "origin",
-                branch: str | None = None) -> bool:
+def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = None) -> bool:
     """Push the current branch to remote. Returns True on success."""
     if branch and not _validate_ref(branch):
         log.error("push_branch: invalid branch name: %s", branch)
@@ -198,7 +202,11 @@ def push_branch(repo_dir: Path, remote: str = "origin",
         cmd.append(branch)
     try:
         subprocess.run(
-            cmd, cwd=str(repo_dir), check=True, capture_output=True, text=True,
+            cmd,
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
         )
         return True
     except subprocess.CalledProcessError as exc:
@@ -210,11 +218,17 @@ def setup_git_config(repo_dir: Path, name: str, email: str) -> None:
     """Set local git user config."""
     subprocess.run(
         ["git", "config", "user.name", name],
-        cwd=str(repo_dir), check=True, capture_output=True, text=True,
+        cwd=str(repo_dir),
+        check=True,
+        capture_output=True,
+        text=True,
     )
     subprocess.run(
         ["git", "config", "user.email", email],
-        cwd=str(repo_dir), check=True, capture_output=True, text=True,
+        cwd=str(repo_dir),
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -226,7 +240,10 @@ def harden_git_config(repo_dir: Path) -> None:
     ]:
         subprocess.run(
             ["git", "config", key, value],
-            cwd=str(repo_dir), check=True, capture_output=True, text=True,
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
         )
 
 
@@ -235,7 +252,10 @@ def get_commit_info(repo_dir: Path) -> dict:
     fmt = "%H%n%ae%n%an%n%s"
     result = subprocess.run(
         ["git", "log", "-1", f"--format={fmt}"],
-        cwd=str(repo_dir), capture_output=True, text=True, check=True,
+        cwd=str(repo_dir),
+        capture_output=True,
+        text=True,
+        check=True,
     )
     lines = result.stdout.strip().split("\n")
     if len(lines) < 4:
@@ -257,7 +277,10 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
     try:
         result = subprocess.run(
             ["git", "diff", "--name-only", base_ref],
-            cwd=str(repo_dir), capture_output=True, text=True, check=True,
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return [f for f in result.stdout.strip().split("\n") if f]
     except subprocess.CalledProcessError as exc:

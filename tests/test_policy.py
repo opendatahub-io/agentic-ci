@@ -2,7 +2,7 @@
 
 import os
 
-from agentic_ci.policy import DEFAULT_POLICY, REPO_POLICY_PATH, resolve
+from agentic_ci.backends.openshell.policy import DEFAULT_POLICY, REPO_POLICY_PATH, resolve
 
 
 def test_explicit_flag_takes_priority(tmp_path):

@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
-
-from agentic_ci.podman import run_container as _podman_run_container
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +82,7 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
     try:
         from agentic_ci.otel import parse_metrics
+
         records = []
         with open(otel_log, encoding="utf-8") as f:
             for line in f:
@@ -104,13 +104,16 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
 
 
 def _default_run_container(work_dir, prompt, output_file, *, image=None):
-    """Default container runner using Podman."""
-    return _podman_run_container(
-        image=image,
-        workdir=work_dir,
-        prompt=prompt,
-        output_file=output_file,
-    )
+    """Default container runner using PodmanBackend."""
+    from agentic_ci.backends.podman import PodmanBackend
+
+    model = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+    backend = PodmanBackend(workdir=str(work_dir), image=image)
+    try:
+        backend.setup()
+        return backend.run(prompt, model=model)
+    finally:
+        backend.stop()
 
 
 def run_skill(
@@ -142,26 +145,37 @@ def run_skill(
 
     for gate in config.pre_gates:
         result = gate(
-            ticket_key=ticket_key, ticket=ticket, mode=mode,
-            work_dir=work_dir, **extra_kwargs,
+            ticket_key=ticket_key,
+            ticket=ticket,
+            mode=mode,
+            work_dir=work_dir,
+            **extra_kwargs,
         )
         if result is not None:
             log.info("[%s] Pre-gate blocked: %s", ticket_key, result)
             return 0
 
     config.context_writer(
-        ticket_key=ticket_key, ticket=ticket, mode=mode,
-        work_dir=work_dir, **extra_kwargs,
+        ticket_key=ticket_key,
+        ticket=ticket,
+        mode=mode,
+        work_dir=work_dir,
+        **extra_kwargs,
     )
 
     config.extension_config_writer(
-        ticket_key=ticket_key, ticket=ticket, config=config,
-        work_dir=work_dir, **extra_kwargs,
+        ticket_key=ticket_key,
+        ticket=ticket,
+        config=config,
+        work_dir=work_dir,
+        **extra_kwargs,
     )
 
     prompt = config.prompt_builder(
-        ticket_key=ticket_key, mode=mode,
-        skill_name=config.skill_name, **extra_kwargs,
+        ticket_key=ticket_key,
+        mode=mode,
+        skill_name=config.skill_name,
+        **extra_kwargs,
     )
     output_file = work_dir / "claude-output.txt"
 
@@ -188,8 +202,12 @@ def run_skill(
     if rc != 0:
         log.error("[%s] Container exited with code %d", ticket_key, rc)
         config.label_applier(
-            ticket_key=ticket_key, verdict=None, rc=rc,
-            mode=mode, work_dir=work_dir, **extra_kwargs,
+            ticket_key=ticket_key,
+            verdict=None,
+            rc=rc,
+            mode=mode,
+            work_dir=work_dir,
+            **extra_kwargs,
         )
         return rc
 
@@ -206,9 +224,12 @@ def run_skill(
     if gate_errors:
         log.error("[%s] Post-gate failures: %s", ticket_key, gate_errors)
         config.label_applier(
-            ticket_key=ticket_key, verdict=None,
-            gate_errors=gate_errors, mode=mode,
-            work_dir=work_dir, **extra_kwargs,
+            ticket_key=ticket_key,
+            verdict=None,
+            gate_errors=gate_errors,
+            mode=mode,
+            work_dir=work_dir,
+            **extra_kwargs,
         )
         return 1
 
@@ -216,14 +237,12 @@ def run_skill(
         try:
             verdict = config.verdict_loader(work_dir)
         except Exception as exc:
-            if (
-                not dry_run
-                and mode in config.retryable_modes
-                and config.max_retries > 0
-            ):
+            if not dry_run and mode in config.retryable_modes and config.max_retries > 0:
                 log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
                 rc = runner(
-                    work_dir, prompt, output_file,
+                    work_dir,
+                    prompt,
+                    output_file,
                     image=config.container_image,
                 )
                 if rc == 0:
@@ -236,9 +255,12 @@ def run_skill(
             if verdict is None:
                 log.error("[%s] Failed to load verdict: %s", ticket_key, exc)
                 config.label_applier(
-                    ticket_key=ticket_key, verdict=None,
-                    gate_errors=[str(exc)], mode=mode,
-                    work_dir=work_dir, **extra_kwargs,
+                    ticket_key=ticket_key,
+                    verdict=None,
+                    gate_errors=[str(exc)],
+                    mode=mode,
+                    work_dir=work_dir,
+                    **extra_kwargs,
                 )
                 return 1
 
@@ -247,12 +269,17 @@ def run_skill(
         verdict["_cost_summary"] = cost_summary
 
     config.label_applier(
-        ticket_key=ticket_key, verdict=verdict, mode=mode,
-        work_dir=work_dir, **extra_kwargs,
+        ticket_key=ticket_key,
+        verdict=verdict,
+        mode=mode,
+        work_dir=work_dir,
+        **extra_kwargs,
     )
 
     log.info(
         "[%s] %s complete: verdict=%s",
-        ticket_key, config.skill_name, verdict.get("verdict", "unknown"),
+        ticket_key,
+        config.skill_name,
+        verdict.get("verdict", "unknown"),
     )
     return 0
