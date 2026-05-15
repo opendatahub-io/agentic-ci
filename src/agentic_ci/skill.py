@@ -190,13 +190,21 @@ def run_skill(
     else:
         rc = runner(work_dir, prompt, output_file, image=config.container_image)
 
-        if (
+        attempt = 0
+        while (
             rc != 0
             and mode in config.retryable_modes
             and rc in TRANSIENT_EXIT_CODES
-            and config.max_retries > 0
+            and attempt < config.max_retries
         ):
-            log.warning("[%s] Transient failure (exit %d), retrying once", ticket_key, rc)
+            attempt += 1
+            log.warning(
+                "[%s] Transient failure (exit %d), retry %d/%d",
+                ticket_key,
+                rc,
+                attempt,
+                config.max_retries,
+            )
             rc = runner(work_dir, prompt, output_file, image=config.container_image)
 
     if rc != 0:

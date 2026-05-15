@@ -89,6 +89,8 @@ agentic-ci [--backend {podman,openshell}] {setup,run,stop} [options]
 | `--model MODEL` | `claude-opus-4-6` | Claude model (`run` only) |
 | `--no-streaming` | off | Disable pretty-printed stream output (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
+| `--pre-gates GATES` | — | Comma-separated pre-agent gates (`run` only) |
+| `--post-gates GATES` | — | Comma-separated post-agent gates (`run` only) |
 | `--policy PATH` | — | OpenShell policy file override (`openshell` backend only) |
 | `--timeout SECS` | `1200` | Container timeout (`podman` backend only) |
 
@@ -112,6 +114,13 @@ agentic-ci run "Fix lint errors" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest \
     --no-otel
 
+# Run with post-agent gates
+export TICKET_KEY=AIPCC-123
+export BOT_EMAIL=bot@ci.com
+agentic-ci run "Fix the bug" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest \
+    --post-gates sensitive-files,commit-author,commit-message-key,gitleaks
+
 # OpenShell with custom policy
 agentic-ci --backend openshell run "Deploy staging" \
     --policy custom-policy.yml
@@ -120,6 +129,25 @@ agentic-ci --backend openshell run "Deploy staging" \
 # .agentic-ci/openshell-policy.yml in the workdir)
 agentic-ci --backend openshell run "Add input validation"
 ```
+
+### Gates
+
+Gates validate data before and after an AI agent runs. Pre-gates can
+block execution early; post-gates validate output to catch dangerous
+changes. Gates read their configuration from environment variables.
+
+**Built-in post-agent gates:**
+
+| Name | Required Env Vars | Description |
+|---|---|---|
+| `sensitive-files` | — | Block commits touching `.env`, `*.pem`, `*.key`, etc. |
+| `commit-author` | `BOT_EMAIL` | Verify commit author matches expected bot email |
+| `commit-message-key` | `TICKET_KEY` | Verify ticket key appears in commit message |
+| `gitleaks` | — | Scan new commits for secrets using gitleaks |
+
+All required environment variables are validated before any gate runs.
+If any are missing, the CLI exits immediately with a clear error listing
+every missing variable and which gate needs it.
 
 ## Credentials
 
@@ -262,8 +290,9 @@ config = SkillConfig(
 ```python
 from agentic_ci.skill import SkillConfig, run_skill
 from agentic_ci.git import clone_repo, push_branch, validate_repo_url
-from agentic_ci.runner import run
 from agentic_ci.backends import create_backend
+from agentic_ci.gates import GATE_REGISTRY, resolve_gates
+from agentic_ci.jira import JiraClient
 from agentic_ci.stream import StreamProcessor
 from agentic_ci.otel import parse_metrics, print_summary
 ```

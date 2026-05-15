@@ -8,6 +8,14 @@ import tempfile
 
 from agentic_ci import otel
 from agentic_ci.backends import create_backend
+from agentic_ci.gates import resolve_gates, validate_gate_env
+
+
+def _parse_gate_list(value: str | None) -> list[str]:
+    """Split a comma-separated gate list into names."""
+    if not value:
+        return []
+    return [g.strip() for g in value.split(",") if g.strip()]
 
 
 def cmd_setup(args, backend):
@@ -20,6 +28,28 @@ def cmd_stop(args, backend):
 
 
 def cmd_run(args, backend):
+    pre_gate_names = _parse_gate_list(getattr(args, "pre_gates", None))
+    post_gate_names = _parse_gate_list(getattr(args, "post_gates", None))
+
+    all_gates = []
+    if pre_gate_names:
+        all_gates.extend(resolve_gates(pre_gate_names))
+    if post_gate_names:
+        all_gates.extend(resolve_gates(post_gate_names))
+    if all_gates:
+        validate_gate_env(all_gates)
+
+    if pre_gate_names:
+        print("--- Running pre-gates ---", flush=True)
+        pre_specs = resolve_gates(pre_gate_names)
+        for gate in pre_specs:
+            errors = gate.fn(workdir=args.workdir)
+            if errors:
+                for err in errors:
+                    print(f"Pre-gate {gate.name} blocked: {err}", flush=True)
+                sys.exit(0)
+            print(f"  {gate.name}: passed", flush=True)
+
     backend.setup()
 
     model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
@@ -56,6 +86,21 @@ def cmd_run(args, backend):
         otel.print_summary(otel_log)
     else:
         print(f"\n--- Claude exit code: {rc} ---", flush=True)
+
+    if rc == 0 and post_gate_names:
+        print("--- Running post-gates ---", flush=True)
+        post_specs = resolve_gates(post_gate_names)
+        gate_errors: list[str] = []
+        for gate in post_specs:
+            errors = gate.fn(workdir=args.workdir)
+            if errors:
+                gate_errors.extend(errors)
+                for err in errors:
+                    print(f"  {gate.name}: FAILED - {err}", file=sys.stderr, flush=True)
+            else:
+                print(f"  {gate.name}: passed", flush=True)
+        if gate_errors:
+            rc = 1
 
     artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
     if artifact_dir and otel_log:
@@ -115,6 +160,18 @@ def main():
         default=None,
         metavar="MODEL",
         help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)",
+    )
+    p_run.add_argument(
+        "--pre-gates",
+        default=None,
+        metavar="GATES",
+        help="Comma-separated list of pre-agent gates to run before Claude",
+    )
+    p_run.add_argument(
+        "--post-gates",
+        default=None,
+        metavar="GATES",
+        help="Comma-separated list of post-agent gates to run after Claude",
     )
 
     args, extra = parser.parse_known_args()

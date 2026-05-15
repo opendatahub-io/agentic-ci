@@ -57,6 +57,12 @@ class TestCheckCommitMessageKey:
     def test_case_insensitive(self):
         assert check_commit_message_key({"subject": "proj-123: fix"}, "PROJ-123") is True
 
+    def test_no_prefix_match(self):
+        assert check_commit_message_key({"subject": "ABC-10: fix"}, "ABC-1") is False
+
+    def test_exact_boundary_match(self):
+        assert check_commit_message_key({"subject": "ABC-1: fix"}, "ABC-1") is True
+
 
 class TestFilterCommentsByDomain:
     def test_filters_non_matching(self):

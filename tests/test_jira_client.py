@@ -10,7 +10,8 @@ from agentic_ci.jira.client import JiraClient, JiraError
 
 @pytest.fixture()
 def client():
-    return JiraClient("https://test.atlassian.net", "user@test.com", "tok123")
+    with patch("agentic_ci.jira.client.acli_mod.is_available", return_value=False):
+        return JiraClient("https://test.atlassian.net", "user@test.com", "tok123")
 
 
 class TestFromEnv:
@@ -131,8 +132,12 @@ class TestEditLabels:
         label_ops = call_json["update"]["labels"]
         assert {"remove": "stale"} in label_ops
 
-    def test_noop_when_empty(self, client):
-        client.edit_labels("TEST-1")
+    @patch("agentic_ci.jira.client.requests")
+    def test_noop_when_empty(self, mock_requests, client):
+        client.edit_labels("TEST-1", add=None, remove=None)
+        mock_requests.put.assert_not_called()
+        mock_requests.post.assert_not_called()
+        mock_requests.get.assert_not_called()
 
 
 class TestAddComment:

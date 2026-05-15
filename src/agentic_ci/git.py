@@ -192,8 +192,17 @@ def create_branch(repo_dir: Path, branch_name: str) -> bool:
         return False
 
 
+_SAFE_REMOTE_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
+
+
 def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = None) -> bool:
     """Push the current branch to remote. Returns True on success."""
+    if not remote or remote.startswith("-") or ".." in remote or "@{" in remote:
+        log.error("push_branch: invalid remote name: %s", remote)
+        return False
+    if not _SAFE_REMOTE_RE.match(remote):
+        log.error("push_branch: invalid remote name: %s", remote)
+        return False
     if branch and not _validate_ref(branch):
         log.error("push_branch: invalid branch name: %s", branch)
         return False

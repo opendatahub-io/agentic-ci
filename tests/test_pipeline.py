@@ -1,5 +1,8 @@
 """Tests for pipeline YAML generation."""
 
+import pytest
+import yaml
+
 from agentic_ci.pipeline import distribute_slot, generate_child_pipeline, noop_pipeline
 
 
@@ -17,12 +20,30 @@ class TestDistributeSlot:
         slot = distribute_slot("PROJ-1", 3, prefix="my-slot")
         assert slot.startswith("my-slot-")
 
+    def test_zero_max_concurrency_raises(self):
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            distribute_slot("PROJ-1", 0)
+
+    def test_negative_max_concurrency_raises(self):
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            distribute_slot("PROJ-1", -1)
+
 
 class TestNoopPipeline:
     def test_contains_message(self):
         result = noop_pipeline("Nothing to do")
         assert "Nothing to do" in result
         assert "no-tickets:" in result
+
+    def test_message_with_quotes(self):
+        result = noop_pipeline('He said "hello"')
+        parsed = yaml.safe_load(result)
+        assert "no-tickets" in parsed
+
+    def test_message_with_newline(self):
+        result = noop_pipeline("line1\nline2")
+        parsed = yaml.safe_load(result)
+        assert "no-tickets" in parsed
 
 
 class TestGenerateChildPipeline:
@@ -64,3 +85,16 @@ class TestGenerateChildPipeline:
             job_body_fn=lambda item, slot: "  script: echo hi\n",
         )
         assert "custom-T-1:" in result
+
+    def test_job_body_fn_required(self):
+        with pytest.raises(ValueError, match="job_body_fn is required"):
+            generate_child_pipeline([{"key": "T-1"}])
+
+    def test_bad_job_name_raises(self):
+        items = [{"key": "T-1"}]
+        with pytest.raises(ValueError, match="invalid characters"):
+            generate_child_pipeline(
+                items,
+                job_name_fn=lambda item: "bad:name",
+                job_body_fn=lambda item, slot: "  script: echo hi\n",
+            )

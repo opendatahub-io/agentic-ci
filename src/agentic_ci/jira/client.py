@@ -1,7 +1,11 @@
-"""Pure-Python Jira REST API v3 client.
+"""Jira client with acli-first delegation and REST API fallback.
 
-Provides a ``JiraClient`` class that handles all Jira operations via the
-REST API using ``requests``.  No external CLI tools (e.g. acli) required.
+Provides a ``JiraClient`` class that delegates to the Atlassian CLI
+(``acli``) for operations it supports and falls back to the REST API
+for gaps (changelog queries, visibility-restricted comments, custom
+fields, attachment upload, ADF conversion).
+
+When ``acli`` is not on PATH, all operations use the REST API.
 
 Usage::
 
@@ -21,6 +25,7 @@ from pathlib import Path
 
 import requests
 
+from agentic_ci.jira import acli as acli_mod
 from agentic_ci.jira.adf import adf_to_text, text_to_adf
 
 log = logging.getLogger(__name__)
@@ -38,11 +43,13 @@ class JiraError(Exception):
 
 
 class JiraClient:
-    """Jira REST API v3 client.
+    """Jira client that delegates to acli where possible.
 
-    All operations go through the REST API using HTTP basic auth
-    (email + API token).  The URL is configurable so any Jira Cloud
-    instance can be used.
+    On init, checks for ``acli`` on PATH. If available, write
+    operations (create, edit, transition, assign, comment, link)
+    and search/view use acli subprocess calls. Read operations
+    that need ADF conversion, changelog queries, custom fields,
+    or visibility-restricted comments fall back to the REST API.
     """
 
     def __init__(self, url: str, email: str, token: str, *, timeout: int = 30):
@@ -50,6 +57,9 @@ class JiraClient:
         self.auth = (email, token)
         self.timeout = timeout
         self._field_cache: dict[str, str] | None = None
+        self._acli_available = acli_mod.is_available()
+        if self._acli_available:
+            log.debug("acli detected on PATH, will delegate supported operations")
 
     @classmethod
     def from_env(cls, url: str | None = None) -> JiraClient:
@@ -167,8 +177,7 @@ class JiraClient:
             auth=self.auth,
             timeout=self.timeout,
         )
-        if resp.status_code != 200:
-            return []
+        self._check(resp)
         comments = []
         for c in resp.json().get("comments", []):
             body_field = c.get("body", "")
@@ -385,8 +394,26 @@ class JiraClient:
         """Post a comment, optionally restricted to a visibility group.
 
         The body is plain text with wiki markup (converted to ADF).
+        Uses acli when no visibility restriction is needed.
         Returns True on success, False on failure.
         """
+        if self._acli_available and not visibility_group:
+            try:
+                acli_mod.run_acli(
+                    "jira",
+                    "workitem",
+                    "comment",
+                    "create",
+                    "--key",
+                    key,
+                    "--body",
+                    body,
+                )
+                log.info("Commented on %s (via acli)", key)
+                return True
+            except acli_mod.AcliError as exc:
+                log.warning("acli comment failed, falling back to REST: %s", exc)
+
         payload: dict = {"body": text_to_adf(body)}
         if visibility_group:
             payload["visibility"] = {"type": "group", "value": visibility_group}
@@ -411,14 +438,36 @@ class JiraClient:
         add: list[str] | None = None,
         remove: list[str] | None = None,
     ) -> None:
-        """Add and/or remove labels on an issue (atomic update)."""
+        """Add and/or remove labels on an issue (atomic update).
+
+        Delegates to acli for add-only operations. Falls back to
+        REST API for remove or mixed add+remove (acli ``edit --labels``
+        replaces; the REST API supports atomic add/remove).
+        """
+        if not add and not remove:
+            return
+
+        if self._acli_available and add and not remove:
+            try:
+                acli_mod.run_acli(
+                    "jira",
+                    "workitem",
+                    "edit",
+                    "--key",
+                    key,
+                    "--labels",
+                    ",".join(add),
+                )
+                log.debug("Labels updated on %s (via acli)", key)
+                return
+            except acli_mod.AcliError as exc:
+                log.warning("acli edit_labels failed, falling back to REST: %s", exc)
+
         update: dict = {}
         if add:
             update.setdefault("labels", []).extend({"add": lbl} for lbl in add)
         if remove:
             update.setdefault("labels", []).extend({"remove": lbl} for lbl in remove)
-        if not update:
-            return
 
         resp = requests.put(
             self._api_url(f"issue/{key}"),
@@ -431,11 +480,23 @@ class JiraClient:
         log.debug("Labels updated on %s", key)
 
     def transition(self, key: str, status: str) -> None:
-        """Transition an issue to a new status by name.
+        """Transition an issue to a new status by name."""
+        if self._acli_available:
+            try:
+                acli_mod.run_acli(
+                    "jira",
+                    "workitem",
+                    "transition",
+                    "--key",
+                    key,
+                    "--status",
+                    status,
+                )
+                log.info("Transitioned %s to %s (via acli)", key, status)
+                return
+            except acli_mod.AcliError as exc:
+                log.warning("acli transition failed, falling back to REST: %s", exc)
 
-        Looks up available transitions and picks the one matching
-        ``status`` (case-insensitive).
-        """
         resp = requests.get(
             self._api_url(f"issue/{key}/transitions"),
             headers=self._headers(),
@@ -468,10 +529,23 @@ class JiraClient:
         log.info("Transitioned %s to %s", key, status)
 
     def assign(self, key: str, assignee: str) -> None:
-        """Assign an issue to a user by account ID or email.
+        """Assign an issue to a user by account ID or email."""
+        if self._acli_available:
+            try:
+                acli_mod.run_acli(
+                    "jira",
+                    "workitem",
+                    "assign",
+                    "--key",
+                    key,
+                    "--assignee",
+                    assignee,
+                )
+                log.info("Assigned %s to %s (via acli)", key, assignee)
+                return
+            except acli_mod.AcliError as exc:
+                log.warning("acli assign failed, falling back to REST: %s", exc)
 
-        For Jira Cloud, ``assignee`` should be an ``accountId``.
-        """
         resp = requests.put(
             self._api_url(f"issue/{key}/assignee"),
             headers=self._headers(),
@@ -492,7 +566,34 @@ class JiraClient:
         parent_epic: str = "",
         **extra_fields: object,
     ) -> str:
-        """Create a new issue. Returns the issue key."""
+        """Create a new issue. Returns the issue key.
+
+        Uses acli for simple creates (no extra_fields). Falls back to
+        REST API when Epic Link or extra fields are needed.
+        """
+        if self._acli_available and not extra_fields and not parent_epic:
+            try:
+                args = [
+                    "jira",
+                    "workitem",
+                    "create",
+                    "--project",
+                    project,
+                    "--type",
+                    issue_type,
+                    "--summary",
+                    summary,
+                ]
+                if description:
+                    args.extend(["--description", description])
+                result = acli_mod.run_acli(*args, json_output=True)
+                data = json.loads(result.stdout)
+                key = data.get("key", "")
+                log.info("Created issue %s (via acli)", key)
+                return key
+            except (acli_mod.AcliError, json.JSONDecodeError, KeyError) as exc:
+                log.warning("acli create failed, falling back to REST: %s", exc)
+
         fields: dict = {
             "project": {"key": project},
             "summary": summary,
@@ -518,12 +619,26 @@ class JiraClient:
         return key
 
     def link_issues(self, source: str, target: str, link_type: str) -> None:
-        """Link two issues with a named link type.
+        """Link two issues with a named link type."""
+        if self._acli_available:
+            try:
+                acli_mod.run_acli(
+                    "jira",
+                    "workitem",
+                    "link",
+                    "create",
+                    "--out",
+                    source,
+                    "--in",
+                    target,
+                    "--type",
+                    link_type,
+                )
+                log.info("Linked %s '%s' %s (via acli)", source, link_type, target)
+                return
+            except acli_mod.AcliError as exc:
+                log.warning("acli link failed, falling back to REST: %s", exc)
 
-        Resolves the link type from its name, inward, or outward
-        description and sets direction so the relationship reads
-        ``source <link_type> target``.
-        """
         resp = requests.get(
             self._api_url("issueLinkType"),
             headers=self._headers(),
@@ -593,17 +708,39 @@ class JiraClient:
         self._check(resp)
         log.info("Attached '%s' to %s", path.name, key)
 
+    def _get_field_schema_type(self, field_name: str) -> str:
+        """Return the schema type string for a field (e.g. 'string', 'option')."""
+        if self._field_cache is None:
+            self._resolve_field_id(field_name)
+        resp = requests.get(
+            self._api_url("field"),
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+        for f in resp.json():
+            if f.get("name") == field_name or f.get("id") == field_name:
+                return f.get("schema", {}).get("type", "")
+        return ""
+
     def set_custom_field(self, key: str, field_name: str, value: str) -> None:
         """Set a custom field by name.
 
-        Handles both simple values and select-list values.
+        Consults the field schema to determine value format: text/string
+        fields get the raw string, option/select fields get ``{"value": v}``.
+        If the value is valid JSON, it is sent as-is.
         """
         field_id = self._resolve_field_id(field_name)
 
         try:
             parsed_value: object = json.loads(value)
         except json.JSONDecodeError:
-            parsed_value = {"value": value}
+            schema_type = self._get_field_schema_type(field_name)
+            if schema_type in ("string", "any", ""):
+                parsed_value = value
+            else:
+                parsed_value = {"value": value}
 
         resp = requests.put(
             self._api_url(f"issue/{key}"),
