@@ -6,8 +6,6 @@ import pytest
 
 from agentic_ci.verdict import (
     VerdictError,
-    load_autofix_verdict,
-    load_triage_verdict,
     load_verdict,
 )
 
@@ -96,31 +94,3 @@ class TestLoadVerdict:
                 required_fields={"verdict"},
                 allowed_verdicts=frozenset({"ok"}),
             )
-
-
-class TestAutofixVerdict:
-    def test_load(self, tmp_path):
-        verdict_dir = tmp_path / "autofix-output"
-        verdict_dir.mkdir()
-        verdict_path = verdict_dir / ".autofix-verdict.json"
-        verdict_path.write_text(
-            json.dumps({"verdict": "committed", "summary": "Fixed bug"}),
-            encoding="utf-8",
-        )
-        result = load_autofix_verdict(tmp_path)
-        assert result["verdict"] == "committed"
-
-    def test_missing(self, tmp_path):
-        with pytest.raises(VerdictError):
-            load_autofix_verdict(tmp_path)
-
-
-class TestTriageVerdict:
-    def test_load(self, tmp_path):
-        verdict_path = tmp_path / ".triage-verdict.json"
-        verdict_path.write_text(
-            json.dumps({"verdict": "ready"}),
-            encoding="utf-8",
-        )
-        result = load_triage_verdict(tmp_path)
-        assert result["verdict"] == "ready"

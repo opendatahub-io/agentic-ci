@@ -1,6 +1,6 @@
 """Atlassian Document Format (ADF) conversion utilities.
 
-Converts between plain text (with wiki-style markup) and ADF, the JSON
+Converts between plain text (with markdown markup) and ADF, the JSON
 document format used by Jira Cloud REST API v3 for rich-text fields.
 """
 
@@ -10,13 +10,13 @@ import re
 
 
 def text_to_adf(text: str) -> dict:
-    """Convert plain text with wiki markup to Atlassian Document Format.
+    """Convert plain text with markdown markup to Atlassian Document Format.
 
     Handles:
-    - {code}...{code} blocks -> codeBlock nodes
-    - h1.-h6. headings -> heading nodes
-    - * bullets -> bulletList nodes
-    - *bold* and _italic_ inline markup
+    - ```lang ... ``` fenced code blocks -> codeBlock nodes
+    - # through ###### headings -> heading nodes
+    - - bullets -> bulletList nodes
+    - **bold** and *italic* inline markup
     - URLs -> inlineCard nodes
     - Double newlines split paragraphs, single newlines become hardBreak
     """
@@ -24,16 +24,14 @@ def text_to_adf(text: str) -> dict:
         return {"type": "doc", "version": 1, "content": []}
 
     content: list[dict] = []
-    code_pattern = re.compile(r"\{code(?::([^}]*))?\}(.*?)\{code\}", re.DOTALL)
+    code_pattern = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
 
     last_end = 0
     for match in code_pattern.finditer(text):
         before = text[last_end : match.start()]
         if before.strip():
-            content.extend(_wiki_text_to_adf_blocks(before))
+            content.extend(_markdown_text_to_adf_blocks(before))
         code_text = match.group(2)
-        if code_text.startswith("\n"):
-            code_text = code_text[1:]
         if code_text.endswith("\n"):
             code_text = code_text[:-1]
         lang = match.group(1) or ""
@@ -46,7 +44,7 @@ def text_to_adf(text: str) -> dict:
 
     remaining = text[last_end:]
     if remaining.strip():
-        content.extend(_wiki_text_to_adf_blocks(remaining))
+        content.extend(_markdown_text_to_adf_blocks(remaining))
 
     if not content:
         content.append({"type": "paragraph", "content": [{"type": "text", "text": ""}]})
@@ -54,11 +52,11 @@ def text_to_adf(text: str) -> dict:
     return {"type": "doc", "version": 1, "content": content}
 
 
-def _wiki_text_to_adf_blocks(text: str) -> list[dict]:
-    """Convert non-code wiki text into ADF block nodes."""
+def _markdown_text_to_adf_blocks(text: str) -> list[dict]:
+    """Convert non-code markdown text into ADF block nodes."""
     blocks: list[dict] = []
-    heading_re = re.compile(r"^h([1-6])\.\s+(.+)$")
-    bullet_re = re.compile(r"^\*\s+(.+)$")
+    heading_re = re.compile(r"^(#{1,6})\s+(.+)$")
+    bullet_re = re.compile(r"^[-*]\s+(.+)$")
 
     paragraphs = text.split("\n\n")
     for para in paragraphs:
@@ -83,7 +81,7 @@ def _wiki_text_to_adf_blocks(text: str) -> list[dict]:
                 blocks.append(
                     {
                         "type": "heading",
-                        "attrs": {"level": int(m_h.group(1))},
+                        "attrs": {"level": len(m_h.group(1))},
                         "content": _parse_inline_markup(m_h.group(2)),
                     }
                 )
@@ -107,9 +105,9 @@ def _wiki_text_to_adf_blocks(text: str) -> list[dict]:
 
 
 def _parse_inline_markup(text: str) -> list[dict]:
-    """Parse *bold*, _italic_, and URLs into ADF inline nodes."""
+    """Parse **bold**, *italic*, and URLs into ADF inline nodes."""
     pattern = re.compile(
-        r"(https?://\S+)" r"|(?<!\w)\*([^*\n]+)\*(?!\w)" r"|(?<!\w)_([^_\n]+)_(?!\w)"
+        r"(https?://\S+)" r"|(?<!\w)\*\*([^*\n]+)\*\*(?!\w)" r"|(?<!\w)\*([^*\n]+)\*(?!\w)"
     )
     nodes: list[dict] = []
     last_end = 0

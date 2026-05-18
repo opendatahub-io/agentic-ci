@@ -278,21 +278,10 @@ config = SkillConfig(
     skill_name="autofix-resolve",
     prompt_builder=_build_prompt,         # Jira-specific prompt
     context_writer=_write_context,        # Writes ticket.json to .autofix-context/
-    verdict_loader=load_autofix_verdict,  # Reads .autofix-verdict.json
+    verdict_loader=_load_verdict,          # Reads .autofix-verdict.json
     label_applier=_apply_labels,          # Manages jira-autofix-* labels
     cost_formatter=_format_otel_cost,     # Formats cost for Jira comments
     post_gates=[_autofix_post_gate],      # Commit author check, sensitive files, gitleaks
 )
 ```
 
-### All importable modules
-
-```python
-from agentic_ci.skill import SkillConfig, run_skill
-from agentic_ci.git import clone_repo, push_branch, validate_repo_url
-from agentic_ci.backends import create_backend
-from agentic_ci.gates import GATE_REGISTRY, resolve_gates
-from agentic_ci.jira import JiraClient
-from agentic_ci.stream import StreamProcessor
-from agentic_ci.otel import parse_metrics, print_summary
-```

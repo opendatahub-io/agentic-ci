@@ -6,13 +6,11 @@ authentication, and provides a subprocess runner for acli commands.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
 import stat
 import subprocess
-import sys
 
 log = logging.getLogger(__name__)
 
@@ -36,9 +34,8 @@ def is_available() -> bool:
 
 def ensure_acli(dest: str = "/usr/local/bin/acli") -> str:
     """Download acli if not already on PATH. Returns path to binary."""
-    existing = shutil.which("acli")
-    if existing:
-        return existing
+    if is_available():
+        return shutil.which("acli")  # type: ignore[return-value]
 
     log.info("Downloading acli to %s", dest)
     try:
@@ -108,13 +105,3 @@ def run_acli(
         )
 
     return result
-
-
-def run_acli_json(*args: str) -> object:
-    """Run an acli command with --json and parse the output."""
-    result = run_acli(*args, json_output=True)
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        print(f"acli returned non-JSON output: {result.stdout[:200]}", file=sys.stderr)
-        raise AcliError(f"acli returned non-JSON output for: {' '.join(args)}")
