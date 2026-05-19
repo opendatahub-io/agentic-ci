@@ -180,6 +180,11 @@ def clone_repo(url: str, dest: Path, branch: str | None = None, depth: int | Non
             timeout=GIT_CLONE_TIMEOUT,
             stdin=_DEVNULL,
         )
+        subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", str(dest.resolve())],
+            capture_output=True,
+            text=True,
+        )
         return True
     except subprocess.TimeoutExpired:
         log.error("git clone timed out after %ds for %s", GIT_CLONE_TIMEOUT, url)
