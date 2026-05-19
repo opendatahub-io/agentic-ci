@@ -222,7 +222,7 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
     if branch and not _validate_ref(branch):
         log.error("push_branch: invalid branch name: %s", branch)
         return False
-    cmd = ["git", "push", "--set-upstream", remote]
+    cmd = ["git", "-c", "safe.directory=*", "push", "--set-upstream", remote]
     if branch:
         cmd.append(branch)
     try:
@@ -281,7 +281,7 @@ def get_commit_info(repo_dir: Path) -> dict:
     """Get the latest commit info (author, email, message, sha)."""
     fmt = "%H%n%ae%n%an%n%s"
     result = subprocess.run(
-        ["git", "log", "-1", f"--format={fmt}"],
+        ["git", "-c", "safe.directory=*", "log", "-1", f"--format={fmt}"],
         cwd=str(repo_dir),
         capture_output=True,
         text=True,
@@ -306,7 +306,7 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
         raise GitDiffError(f"Invalid ref name: {base_ref}")
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base_ref],
+            ["git", "-c", "safe.directory=*", "diff", "--name-only", base_ref],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,

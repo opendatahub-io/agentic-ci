@@ -166,7 +166,16 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
 
     try:
         count_output = subprocess.run(
-            ["git", "-C", str(repo_dir), "rev-list", "--count", f"{compare_ref}..HEAD"],
+            [
+                "git",
+                "-c",
+                "safe.directory=*",
+                "-C",
+                str(repo_dir),
+                "rev-list",
+                "--count",
+                f"{compare_ref}..HEAD",
+            ],
             capture_output=True,
             text=True,
             check=True,
