@@ -251,11 +251,11 @@ def check_external_reporter(
 
 def _run_sensitive_files(workdir: str, **_kw: object) -> list[str]:
     """CLI runner for the sensitive-files gate."""
-    from agentic_ci.git import get_changed_files
+    from agentic_ci.git import GitDiffError, get_changed_files
 
     try:
         changed = get_changed_files(Path(workdir), base_ref="origin/HEAD")
-    except Exception as exc:
+    except GitDiffError as exc:
         return [f"Could not compute changed files: {exc}"]
 
     blocked = check_sensitive_files(changed)
@@ -271,7 +271,7 @@ def _run_commit_author(workdir: str, **_kw: object) -> list[str]:
     expected = os.environ.get("BOT_EMAIL", "")
     try:
         info = get_commit_info(Path(workdir))
-    except Exception as exc:
+    except subprocess.CalledProcessError as exc:
         return [f"Could not read commit info: {exc}"]
 
     if not check_commit_author(info, expected):
@@ -286,7 +286,7 @@ def _run_commit_message_key(workdir: str, **_kw: object) -> list[str]:
     ticket_key = os.environ.get("TICKET_KEY", "")
     try:
         info = get_commit_info(Path(workdir))
-    except Exception as exc:
+    except subprocess.CalledProcessError as exc:
         return [f"Could not read commit info: {exc}"]
 
     if not check_commit_message_key(info, ticket_key):

@@ -57,6 +57,7 @@ class JiraClient:
         self.auth = (email, token)
         self.timeout = timeout
         self._field_cache: dict[str, str] | None = None
+        self._field_schema_cache: dict[str, str] | None = None
         self._acli_available = acli_mod.is_available()
         if self._acli_available:
             log.debug("acli detected on PATH, will delegate supported operations")
@@ -108,17 +109,30 @@ class JiraClient:
     # Field metadata
     # ------------------------------------------------------------------
 
+    def _load_field_metadata(self) -> None:
+        """Fetch and cache field metadata (id + schema type) from the Jira API."""
+        if self._field_cache is not None:
+            return
+        resp = requests.get(
+            self._api_url("field"),
+            headers=self._headers(),
+            auth=self.auth,
+            timeout=self.timeout,
+        )
+        self._check(resp)
+        self._field_cache = {}
+        self._field_schema_cache = {}
+        for f in resp.json():
+            name = f.get("name", "")
+            fid = f.get("id", "")
+            self._field_cache[name] = fid
+            self._field_schema_cache[name] = f.get("schema", {}).get("type", "")
+            self._field_schema_cache[fid] = f.get("schema", {}).get("type", "")
+
     def _resolve_field_id(self, field_name: str) -> str:
         """Resolve a human-readable field name to its ``customfield_XXXXX`` ID."""
-        if self._field_cache is None:
-            resp = requests.get(
-                self._api_url("field"),
-                headers=self._headers(),
-                auth=self.auth,
-                timeout=self.timeout,
-            )
-            self._check(resp)
-            self._field_cache = {f.get("name", ""): f.get("id", "") for f in resp.json()}
+        self._load_field_metadata()
+        assert self._field_cache is not None
         fid = self._field_cache.get(field_name)
         if not fid:
             raise JiraError(f"Field '{field_name}' not found in Jira metadata")
@@ -393,9 +407,9 @@ class JiraClient:
     ) -> bool:
         """Post a comment, optionally restricted to a visibility group.
 
-        The body is plain text with wiki markup (converted to ADF).
-        Uses acli when no visibility restriction is needed.
-        Returns True on success, False on failure.
+        The body is plain text (with optional markdown markup, converted
+        to ADF for the REST API).  Uses acli when no visibility
+        restriction is needed.  Returns True on success, False on failure.
         """
         if self._acli_available and not visibility_group:
             try:
@@ -710,19 +724,9 @@ class JiraClient:
 
     def _get_field_schema_type(self, field_name: str) -> str:
         """Return the schema type string for a field (e.g. 'string', 'option')."""
-        if self._field_cache is None:
-            self._resolve_field_id(field_name)
-        resp = requests.get(
-            self._api_url("field"),
-            headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
-        )
-        self._check(resp)
-        for f in resp.json():
-            if f.get("name") == field_name or f.get("id") == field_name:
-                return f.get("schema", {}).get("type", "")
-        return ""
+        self._load_field_metadata()
+        assert self._field_schema_cache is not None
+        return self._field_schema_cache.get(field_name, "")
 
     def set_custom_field(self, key: str, field_name: str, value: str) -> None:
         """Set a custom field by name.

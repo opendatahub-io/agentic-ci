@@ -242,9 +242,11 @@ def run_skill(
         return 1
 
     if verdict is None:
+        verdict_error: Exception | None = None
         try:
             verdict = config.verdict_loader(work_dir)
         except Exception as exc:
+            verdict_error = exc
             if not dry_run and mode in config.retryable_modes and config.max_retries > 0:
                 log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
                 rc = runner(
@@ -256,16 +258,19 @@ def run_skill(
                 if rc == 0:
                     try:
                         verdict = config.verdict_loader(work_dir)
-                    except Exception as exc2:
-                        log.error("[%s] Verdict still missing after retry: %s", ticket_key, exc2)
-                        exc = exc2
+                        verdict_error = None
+                    except Exception as retry_exc:
+                        log.error(
+                            "[%s] Verdict still missing after retry: %s", ticket_key, retry_exc
+                        )
+                        verdict_error = retry_exc
 
             if verdict is None:
-                log.error("[%s] Failed to load verdict: %s", ticket_key, exc)
+                log.error("[%s] Failed to load verdict: %s", ticket_key, verdict_error)
                 config.label_applier(
                     ticket_key=ticket_key,
                     verdict=None,
-                    gate_errors=[str(exc)],
+                    gate_errors=[str(verdict_error)],
                     mode=mode,
                     work_dir=work_dir,
                     **extra_kwargs,
