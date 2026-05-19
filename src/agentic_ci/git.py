@@ -227,9 +227,24 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
     if branch and not _validate_ref(branch):
         log.error("push_branch: invalid branch name: %s", branch)
         return False
-    cmd = ["git", "push", "--set-upstream", remote]
-    if branch:
-        cmd.append(branch)
+    if not branch:
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(repo_dir),
+                check=True,
+                capture_output=True,
+                text=True,
+                stdin=_DEVNULL,
+            )
+            branch = result.stdout.strip()
+        except subprocess.CalledProcessError:
+            log.error("push_branch: could not detect current branch")
+            return False
+        if not _validate_ref(branch):
+            log.error("push_branch: detected invalid branch name: %s", branch)
+            return False
+    cmd = ["git", "push", "--set-upstream", remote, branch]
     try:
         subprocess.run(
             cmd,
