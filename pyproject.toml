@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "agentic-ci"
-version = "0.1.1"
+version = "0.2.0"
 description = "Tooling for running AI coding agents in CI/CD environments"
 requires-python = ">=3.10"
 license = "Apache-2.0"
