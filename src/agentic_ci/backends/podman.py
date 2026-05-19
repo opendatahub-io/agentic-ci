@@ -44,6 +44,10 @@ class PodmanBackend(Backend):
         env_args = self._build_env_args()
         vol_args = self._build_vol_args()
 
+        user_args = (
+            ["--user", "1000:1000"] if os.getuid() == 0 else ["--userns=keep-id:uid=1000,gid=1000"]
+        )
+
         cmd = [
             "podman",
             "run",
@@ -54,7 +58,7 @@ class PodmanBackend(Backend):
             "newer",
             "--network",
             "host",
-            "--userns=keep-id:uid=1000,gid=1000",
+            *user_args,
             *env_args,
             *vol_args,
             "--workdir",
