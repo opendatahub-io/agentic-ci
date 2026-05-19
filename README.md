@@ -248,7 +248,6 @@ All domain-specific behavior is injected via hooks on `SkillConfig`:
 | `context_writer` | `(ticket_key, ticket, mode, work_dir, **kw) -> None` | Write context files before the run |
 | `verdict_loader` | `(work_dir) -> dict` | Load the agent's verdict after the run |
 | `verdict_path_fn` | `(work_dir) -> Path` | Where to find the verdict file |
-| `comment_formatter` | `(verdict) -> str` | Format verdict for human display |
 | `label_applier` | `(ticket_key, verdict, mode, work_dir, **kw) -> None` | Apply labels/transitions after the run |
 | `cost_formatter` | `(cost_data) -> str \| None` | Format OTEL cost data for display |
 | `extension_config_writer` | `(ticket_key, ticket, config, work_dir, **kw) -> None` | Write extra config (e.g. Claude extensions) |

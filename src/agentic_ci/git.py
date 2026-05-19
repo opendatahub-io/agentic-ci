@@ -19,6 +19,16 @@ from urllib.request import Request, urlopen
 log = logging.getLogger(__name__)
 
 ALLOWED_HOSTS = frozenset({"github.com", "gitlab.com"})
+GIT_CLONE_TIMEOUT = int(os.environ.get("GIT_CLONE_TIMEOUT", "300"))
+GIT_PUSH_TIMEOUT = int(os.environ.get("GIT_PUSH_TIMEOUT", "120"))
+
+
+def _git_env() -> dict[str, str]:
+    """Return env dict with GIT_TERMINAL_PROMPT=0 to prevent credential prompts."""
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
 
 _GITLAB_URL_RE = re.compile(
     r"https://gitlab\.com/[a-zA-Z0-9/_.-]+",
@@ -166,8 +176,18 @@ def clone_repo(url: str, dest: Path, branch: str | None = None, depth: int | Non
         cmd += ["--branch", branch]
     cmd += ["--", url, str(dest)]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=GIT_CLONE_TIMEOUT,
+            env=_git_env(),
+        )
         return True
+    except subprocess.TimeoutExpired:
+        log.error("git clone timed out after %ds for %s", GIT_CLONE_TIMEOUT, url)
+        return False
     except subprocess.CalledProcessError as exc:
         log.error("git clone failed: %s", exc.stderr)
         return False
@@ -216,8 +236,13 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
             check=True,
             capture_output=True,
             text=True,
+            timeout=GIT_PUSH_TIMEOUT,
+            env=_git_env(),
         )
         return True
+    except subprocess.TimeoutExpired:
+        log.error("git push timed out after %ds", GIT_PUSH_TIMEOUT)
+        return False
     except subprocess.CalledProcessError as exc:
         log.error("git push failed: %s", exc.stderr)
         return False

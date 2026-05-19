@@ -1,12 +1,14 @@
 """Tests for the gate registry and CLI gate integration."""
 
 import os
+import subprocess
 from unittest.mock import patch
 
 import pytest
 
 from agentic_ci.gates import (
     GATE_REGISTRY,
+    gitleaks_scan,
     resolve_gates,
     validate_gate_env,
 )
@@ -138,3 +140,27 @@ class TestRunCommitMessageKey:
             errors = gate.fn(workdir="/tmp/test")
         assert len(errors) == 1
         assert "PROJ-123" in errors[0]
+
+
+class TestGitleaksScan:
+    def test_missing_binary_fails_closed(self, tmp_path):
+        with patch("shutil.which", return_value=None):
+            errors = gitleaks_scan(tmp_path)
+        assert len(errors) == 1
+        assert "not installed" in errors[0]
+
+    def test_timeout_fails_closed(self, tmp_path):
+        rev_list_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="3\n")
+        with (
+            patch("shutil.which", return_value="/usr/bin/gitleaks"),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    rev_list_result,
+                    subprocess.TimeoutExpired(cmd="gitleaks", timeout=120),
+                ],
+            ),
+        ):
+            errors = gitleaks_scan(tmp_path)
+        assert len(errors) == 1
+        assert "timed out" in errors[0]

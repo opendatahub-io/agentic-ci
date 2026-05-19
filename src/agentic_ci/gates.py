@@ -148,17 +148,21 @@ def log_changed_files(changed_files: list[str], ticket_key: str) -> None:
         log.info("[%s] No files changed by agent", ticket_key)
 
 
+GITLEAKS_TIMEOUT = int(os.environ.get("GITLEAKS_TIMEOUT", "120"))
+
+
 def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]:
     """Scan new commits for secrets using gitleaks.
 
     Returns a list of error strings (empty means clean).
-    Requires ``gitleaks`` to be installed on PATH.
+    Requires ``gitleaks`` to be installed on PATH.  Fails closed:
+    returns an error if gitleaks is missing or times out.
     """
     import shutil
 
     if not shutil.which("gitleaks"):
-        log.warning("gitleaks not found on PATH, skipping secret scan")
-        return []
+        log.error("gitleaks not found on PATH — failing closed")
+        return ["gitleaks is not installed; secret scan cannot run"]
 
     try:
         count_output = subprocess.run(
@@ -166,6 +170,7 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         )
     except subprocess.CalledProcessError as exc:
         log.error("git rev-list failed: %s", exc.stderr.strip())
@@ -181,18 +186,23 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
         log.info("gitleaks scan skipped: no commits in range %s..HEAD", compare_ref)
         return []
 
-    result = subprocess.run(
-        [
-            "gitleaks",
-            "detect",
-            "--source",
-            str(repo_dir),
-            f"--log-opts={compare_ref}..HEAD",
-            "--verbose",
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "gitleaks",
+                "detect",
+                "--source",
+                str(repo_dir),
+                f"--log-opts={compare_ref}..HEAD",
+                "--verbose",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=GITLEAKS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        log.error("gitleaks timed out after %ds", GITLEAKS_TIMEOUT)
+        return [f"gitleaks timed out after {GITLEAKS_TIMEOUT}s; secret scan inconclusive"]
 
     if result.returncode != 0:
         log.error("gitleaks detected secrets in committed changes")

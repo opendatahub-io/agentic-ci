@@ -53,7 +53,6 @@ class SkillConfig:
     context_writer: Callable[..., None] = _noop
     verdict_loader: Callable[..., dict] = _noop_verdict
     verdict_path_fn: Callable[[Path], Path] = lambda wd: wd / "verdict.json"
-    comment_formatter: Callable[[dict], str] = lambda v: str(v)
     label_applier: Callable[..., None] = _noop
     cost_formatter: Callable[[dict | None], str | None] = lambda d: None
     extension_config_writer: Callable[..., None] = _noop
@@ -255,15 +254,23 @@ def run_skill(
                     output_file,
                     image=config.container_image,
                 )
-                if rc == 0:
-                    try:
-                        verdict = config.verdict_loader(work_dir)
-                        verdict_error = None
-                    except Exception as retry_exc:
-                        log.error(
-                            "[%s] Verdict still missing after retry: %s", ticket_key, retry_exc
-                        )
-                        verdict_error = retry_exc
+                if rc != 0:
+                    log.error("[%s] Retry container also failed (exit %d)", ticket_key, rc)
+                    config.label_applier(
+                        ticket_key=ticket_key,
+                        verdict=None,
+                        rc=rc,
+                        mode=mode,
+                        work_dir=work_dir,
+                        **extra_kwargs,
+                    )
+                    return rc
+                try:
+                    verdict = config.verdict_loader(work_dir)
+                    verdict_error = None
+                except Exception as retry_exc:
+                    log.error("[%s] Verdict still missing after retry: %s", ticket_key, retry_exc)
+                    verdict_error = retry_exc
 
             if verdict is None:
                 log.error("[%s] Failed to load verdict: %s", ticket_key, verdict_error)
