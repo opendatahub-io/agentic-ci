@@ -23,11 +23,7 @@ GIT_CLONE_TIMEOUT = int(os.environ.get("GIT_CLONE_TIMEOUT", "300"))
 GIT_PUSH_TIMEOUT = int(os.environ.get("GIT_PUSH_TIMEOUT", "120"))
 
 
-def _git_env() -> dict[str, str]:
-    """Return env dict with GIT_TERMINAL_PROMPT=0 to prevent credential prompts."""
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    return env
+_DEVNULL = subprocess.DEVNULL
 
 
 _GITLAB_URL_RE = re.compile(
@@ -182,7 +178,7 @@ def clone_repo(url: str, dest: Path, branch: str | None = None, depth: int | Non
             capture_output=True,
             text=True,
             timeout=GIT_CLONE_TIMEOUT,
-            env=_git_env(),
+            stdin=_DEVNULL,
         )
         return True
     except subprocess.TimeoutExpired:
@@ -237,7 +233,7 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
             capture_output=True,
             text=True,
             timeout=GIT_PUSH_TIMEOUT,
-            env=_git_env(),
+            stdin=_DEVNULL,
         )
         return True
     except subprocess.TimeoutExpired:
