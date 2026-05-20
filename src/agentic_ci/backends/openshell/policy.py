@@ -96,13 +96,18 @@ def resolve(flag_path=None, workdir="."):
     Returns the absolute path to the policy file.
     """
     if flag_path:
-        return os.path.abspath(flag_path)
+        resolved = os.path.abspath(flag_path)
+        print(f"  Policy source: --policy flag ({resolved})", flush=True)
+        return resolved
 
     repo_policy = os.path.join(workdir, REPO_POLICY_PATH)
     if os.path.isfile(repo_policy):
-        return os.path.abspath(repo_policy)
+        resolved = os.path.abspath(repo_policy)
+        print(f"  Policy source: repo ({resolved})", flush=True)
+        return resolved
 
     fd, path = tempfile.mkstemp(suffix=".yml", prefix="agentic-ci-policy-")
     with os.fdopen(fd, "w") as f:
         f.write(DEFAULT_POLICY)
+    print("  Policy source: built-in default", flush=True)
     return path

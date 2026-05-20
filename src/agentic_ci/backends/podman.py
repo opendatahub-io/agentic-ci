@@ -36,10 +36,13 @@ class PodmanBackend(Backend):
         subprocess.run(["podman", "rm", "-f", CONTAINER_NAME], capture_output=True)
 
         if os.getuid() == 0:
+            print("  Container user: root (chown workdir)", flush=True)
             subprocess.run(
                 ["chown", "-R", "1000:1000", self.workdir],
                 capture_output=True,
             )
+        else:
+            print("  Container user: rootless (userns keep-id)", flush=True)
 
         env_args = self._build_env_args()
         vol_args = self._build_vol_args()
@@ -84,6 +87,7 @@ class PodmanBackend(Backend):
         if not self.is_running():
             self.setup()
 
+        print("--- Executing Claude in container ---", flush=True)
         otel_env = self._build_otel_exec_env(otel_port)
         claude_args = self._build_claude_args(prompt, model, extra_args)
 
@@ -129,6 +133,7 @@ class PodmanBackend(Backend):
                 raise RuntimeError(
                     "No container image specified. Use --image or set CLAUDE_CONTAINER_IMAGE."
                 )
+        print(f"  Image: {self.image}", flush=True)
 
     def _resolve_credentials(self):
         if self._config_dir is not None:
@@ -147,31 +152,31 @@ class PodmanBackend(Backend):
         with open(config_path, "w") as f:
             f.write(f"[core]\nproject = {vertex_project}\ndisable_prompts = true\n")
 
-        creds_json = self._find_credentials()
+        creds_json, creds_source = self._find_credentials()
         adc_path = os.path.join(
             self._config_dir, ".config", "gcloud", "application_default_credentials.json"
         )
         with open(adc_path, "w") as f:
             f.write(creds_json)
 
-        print("--- Credentials staged ---", flush=True)
+        print(f"--- Credentials staged ({creds_source}) ---", flush=True)
 
     def _find_credentials(self):
-        """Locate and validate gcloud credentials. Returns raw JSON string."""
+        """Locate and validate gcloud credentials. Returns (json_string, source_label)."""
         raw = os.environ.get("GCLOUD_CREDENTIALS", "")
         if raw:
             if self._is_valid_json(raw):
-                return raw
+                return raw, "GCLOUD_CREDENTIALS env var"
             decoded = self._try_base64_decode(raw)
             if decoded and self._is_valid_json(decoded):
-                return decoded
+                return decoded, "GCLOUD_CREDENTIALS env var (base64)"
             raise RuntimeError("GCLOUD_CREDENTIALS is not valid JSON or base64-encoded JSON")
 
         sa_key = os.environ.get("GCP_SERVICE_ACCOUNT_KEY", "")
         if sa_key:
             decoded = self._try_base64_decode(sa_key)
             if decoded and self._is_valid_json(decoded):
-                return decoded
+                return decoded, "GCP_SERVICE_ACCOUNT_KEY env var"
             raise RuntimeError("GCP_SERVICE_ACCOUNT_KEY is not valid base64-encoded JSON")
 
         adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
@@ -181,7 +186,7 @@ class PodmanBackend(Backend):
                 with open(path) as f:
                     content = f.read()
                 if self._is_valid_json(content):
-                    return content
+                    return content, path
 
         raise RuntimeError(
             "No GCP credentials found. Set GCLOUD_CREDENTIALS, "

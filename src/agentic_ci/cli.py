@@ -52,7 +52,16 @@ def cmd_run(args, backend):
 
     backend.setup()
 
-    model = args.model or os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
+    if args.model:
+        model = args.model
+        model_source = "--model flag"
+    elif os.environ.get("CLAUDE_MODEL"):
+        model = os.environ["CLAUDE_MODEL"]
+        model_source = "CLAUDE_MODEL env var"
+    else:
+        model = "claude-opus-4-6"
+        model_source = "default"
+    print(f"  Model: {model} (from {model_source})", flush=True)
 
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
@@ -184,6 +193,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    print(f"--- Backend: {args.backend} | Workdir: {os.path.abspath(args.workdir)} ---", flush=True)
     backend = create_backend(
         args.backend,
         workdir=args.workdir,

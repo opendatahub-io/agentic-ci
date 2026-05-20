@@ -14,8 +14,9 @@ def test_find_credentials_from_gcloud_credentials_json(monkeypatch, tmp_path):
     monkeypatch.setenv("GCLOUD_CREDENTIALS", creds)
 
     backend = PodmanBackend(workdir=str(tmp_path))
-    result = backend._find_credentials()
+    result, source = backend._find_credentials()
     assert json.loads(result)["client_id"] == "test"
+    assert source == "GCLOUD_CREDENTIALS env var"
 
 
 def test_find_credentials_from_base64(monkeypatch, tmp_path):
@@ -24,8 +25,9 @@ def test_find_credentials_from_base64(monkeypatch, tmp_path):
     monkeypatch.setenv("GCLOUD_CREDENTIALS", encoded)
 
     backend = PodmanBackend(workdir=str(tmp_path))
-    result = backend._find_credentials()
+    result, source = backend._find_credentials()
     assert json.loads(result)["project_id"] == "test"
+    assert source == "GCLOUD_CREDENTIALS env var (base64)"
 
 
 def test_find_credentials_from_service_account_key(monkeypatch, tmp_path):
@@ -35,8 +37,9 @@ def test_find_credentials_from_service_account_key(monkeypatch, tmp_path):
     monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", encoded)
 
     backend = PodmanBackend(workdir=str(tmp_path))
-    result = backend._find_credentials()
+    result, source = backend._find_credentials()
     assert json.loads(result)["project_id"] == "sa-test"
+    assert source == "GCP_SERVICE_ACCOUNT_KEY env var"
 
 
 def test_find_credentials_from_adc_file(monkeypatch, tmp_path):
@@ -49,8 +52,9 @@ def test_find_credentials_from_adc_file(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
 
     backend = PodmanBackend(workdir=str(tmp_path))
-    result = backend._find_credentials()
+    result, source = backend._find_credentials()
     assert json.loads(result)["client_id"] == "file-test"
+    assert source == str(adc_path)
 
 
 def test_find_credentials_raises_when_missing(monkeypatch, tmp_path):

@@ -36,12 +36,12 @@ def start():
     time.sleep(1)
 
     secret = os.urandom(16).hex()
+    supervisor_image = os.environ.get("OPENSHELL_SUPERVISOR_IMAGE", "openshell/supervisor:dev")
+    print(f"  Supervisor image: {supervisor_image}", flush=True)
     env = {
         **os.environ,
         "OPENSHELL_SSH_HANDSHAKE_SECRET": secret,
-        "OPENSHELL_SUPERVISOR_IMAGE": os.environ.get(
-            "OPENSHELL_SUPERVISOR_IMAGE", "openshell/supervisor:dev"
-        ),
+        "OPENSHELL_SUPERVISOR_IMAGE": supervisor_image,
     }
 
     subprocess.Popen(

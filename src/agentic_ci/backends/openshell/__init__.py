@@ -37,10 +37,10 @@ class OpenShellBackend(Backend):
             flag_path=self.policy_path,
             workdir=self.workdir,
         )
-        print(f"--- Creating sandbox (policy: {resolved_policy}) ---", flush=True)
+        image_info = f", image: {self.image}" if self.image else ""
+        print(f"--- Creating sandbox (policy: {resolved_policy}{image_info}) ---", flush=True)
         sandbox.create(image=self.image, policy_path=resolved_policy)
 
-        print("--- Uploading credentials ---", flush=True)
         self._upload_credentials()
 
     def stop(self):
@@ -104,7 +104,10 @@ class OpenShellBackend(Backend):
         if not os.path.isfile(adc):
             adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
         if not adc or not os.path.isfile(adc):
+            print("--- No credentials found to upload ---", flush=True)
             return
+
+        print(f"--- Uploading credentials ({adc}) ---", flush=True)
 
         staging = tempfile.mkdtemp(prefix="agentic-ci-creds-")
         try:
