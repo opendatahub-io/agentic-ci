@@ -181,12 +181,15 @@ class PodmanBackend(Backend):
 
         adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
         ga_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-        for path in [adc, ga_creds]:
+        for path, label in [
+            (adc, "default ADC file"),
+            (ga_creds, "GOOGLE_APPLICATION_CREDENTIALS file"),
+        ]:
             if path and os.path.isfile(path):
                 with open(path) as f:
                     content = f.read()
                 if self._is_valid_json(content):
-                    return content, path
+                    return content, label
 
         raise RuntimeError(
             "No GCP credentials found. Set GCLOUD_CREDENTIALS, "

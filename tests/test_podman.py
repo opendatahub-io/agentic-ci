@@ -54,7 +54,7 @@ def test_find_credentials_from_adc_file(monkeypatch, tmp_path):
     backend = PodmanBackend(workdir=str(tmp_path))
     result, source = backend._find_credentials()
     assert json.loads(result)["client_id"] == "file-test"
-    assert source == str(adc_path)
+    assert source == "GOOGLE_APPLICATION_CREDENTIALS file"
 
 
 def test_find_credentials_raises_when_missing(monkeypatch, tmp_path):

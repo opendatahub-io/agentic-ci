@@ -101,13 +101,16 @@ class OpenShellBackend(Backend):
 
     def _upload_credentials(self):
         adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
-        if not os.path.isfile(adc):
+        if os.path.isfile(adc):
+            source = "default ADC file"
+        else:
             adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+            source = "GOOGLE_APPLICATION_CREDENTIALS file"
         if not adc or not os.path.isfile(adc):
             print("--- No credentials found to upload ---", flush=True)
             return
 
-        print(f"--- Uploading credentials ({adc}) ---", flush=True)
+        print(f"--- Uploading credentials ({source}) ---", flush=True)
 
         staging = tempfile.mkdtemp(prefix="agentic-ci-creds-")
         try:
