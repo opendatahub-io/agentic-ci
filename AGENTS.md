@@ -6,8 +6,6 @@ Two backends are available:
 - **Podman** (default): Runs Claude in a Podman container. Simple, widely available.
 - **OpenShell**: Runs Claude in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox with network policy enforcement and filesystem isolation.
 
-Zero external Python dependencies (stdlib only).
-
 ## Architecture
 
 ```
@@ -70,7 +68,7 @@ Fix any failures before moving on. Do not skip any of these checks.
 
 ## Conventions
 
-- Python 3.10+, uv for local dev. Zero runtime dependencies (stdlib only).
+- Python 3.10+, uv for local dev. Minimal runtime dependencies (`requests`, `tenacity`).
 - `ruff` for lint and format. Config in `pyproject.toml`. `tox` orchestrates all checks.
 - Fix lint errors at the source. Don't suppress with `# noqa` or exclude files from linting.
 - All tests live under `tests/`.
