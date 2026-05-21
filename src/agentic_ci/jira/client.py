@@ -43,7 +43,8 @@ def _wait_for_retry_after(retry_state: tenacity.RetryCallState) -> float:
     attempt = retry_state.attempt_number - 1
     backoff_delay = 1.0 * (2**attempt)
 
-    assert retry_state.outcome is not None
+    if retry_state.outcome is None:
+        raise ValueError("retry_state.outcome is None; expected a completed call result")
     resp = retry_state.outcome.result()
     retry_after = resp.headers.get("Retry-After")
     if retry_after:
@@ -51,13 +52,13 @@ def _wait_for_retry_after(retry_state: tenacity.RetryCallState) -> float:
             delay = float(retry_after)
         except ValueError:
             delay = backoff_delay
-        delay = min(delay, MAX_RETRY_AFTER)
         delay = max(delay, backoff_delay)
     else:
         delay = backoff_delay
 
     delay += random.uniform(0, delay * 0.25)
-    return delay
+    effective_cap = max(MAX_RETRY_AFTER, backoff_delay)
+    return min(delay, effective_cap)
 
 
 class JiraError(Exception):
