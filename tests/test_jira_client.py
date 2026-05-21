@@ -349,3 +349,26 @@ class TestRetryOn429:
         assert resp.status_code == 200
         # base_delay=1.0, attempt=0, so backoff_delay = 1.0 * 2^0 = 1.0
         mock_sleep.assert_called_once_with(1.0)
+
+    @pytest.mark.parametrize("bad_value", ["nan", "NaN", "inf", "-inf", "Infinity"])
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_retry_after_non_finite_uses_backoff(
+        self, mock_requests, _mock_rand, mock_sleep, client, bad_value
+    ):
+        """Non-finite Retry-After values (nan, inf) fall back to backoff (CWE-674)."""
+        rate_resp = MagicMock()
+        rate_resp.status_code = 429
+        rate_resp.headers = {"Retry-After": bad_value}
+
+        ok_resp = MagicMock()
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {"comments": []}
+
+        mock_requests.get.side_effect = [rate_resp, ok_resp]
+
+        resp = client._request("get", "https://test.atlassian.net/rest/api/3/test")
+        assert resp.status_code == 200
+        # Should use backoff_delay (1.0) instead of the non-finite value
+        mock_sleep.assert_called_once_with(1.0)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import random
 import time
@@ -50,7 +51,9 @@ def _wait_for_retry_after(retry_state: tenacity.RetryCallState) -> float:
     if retry_after:
         try:
             delay = float(retry_after)
-        except ValueError:
+            if not math.isfinite(delay):
+                delay = backoff_delay
+        except (ValueError, OverflowError):
             delay = backoff_delay
         delay = max(delay, backoff_delay)
     else:
