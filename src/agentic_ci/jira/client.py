@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+import tenacity
 
 from agentic_ci.jira import acli as acli_mod
 from agentic_ci.jira.adf import adf_to_text, text_to_adf
@@ -35,6 +36,28 @@ log = logging.getLogger(__name__)
 
 API_VERSION = "3"
 MAX_RETRY_AFTER = 60  # Cap Retry-After header to prevent indefinite stalls (CWE-674)
+
+
+def _wait_for_retry_after(retry_state: tenacity.RetryCallState) -> float:
+    """Compute retry delay respecting Retry-After header with exponential backoff floor."""
+    attempt = retry_state.attempt_number - 1
+    backoff_delay = 1.0 * (2**attempt)
+
+    assert retry_state.outcome is not None
+    resp = retry_state.outcome.result()
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after:
+        try:
+            delay = float(retry_after)
+        except ValueError:
+            delay = backoff_delay
+        delay = min(delay, MAX_RETRY_AFTER)
+        delay = max(delay, backoff_delay)
+    else:
+        delay = backoff_delay
+
+    delay += random.uniform(0, delay * 0.25)
+    return delay
 
 
 class JiraError(Exception):
@@ -112,44 +135,27 @@ class JiraClient:
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Make an HTTP request with retry on 429 rate-limit responses.
 
-        Retries up to ``max_retries`` times using exponential backoff
-        with jitter, respecting the ``Retry-After`` header when present.
+        Uses tenacity for retries with exponential backoff and jitter,
+        respecting the ``Retry-After`` header when present.
         """
         kwargs.setdefault("timeout", self.timeout)
         kwargs.setdefault("auth", self.auth)
-        max_retries = 3
-        base_delay = 1.0
 
         request_fn = getattr(requests, method)
-        for attempt in range(max_retries + 1):
-            resp = request_fn(url, **kwargs)
-            if resp.status_code != 429 or attempt == max_retries:
-                return resp
-
-            backoff_delay = base_delay * (2**attempt)
-            retry_after = resp.headers.get("Retry-After")
-            if retry_after:
-                try:
-                    delay = float(retry_after)
-                except ValueError:
-                    delay = backoff_delay
-                # Cap to prevent indefinite stalls from malicious/misconfigured servers
-                delay = min(delay, MAX_RETRY_AFTER)
-                # Ensure at least the exponential backoff floor
-                delay = max(delay, backoff_delay)
-            else:
-                delay = backoff_delay
-
-            delay += random.uniform(0, delay * 0.25)
-            log.warning(
+        retryer = tenacity.Retrying(
+            retry=tenacity.retry_if_result(lambda r: r.status_code == 429),
+            stop=tenacity.stop_after_attempt(4),
+            wait=_wait_for_retry_after,
+            sleep=time.sleep,
+            before_sleep=lambda rs: log.warning(
                 "Jira API rate limited (429), retrying in %.1fs (attempt %d/%d)",
-                delay,
-                attempt + 1,
-                max_retries,
-            )
-            time.sleep(delay)
-
-        return resp  # unreachable, but satisfies type checker
+                rs.idle_for,
+                rs.attempt_number,
+                3,
+            ),
+            retry_error_callback=lambda rs: rs.outcome.result() if rs.outcome else None,
+        )
+        return retryer(request_fn, url, **kwargs)
 
     # ------------------------------------------------------------------
     # Field metadata
