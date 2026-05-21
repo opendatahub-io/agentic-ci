@@ -34,6 +34,7 @@ from agentic_ci.jira.adf import adf_to_text, text_to_adf
 log = logging.getLogger(__name__)
 
 API_VERSION = "3"
+MAX_RETRY_AFTER = 60  # Cap Retry-After header to prevent indefinite stalls (CWE-674)
 
 
 class JiraError(Exception):
@@ -125,14 +126,19 @@ class JiraClient:
             if resp.status_code != 429 or attempt == max_retries:
                 return resp
 
+            backoff_delay = base_delay * (2**attempt)
             retry_after = resp.headers.get("Retry-After")
             if retry_after:
                 try:
                     delay = float(retry_after)
                 except ValueError:
-                    delay = base_delay * (2**attempt)
+                    delay = backoff_delay
+                # Cap to prevent indefinite stalls from malicious/misconfigured servers
+                delay = min(delay, MAX_RETRY_AFTER)
+                # Ensure at least the exponential backoff floor
+                delay = max(delay, backoff_delay)
             else:
-                delay = base_delay * (2**attempt)
+                delay = backoff_delay
 
             delay += random.uniform(0, delay * 0.25)
             log.warning(
