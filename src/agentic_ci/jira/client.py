@@ -23,12 +23,12 @@ import logging
 import math
 import os
 import random
-import time
 from pathlib import Path
 from typing import Any
 
 import requests
 import tenacity
+from requests.exceptions import HTTPError
 
 from agentic_ci.jira import acli as acli_mod
 from agentic_ci.jira.adf import adf_to_text, text_to_adf
@@ -36,32 +36,39 @@ from agentic_ci.jira.adf import adf_to_text, text_to_adf
 log = logging.getLogger(__name__)
 
 API_VERSION = "3"
-MAX_RETRY_AFTER = 60  # Cap Retry-After header to prevent indefinite stalls (CWE-674)
+MAX_RETRY_AFTER = 60
 
 
-def _wait_for_retry_after(retry_state: tenacity.RetryCallState) -> float:
-    """Compute retry delay respecting Retry-After header with exponential backoff floor."""
-    attempt = retry_state.attempt_number - 1
-    backoff_delay = 1.0 * (2**attempt)
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    return (
+        isinstance(exc, HTTPError) and exc.response is not None and exc.response.status_code == 429
+    )
 
-    if retry_state.outcome is None:
-        raise ValueError("retry_state.outcome is None; expected a completed call result")
-    resp = retry_state.outcome.result()
-    retry_after = resp.headers.get("Retry-After")
-    if retry_after:
-        try:
-            delay = float(retry_after)
-            if not math.isfinite(delay):
-                delay = backoff_delay
-        except (ValueError, OverflowError):
-            delay = backoff_delay
-        delay = max(delay, backoff_delay)
-    else:
-        delay = backoff_delay
 
-    delay += random.uniform(0, delay * 0.25)
-    effective_cap = max(MAX_RETRY_AFTER, backoff_delay)
-    return min(delay, effective_cap)
+def _wait_rate_limit(retry_state: tenacity.RetryCallState) -> float:
+    backoff = min(2 ** (retry_state.attempt_number - 1), MAX_RETRY_AFTER)
+    delay = backoff
+
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, HTTPError) and exc.response is not None:
+        retry_after = exc.response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                parsed = float(retry_after)
+                if math.isfinite(parsed) and parsed > 0:
+                    delay = max(parsed, backoff)
+            except (ValueError, OverflowError):
+                pass
+
+    delay = min(delay, MAX_RETRY_AFTER)
+    return delay + random.uniform(0, delay * 0.25)
+
+
+def _return_last_response(retry_state: tenacity.RetryCallState) -> requests.Response:
+    exc = retry_state.outcome.exception()  # type: ignore[union-attr]
+    if isinstance(exc, HTTPError) and exc.response is not None:
+        return exc.response
+    raise exc  # type: ignore[misc]
 
 
 class JiraError(Exception):
@@ -136,30 +143,24 @@ class JiraClient:
                 response_text=resp.text,
             )
 
+    @tenacity.retry(
+        retry=tenacity.retry_if_exception(_is_rate_limit_error),
+        wait=_wait_rate_limit,
+        stop=tenacity.stop_after_attempt(5),
+        before_sleep=lambda rs: log.warning(
+            "Jira API rate limited (429), retrying in %.1fs (attempt %d)",
+            rs.idle_for,
+            rs.attempt_number,
+        ),
+        retry_error_callback=_return_last_response,
+    )
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Make an HTTP request with retry on 429 rate-limit responses.
-
-        Uses tenacity for retries with exponential backoff and jitter,
-        respecting the ``Retry-After`` header when present.
-        """
         kwargs.setdefault("timeout", self.timeout)
         kwargs.setdefault("auth", self.auth)
-
-        request_fn = getattr(requests, method)
-        retryer = tenacity.Retrying(
-            retry=tenacity.retry_if_result(lambda r: r.status_code == 429),
-            stop=tenacity.stop_after_attempt(4),
-            wait=_wait_for_retry_after,
-            sleep=time.sleep,
-            before_sleep=lambda rs: log.warning(
-                "Jira API rate limited (429), retrying in %.1fs (attempt %d/%d)",
-                rs.idle_for,
-                rs.attempt_number,
-                3,
-            ),
-            retry_error_callback=lambda rs: rs.outcome.result() if rs.outcome else None,
-        )
-        return retryer(request_fn, url, **kwargs)
+        resp = getattr(requests, method)(url, **kwargs)
+        if resp.status_code == 429:
+            raise HTTPError("429 Too Many Requests", response=resp)
+        return resp
 
     # ------------------------------------------------------------------
     # Field metadata
