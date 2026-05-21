@@ -42,7 +42,9 @@ Requires: `openshell` and `openshell-gateway` installed on the host.
 ## Install
 
 ```bash
-pip install ./agentic-ci/
+uv tool install agentic-ci
+# OR
+pip install agentic-ci
 ```
 
 ## Usage
