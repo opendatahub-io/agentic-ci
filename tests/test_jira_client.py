@@ -1,7 +1,7 @@
 """Tests for JiraClient (with mocked HTTP)."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -211,3 +211,99 @@ class TestCreateIssue:
 
         key = client.create_issue("TEST", "Bug", "Something broke")
         assert key == "TEST-42"
+
+
+class TestRetryOn429:
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_retries_on_429_then_succeeds(self, mock_requests, _mock_rand, mock_sleep, client):
+        rate_resp = MagicMock()
+        rate_resp.status_code = 429
+        rate_resp.headers = {}
+
+        ok_resp = MagicMock()
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {"key": "TEST-1", "fields": {}}
+
+        comment_resp = MagicMock()
+        comment_resp.status_code = 200
+        comment_resp.json.return_value = {"comments": []}
+
+        mock_requests.get.side_effect = [rate_resp, ok_resp, comment_resp]
+
+        result = client.get_issue("TEST-1")
+        assert result["key"] == "TEST-1"
+        assert mock_requests.get.call_count == 3
+        mock_sleep.assert_called_once()
+
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_respects_retry_after_header(self, mock_requests, _mock_rand, mock_sleep, client):
+        rate_resp = MagicMock()
+        rate_resp.status_code = 429
+        rate_resp.headers = {"Retry-After": "5"}
+
+        ok_resp = MagicMock()
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {"key": "TEST-1", "fields": {}}
+
+        comment_resp = MagicMock()
+        comment_resp.status_code = 200
+        comment_resp.json.return_value = {"comments": []}
+
+        mock_requests.get.side_effect = [rate_resp, ok_resp, comment_resp]
+
+        client.get_issue("TEST-1")
+        mock_sleep.assert_called_once_with(5.0)
+
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_gives_up_after_max_retries(self, mock_requests, _mock_rand, mock_sleep, client):
+        rate_resp = MagicMock()
+        rate_resp.status_code = 429
+        rate_resp.headers = {}
+        rate_resp.text = "Rate limited"
+
+        mock_requests.get.return_value = rate_resp
+
+        with pytest.raises(JiraError, match="429"):
+            client.get_issue("TEST-1")
+
+        assert mock_requests.get.call_count == 4
+        assert mock_sleep.call_count == 3
+
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_exponential_backoff_delays(self, mock_requests, _mock_rand, mock_sleep, client):
+        rate_resp = MagicMock()
+        rate_resp.status_code = 429
+        rate_resp.headers = {}
+
+        ok_resp = MagicMock()
+        ok_resp.status_code = 200
+        ok_resp.json.return_value = {"comments": []}
+
+        mock_requests.get.side_effect = [rate_resp, rate_resp, rate_resp, ok_resp]
+
+        resp = client._request("get", "https://test.atlassian.net/rest/api/3/test")
+        assert resp.status_code == 200
+        assert mock_sleep.call_args_list == [call(1.0), call(2.0), call(4.0)]
+
+    @patch("agentic_ci.jira.client.time.sleep")
+    @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
+    @patch("agentic_ci.jira.client.requests")
+    def test_no_retry_on_non_429_errors(self, mock_requests, _mock_rand, mock_sleep, client):
+        err_resp = MagicMock()
+        err_resp.status_code = 500
+        err_resp.text = "Server error"
+        mock_requests.get.return_value = err_resp
+
+        with pytest.raises(JiraError, match="500"):
+            client.get_issue("TEST-1")
+
+        assert mock_requests.get.call_count == 1
+        mock_sleep.assert_not_called()

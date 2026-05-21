@@ -21,7 +21,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
+import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -105,6 +108,43 @@ class JiraClient:
                 response_text=resp.text,
             )
 
+    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        """Make an HTTP request with retry on 429 rate-limit responses.
+
+        Retries up to ``max_retries`` times using exponential backoff
+        with jitter, respecting the ``Retry-After`` header when present.
+        """
+        kwargs.setdefault("timeout", self.timeout)
+        kwargs.setdefault("auth", self.auth)
+        max_retries = 3
+        base_delay = 1.0
+
+        request_fn = getattr(requests, method)
+        for attempt in range(max_retries + 1):
+            resp = request_fn(url, **kwargs)
+            if resp.status_code != 429 or attempt == max_retries:
+                return resp
+
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    delay = float(retry_after)
+                except ValueError:
+                    delay = base_delay * (2**attempt)
+            else:
+                delay = base_delay * (2**attempt)
+
+            delay += random.uniform(0, delay * 0.25)
+            log.warning(
+                "Jira API rate limited (429), retrying in %.1fs (attempt %d/%d)",
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+
+        return resp  # unreachable, but satisfies type checker
+
     # ------------------------------------------------------------------
     # Field metadata
     # ------------------------------------------------------------------
@@ -113,11 +153,10 @@ class JiraClient:
         """Fetch and cache field metadata (id + schema type) from the Jira API."""
         if self._field_cache is not None:
             return
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url("field"),
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
         self._field_cache = {}
@@ -150,11 +189,10 @@ class JiraClient:
         ``components``, ``reporter_name``, ``reporter_email``, ``comments``.
         """
         req_fields = "summary,description,issuetype,labels,status,reporter,components,project"
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url(f"issue/{key}") + f"?fields={req_fields}",
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
         issue = resp.json()
@@ -185,11 +223,10 @@ class JiraClient:
         }
 
     def _fetch_comments(self, key: str) -> list[dict]:
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url(f"issue/{key}/comment"),
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
         comments = []
@@ -222,12 +259,11 @@ class JiraClient:
             if next_page_token:
                 payload["nextPageToken"] = next_page_token
 
-            resp = requests.post(
+            resp = self._request(
+                "post",
                 search_url,
                 headers=self._headers(),
                 json=payload,
-                auth=self.auth,
-                timeout=self.timeout,
             )
             self._check(resp)
 
@@ -291,12 +327,11 @@ class JiraClient:
         start_at = 0
 
         while True:
-            resp = requests.get(
+            resp = self._request(
+                "get",
                 self._api_url(f"issue/{key}/changelog"),
                 headers=self._headers(),
                 params={"startAt": start_at, "maxResults": 100},
-                auth=self.auth,
-                timeout=self.timeout,
             )
             self._check(resp)
 
@@ -321,11 +356,10 @@ class JiraClient:
                 break
 
         if author_email is None:
-            resp = requests.get(
+            resp = self._request(
+                "get",
                 self._api_url(f"issue/{key}") + "?fields=labels,reporter",
                 headers=self._headers(),
-                auth=self.auth,
-                timeout=self.timeout,
             )
             if resp.status_code == 200:
                 fields = resp.json().get("fields", {})
@@ -343,11 +377,10 @@ class JiraClient:
         field_ids = {name: self._resolve_field_id(name) for name in field_names}
         ids_csv = ",".join(field_ids.values())
 
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url(f"issue/{key}") + f"?fields={ids_csv}",
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
 
@@ -371,12 +404,11 @@ class JiraClient:
             if next_page_token:
                 payload["nextPageToken"] = next_page_token
 
-            resp = requests.post(
+            resp = self._request(
+                "post",
                 search_url,
                 headers=self._headers(),
                 json=payload,
-                auth=self.auth,
-                timeout=self.timeout,
             )
             self._check(resp)
 
@@ -432,12 +464,11 @@ class JiraClient:
         if visibility_group:
             payload["visibility"] = {"type": "group", "value": visibility_group}
 
-        resp = requests.post(
+        resp = self._request(
+            "post",
             self._api_url(f"issue/{key}/comment"),
             headers=self._headers(),
             json=payload,
-            auth=self.auth,
-            timeout=self.timeout,
         )
         if resp.status_code == 201:
             log.info("Commented on %s", key)
@@ -483,12 +514,11 @@ class JiraClient:
         if remove:
             update.setdefault("labels", []).extend({"remove": lbl} for lbl in remove)
 
-        resp = requests.put(
+        resp = self._request(
+            "put",
             self._api_url(f"issue/{key}"),
             headers=self._headers(),
             json={"update": update},
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=(200, 204))
         log.debug("Labels updated on %s", key)
@@ -511,11 +541,10 @@ class JiraClient:
             except acli_mod.AcliError as exc:
                 log.warning("acli transition failed, falling back to REST: %s", exc)
 
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url(f"issue/{key}/transitions"),
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
 
@@ -532,12 +561,11 @@ class JiraClient:
             available = [t.get("name", "") for t in resp.json().get("transitions", [])]
             raise JiraError(f"No transition to '{status}' found for {key}. Available: {available}")
 
-        resp = requests.post(
+        resp = self._request(
+            "post",
             self._api_url(f"issue/{key}/transitions"),
             headers=self._headers(),
             json={"transition": {"id": transition_id}},
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=(200, 204))
         log.info("Transitioned %s to %s", key, status)
@@ -560,12 +588,11 @@ class JiraClient:
             except acli_mod.AcliError as exc:
                 log.warning("acli assign failed, falling back to REST: %s", exc)
 
-        resp = requests.put(
+        resp = self._request(
+            "put",
             self._api_url(f"issue/{key}/assignee"),
             headers=self._headers(),
             json={"accountId": assignee},
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=(200, 204))
         log.info("Assigned %s to %s", key, assignee)
@@ -620,12 +647,11 @@ class JiraClient:
             fields[epic_field] = parent_epic
         fields.update(extra_fields)
 
-        resp = requests.post(
+        resp = self._request(
+            "post",
             self._api_url("issue"),
             headers=self._headers(),
             json={"fields": fields},
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=201)
         key = resp.json().get("key", "")
@@ -653,11 +679,10 @@ class JiraClient:
             except acli_mod.AcliError as exc:
                 log.warning("acli link failed, falling back to REST: %s", exc)
 
-        resp = requests.get(
+        resp = self._request(
+            "get",
             self._api_url("issueLinkType"),
             headers=self._headers(),
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp)
 
@@ -695,12 +720,11 @@ class JiraClient:
                 "outwardIssue": {"key": source},
             }
 
-        resp = requests.post(
+        resp = self._request(
+            "post",
             self._api_url("issueLink"),
             headers=self._headers(),
             json=payload,
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=201)
         log.info("Linked %s '%s' %s", source, link_type, target)
@@ -712,12 +736,11 @@ class JiraClient:
             raise JiraError(f"File '{filepath}' not found or not readable")
 
         with open(path, "rb") as f:
-            resp = requests.post(
+            resp = self._request(
+                "post",
                 self._api_url(f"issue/{key}/attachments"),
                 headers={"X-Atlassian-Token": "no-check"},
                 files={"file": (path.name, f)},
-                auth=self.auth,
-                timeout=self.timeout,
             )
         self._check(resp)
         log.info("Attached '%s' to %s", path.name, key)
@@ -747,12 +770,11 @@ class JiraClient:
             else:
                 parsed_value = {"value": value}
 
-        resp = requests.put(
+        resp = self._request(
+            "put",
             self._api_url(f"issue/{key}"),
             headers=self._headers(),
             json={"fields": {field_id: parsed_value}},
-            auth=self.auth,
-            timeout=self.timeout,
         )
         self._check(resp, expected=(200, 204))
         log.info("Set '%s' on %s", field_name, key)
