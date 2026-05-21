@@ -20,10 +20,11 @@ class PodmanBackend(Backend):
     read-only.
     """
 
-    def __init__(self, workdir=".", image=None, timeout=1200):
+    def __init__(self, workdir=".", image=None, timeout=1200, extra_env=None):
         super().__init__(workdir=workdir, image=image)
         self.timeout = timeout
         self._config_dir = None
+        self._extra_env = extra_env or {}
 
     def setup(self):
         self._resolve_image()
@@ -197,7 +198,7 @@ class PodmanBackend(Backend):
         )
 
     def _build_env_args(self):
-        return [
+        args = [
             "--env",
             "CLAUDE_CODE_USE_VERTEX=1",
             "--env",
@@ -207,6 +208,9 @@ class PodmanBackend(Backend):
             "--env",
             "DISABLE_AUTOUPDATER=1",
         ]
+        for key, val in self._extra_env.items():
+            args.extend(["--env", f"{key}={val}"])
+        return args
 
     def _build_otel_exec_env(self, otel_port=None):
         """Build --env flags for podman exec when OTEL is enabled."""
