@@ -74,12 +74,13 @@ class TestClaudeCodeHarness:
         assert any("CLAUDE_CODE_USE_VERTEX=1" in line for line in lines)
         assert any("DISABLE_AUTOUPDATER=1" in line for line in lines)
 
-    def test_build_env_script_lines_with_otel(self, monkeypatch):
+    def test_build_env_script_lines_with_otel(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
         harness = ClaudeCodeHarness()
-        lines = harness.build_env_script_lines(otel_port=4318, otel_rate_file="/tmp/rate.json")
+        rate_file = str(tmp_path / "rate.json")
+        lines = harness.build_env_script_lines(otel_port=4318, otel_rate_file=rate_file)
         assert any("CLAUDE_CODE_ENABLE_TELEMETRY=1" in line for line in lines)
-        assert any("OTEL_RATE_FILE=/tmp/rate.json" in line for line in lines)
+        assert any(f"OTEL_RATE_FILE={rate_file}" in line for line in lines)
 
     def test_credential_mount_target(self):
         assert ClaudeCodeHarness().credential_mount_target() == "/home/claude"

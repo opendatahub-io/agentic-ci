@@ -12,7 +12,7 @@ Two **harnesses** define which agent CLI to run:
 
 ## Architecture
 
-```
+```text
 src/agentic_ci/
     cli.py              # Entry point, backend/harness selection, OTEL orchestration
     backend.py          # Backend ABC + shared stream processing

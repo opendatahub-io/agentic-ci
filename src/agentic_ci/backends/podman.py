@@ -33,7 +33,8 @@ class PodmanBackend(Backend):
         image=None,
         timeout=1200,
         extra_env=None,
-        harness: Harness | None = None,
+        *,
+        harness: Harness,
     ):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.timeout = timeout

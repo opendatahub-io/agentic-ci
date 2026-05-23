@@ -108,7 +108,7 @@ def _default_run_container(work_dir, prompt, output_file, *, image=None):
     from agentic_ci.harness import ClaudeCodeHarness
 
     harness = ClaudeCodeHarness()
-    model = os.environ.get(harness.model_env_var(), harness.default_model())
+    model = os.environ.get(harness.model_env_var()) or harness.default_model()
     backend = PodmanBackend(workdir=str(work_dir), image=image, harness=harness)
     try:
         backend.setup()

@@ -21,7 +21,7 @@ class Backend(ABC):
     execution environments (OpenShell sandbox, Podman container, etc.).
     """
 
-    def __init__(self, workdir=".", image=None, harness: Harness | None = None):
+    def __init__(self, workdir=".", image=None, *, harness: Harness):
         self.workdir = os.path.abspath(workdir)
         self.image = image
         self.harness = harness

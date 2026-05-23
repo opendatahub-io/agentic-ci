@@ -24,7 +24,7 @@ class OpenShellBackend(Backend):
 
     _ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
 
-    def __init__(self, workdir=".", image=None, policy=None, harness: Harness | None = None):
+    def __init__(self, workdir=".", image=None, policy=None, *, harness: Harness):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.policy_path = policy
 

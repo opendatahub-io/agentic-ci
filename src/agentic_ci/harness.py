@@ -125,7 +125,7 @@ class ClaudeCodeHarness(Harness):
                 ]
             )
             if otel_rate_file:
-                lines.append(f"export OTEL_RATE_FILE={otel_rate_file}")
+                lines.append(f"export OTEL_RATE_FILE={shlex.quote(otel_rate_file)}")
         return lines
 
     def build_otel_exec_env(self, otel_port=None):
