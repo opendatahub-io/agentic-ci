@@ -67,57 +67,68 @@ def cmd_run(args, backend, harness):
     otel_log = None
     otel_rate = None
     otel_proc = None
+    rc = 1
 
-    if not args.no_otel and harness.supports_otel:
-        log.section("Starting OTEL collector")
-        otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
-        log.detail("pid", str(otel_proc.pid))
-        log.detail("port", str(otel_port))
+    try:
+        if not args.no_otel and harness.supports_otel:
+            log.section("Starting OTEL collector")
+            otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
+            log.detail("pid", str(otel_proc.pid))
+            log.detail("port", str(otel_port))
 
-    log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
-    rc = backend.run(
-        prompt=args.prompt,
-        model=model,
-        otel_port=otel_port,
-        otel_rate_file=otel_rate,
-        extra_args=args.extra_args,
-        streaming=not args.no_streaming,
-    )
+        log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
+        rc = backend.run(
+            prompt=args.prompt,
+            model=model,
+            otel_port=otel_port,
+            otel_rate_file=otel_rate,
+            extra_args=args.extra_args,
+            streaming=not args.no_streaming,
+        )
 
-    if otel_proc:
-        otel.stop_collector(otel_proc)
+        if otel_proc:
+            otel.stop_collector(otel_proc)
+            otel_proc = None
+            print(flush=True)
+            log.section(f"Agent exit code: {rc}")
+            log.section("Token/Cost Summary (OpenTelemetry)")
+            otel.print_summary(otel_log)
+        else:
+            print(flush=True)
+            log.section(f"Agent exit code: {rc}")
+
+        if rc == 0 and post_gate_names:
+            log.section("Running post-gates")
+            post_specs = resolve_gates(post_gate_names)
+            gate_errors: list[str] = []
+            for gate in post_specs:
+                errors = gate.fn(workdir=args.workdir)
+                if errors:
+                    gate_errors.extend(errors)
+                    for err in errors:
+                        print(f"  {gate.name}: FAILED - {err}", file=sys.stderr, flush=True)
+                else:
+                    log.info(f"{gate.name}: passed")
+            if gate_errors:
+                rc = 1
+
+        artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
+        if artifact_dir and otel_log:
+            try:
+                shutil.copy2(otel_log, artifact_dir)
+            except (OSError, FileNotFoundError):
+                pass
+
+    except KeyboardInterrupt:
         print(flush=True)
-        log.section(f"Agent exit code: {rc}")
-        log.section("Token/Cost Summary (OpenTelemetry)")
-        otel.print_summary(otel_log)
-    else:
-        print(flush=True)
-        log.section(f"Agent exit code: {rc}")
+        log.section("Interrupted")
+        rc = 130
 
-    if rc == 0 and post_gate_names:
-        log.section("Running post-gates")
-        post_specs = resolve_gates(post_gate_names)
-        gate_errors: list[str] = []
-        for gate in post_specs:
-            errors = gate.fn(workdir=args.workdir)
-            if errors:
-                gate_errors.extend(errors)
-                for err in errors:
-                    print(f"  {gate.name}: FAILED - {err}", file=sys.stderr, flush=True)
-            else:
-                log.info(f"{gate.name}: passed")
-        if gate_errors:
-            rc = 1
-
-    artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
-    if artifact_dir and otel_log:
-        try:
-            shutil.copy2(otel_log, artifact_dir)
-        except (OSError, FileNotFoundError):
-            pass
-
-    if not args.keep:
-        backend.stop()
+    finally:
+        if otel_proc:
+            otel.stop_collector(otel_proc)
+        if not args.keep:
+            backend.stop()
 
     sys.exit(rc)
 
