@@ -247,7 +247,7 @@ class OpenCodeHarness(Harness):
         return "OPENCODE_MODEL"
 
     def default_model(self):
-        return "google-vertex/claude-sonnet-4-6@default"
+        return "google-vertex/claude-opus-4-6@default"
 
 
 def create_harness(name: str) -> Harness:

@@ -168,4 +168,4 @@ class TestOpenCodeHarness:
         assert OpenCodeHarness().model_env_var() == "OPENCODE_MODEL"
 
     def test_default_model(self):
-        assert OpenCodeHarness().default_model() == "google-vertex/claude-sonnet-4-6@default"
+        assert OpenCodeHarness().default_model() == "google-vertex/claude-opus-4-6@default"
