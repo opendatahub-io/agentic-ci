@@ -221,7 +221,10 @@ class StreamProcessor:
                         self._end_block()
                         if self.claude_pid:
                             log.section("FULL RUN COMPLETE detected, terminating Claude")
-                            os.kill(self.claude_pid, signal.SIGTERM)
+                            try:
+                                os.kill(self.claude_pid, signal.SIGTERM)
+                            except ProcessLookupError:
+                                pass
                         return True
             return False
 

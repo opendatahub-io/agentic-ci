@@ -123,7 +123,13 @@ class PodmanBackend(Backend):
         if result.returncode == 0:
             log.section("Podman container stopped")
         else:
-            log.section("No container to stop")
+            stderr = (result.stderr or b"").decode("utf-8", errors="replace")
+            if "no such container" in stderr.lower():
+                log.section("No container to stop")
+            else:
+                raise subprocess.CalledProcessError(
+                    result.returncode, ["podman", "rm", "-f", CONTAINER_NAME], stderr=result.stderr
+                )
 
     def is_running(self):
         result = subprocess.run(
