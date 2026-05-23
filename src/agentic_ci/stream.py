@@ -1,6 +1,5 @@
-"""Parse Claude Code stream-json output into a human-readable CI log."""
+"""Stream processors for AI agent output formats."""
 
-import argparse
 import json
 import os
 import signal
@@ -12,6 +11,7 @@ from agentic_ci import log
 
 def _format_tool(name, params):
     """Return a compact one-line summary for known tools."""
+    name = name[0].upper() + name[1:] if name else name
     if name == "Bash":
         cmd = params.get("command", "")
         desc = params.get("description", "")
@@ -54,7 +54,7 @@ def _format_tool(name, params):
     return ", ".join(f"{k}={v}" for k, v in params.items())
 
 
-class StreamProcessor:
+class ClaudeCodeStreamProcessor:
     """Processes Claude Code stream-json and prints human-readable output."""
 
     def __init__(self, color=True, wrap=0, claude_pid=0):
@@ -331,31 +331,137 @@ class StreamProcessor:
         return False
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description="Parse Claude Code stream-json output")
-    parser.add_argument(
-        "--wrap",
-        type=int,
-        default=0,
-        metavar="COLS",
-        help="Word-wrap output at COLS columns (0 = no wrapping)",
-    )
-    parser.add_argument(
-        "--no-color", action="store_true", help="Disable ANSI color codes in output"
-    )
-    parser.add_argument(
-        "--claude-pid", type=int, default=0, help="PID of Claude Code process to kill on completion"
-    )
-    parsed = parser.parse_args(args)
+class OpenCodeStreamProcessor:
+    """Processes OpenCode JSON output and prints human-readable CI logs."""
 
-    processor = StreamProcessor(
-        color=not parsed.no_color,
-        wrap=parsed.wrap,
-        claude_pid=parsed.claude_pid,
-    )
-    processor.process(sys.stdin)
-    print()
+    def __init__(self, color=True, wrap=0, agent_pid=0):
+        self.wrap = wrap
+        self.agent_pid = agent_pid
 
+        if color:
+            self.TOOL = "\033[1;90m"
+            self.AGENT = ""
+            self.RED = "\033[31m"
+            self.RESET = "\033[0m"
+        else:
+            self.TOOL = self.AGENT = self.RED = self.RESET = ""
 
-if __name__ == "__main__":
-    main()
+        self._in_text = False
+        self._emitted_first_line = False
+        self._line_buf = ""
+
+    _INDENT = "  "
+
+    def _print_line(self, line):
+        prefix = self._INDENT if self._in_text and self._emitted_first_line else ""
+        if self.wrap and len(line) > self.wrap:
+            wrapped = ""
+            col = 0
+            for word in line.split(" "):
+                if col + len(word) > self.wrap and col > 0:
+                    wrapped += f"\n{prefix}"
+                    col = 0
+                if col > 0:
+                    wrapped += " "
+                    col += 1
+                wrapped += word
+                col += len(word)
+            print(f"{prefix}{wrapped}", flush=True)
+        else:
+            print(f"{prefix}{line}", flush=True)
+        self._emitted_first_line = True
+
+    def _emit(self, text):
+        self._line_buf += text
+        while "\n" in self._line_buf:
+            line, self._line_buf = self._line_buf.split("\n", 1)
+            self._print_line(line)
+
+    def _flush_emit(self):
+        if self._line_buf:
+            self._print_line(self._line_buf)
+            self._line_buf = ""
+
+    def _end_text(self):
+        if self._in_text:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_text = False
+
+    def process_line(self, line):
+        """Process a single JSONL line from OpenCode. Returns True when run is complete."""
+        line = line.strip()
+        if not line:
+            return False
+
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        msg_type = msg.get("type")
+        part = msg.get("part", {})
+
+        if msg_type == "error":
+            self._end_text()
+            error = msg.get("error", {})
+            error_msg = error.get("data", {}).get("message", str(error))
+            print(f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}", flush=True)
+            return False
+
+        if msg_type == "text":
+            text = part.get("text", "")
+            if not self._in_text:
+                print(f"{self._INDENT}{self.AGENT}\U0001f4ac Agent ", end="", flush=True)
+                self._in_text = True
+                self._emitted_first_line = False
+            self._emit(text + "\n")
+
+        elif msg_type == "tool_use":
+            self._end_text()
+            tool_name = part.get("tool", "unknown")
+            display_name = tool_name[0].upper() + tool_name[1:] if tool_name else tool_name
+            state = part.get("state", {})
+            inp = state.get("input", {})
+            title = part.get("title", "")
+            summary = _format_tool(tool_name, inp) if inp else title
+            print(
+                f"{self._INDENT}{self.TOOL}\U0001f527 {display_name} {summary}{self.RESET}",
+                flush=True,
+            )
+
+        elif msg_type == "step_start":
+            self._end_text()
+
+        elif msg_type == "step_finish":
+            self._end_text()
+            reason = part.get("reason", "")
+            tokens = part.get("tokens", {})
+            cost = part.get("cost", 0)
+            total = tokens.get("total", 0)
+            inp = tokens.get("input", 0)
+            out = tokens.get("output", 0)
+            cache = tokens.get("cache", {})
+            cache_r = cache.get("read", 0)
+            cache_w = cache.get("write", 0)
+            print(
+                f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS in={inp} "
+                f"out={out} "
+                f"cache_r={cache_r} "
+                f"cache_w={cache_w} "
+                f"total={total} cost=${cost:.4f}{self.RESET}",
+                flush=True,
+            )
+            if reason == "stop":
+                return True
+
+        return False
+
+    def process(self, input_stream):
+        """Process a stream of lines. Returns True if run completed normally."""
+        for line in input_stream:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="replace")
+            if self.process_line(line):
+                return True
+        return False

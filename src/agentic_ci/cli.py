@@ -9,6 +9,7 @@ import tempfile
 from agentic_ci import log, otel
 from agentic_ci.backends import create_backend
 from agentic_ci.gates import resolve_gates, validate_gate_env
+from agentic_ci.harness import create_harness
 
 
 def _parse_gate_list(value: str | None) -> list[str]:
@@ -27,7 +28,7 @@ def cmd_stop(args, backend):
     backend.stop()
 
 
-def cmd_run(args, backend):
+def cmd_run(args, backend, harness):
     pre_gate_names = _parse_gate_list(getattr(args, "pre_gates", None))
     post_gate_names = _parse_gate_list(getattr(args, "post_gates", None))
 
@@ -52,16 +53,13 @@ def cmd_run(args, backend):
 
     backend.setup()
 
+    model_env = harness.model_env_var()
     if args.model:
         model = args.model
-        model_source = "--model flag"
-    elif os.environ.get("CLAUDE_MODEL"):
-        model = os.environ["CLAUDE_MODEL"]
-        model_source = "CLAUDE_MODEL env var"
+    elif os.environ.get(model_env):
+        model = os.environ[model_env]
     else:
-        model = "claude-opus-4-6"
-        model_source = "default"
-    log.detail("Model", f"{model} (from {model_source})")
+        model = harness.default_model()
 
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
@@ -70,13 +68,13 @@ def cmd_run(args, backend):
     otel_rate = None
     otel_proc = None
 
-    if not args.no_otel:
+    if not args.no_otel and harness.supports_otel:
         log.section("Starting OTEL collector")
         otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
         log.detail("pid", str(otel_proc.pid))
         log.detail("port", str(otel_port))
 
-    log.section(f"Running Claude ({model}) via {args.backend} backend")
+    log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
     rc = backend.run(
         prompt=args.prompt,
         model=model,
@@ -89,12 +87,12 @@ def cmd_run(args, backend):
     if otel_proc:
         otel.stop_collector(otel_proc)
         print(flush=True)
-        log.section(f"Claude exit code: {rc}")
+        log.section(f"Agent exit code: {rc}")
         log.section("Token/Cost Summary (OpenTelemetry)")
         otel.print_summary(otel_log)
     else:
         print(flush=True)
-        log.section(f"Claude exit code: {rc}")
+        log.section(f"Agent exit code: {rc}")
 
     if rc == 0 and post_gate_names:
         log.section("Running post-gates")
@@ -127,7 +125,7 @@ def cmd_run(args, backend):
 def main():
     parser = argparse.ArgumentParser(
         prog="agentic-ci",
-        description="Run Claude Code in a sandboxed CI environment",
+        description="Run AI coding agents in a sandboxed CI environment",
     )
     parser.add_argument(
         "--backend",
@@ -135,13 +133,18 @@ def main():
         default="podman",
         help="Sandbox backend (default: podman)",
     )
-
     sub = parser.add_subparsers(dest="command")
 
     # Common arguments shared by both subcommands
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
+    common.add_argument(
+        "--harness",
+        choices=["claude-code", "opencode"],
+        default="claude-code",
+        help="AI agent harness (default: claude-code)",
+    )
     common.add_argument(
         "--policy",
         default=None,
@@ -162,7 +165,7 @@ def main():
     p_run = sub.add_parser(
         "run", parents=[common], help="Execute a prompt in a sandbox environment"
     )
-    p_run.add_argument("prompt", help="Prompt to send to Claude")
+    p_run.add_argument("prompt", help="Prompt to send to the agent")
     p_run.add_argument(
         "--no-streaming", action="store_true", help="Disable pretty-printed stream output"
     )
@@ -176,19 +179,19 @@ def main():
         "--model",
         default=None,
         metavar="MODEL",
-        help="Claude model (default: $CLAUDE_MODEL or claude-opus-4-6)",
+        help="Agent model (default from harness env var or harness default)",
     )
     p_run.add_argument(
         "--pre-gates",
         default=None,
         metavar="GATES",
-        help="Comma-separated list of pre-agent gates to run before Claude",
+        help="Comma-separated list of pre-agent gates to run before the agent",
     )
     p_run.add_argument(
         "--post-gates",
         default=None,
         metavar="GATES",
-        help="Comma-separated list of post-agent gates to run after Claude",
+        help="Comma-separated list of post-agent gates to run after the agent",
     )
 
     args, extra = parser.parse_known_args()
@@ -201,10 +204,14 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    harness = create_harness(args.harness)
+
     log.section(f"Backend: {args.backend}")
+    log.detail("Harness", harness.name)
     log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,
+        harness=harness,
         workdir=args.workdir,
         image=args.image,
         policy=args.policy,
@@ -216,7 +223,7 @@ def main():
     elif args.command == "stop":
         cmd_stop(args, backend)
     elif args.command == "run":
-        cmd_run(args, backend)
+        cmd_run(args, backend, harness)
 
 
 if __name__ == "__main__":
