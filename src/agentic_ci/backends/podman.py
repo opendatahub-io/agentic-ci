@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 
+from agentic_ci import log
 from agentic_ci.backend import Backend
 
 CONTAINER_NAME = "agentic-ci"
@@ -31,19 +32,19 @@ class PodmanBackend(Backend):
         self._resolve_credentials()
 
         if self.is_running():
-            print("--- Podman container already running ---", flush=True)
+            log.section("Podman container already running")
             return
 
         subprocess.run(["podman", "rm", "-f", CONTAINER_NAME], capture_output=True)
 
         if os.getuid() == 0:
-            print("  Container user: root (chown workdir)", flush=True)
+            log.detail("Container user", "root (chown workdir)")
             subprocess.run(
                 ["chown", "-R", "1000:1000", self.workdir],
                 capture_output=True,
             )
         else:
-            print("  Container user: rootless (userns keep-id)", flush=True)
+            log.detail("Container user", "rootless (userns keep-id)")
 
         env_args = self._build_env_args()
         vol_args = self._build_vol_args()
@@ -52,6 +53,18 @@ class PodmanBackend(Backend):
             ["--user", "1000:1000"] if os.getuid() == 0 else ["--userns=keep-id:uid=1000,gid=1000"]
         )
 
+        log.section("Pulling image")
+        proc = subprocess.Popen(
+            ["podman", "pull", self.image],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        for line in proc.stdout:
+            log.info(line.decode("utf-8", errors="replace").rstrip())
+        rc = proc.wait()
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, ["podman", "pull", self.image])
+
         cmd = [
             "podman",
             "run",
@@ -59,7 +72,7 @@ class PodmanBackend(Backend):
             "--name",
             CONTAINER_NAME,
             "--pull",
-            "newer",
+            "never",
             "--network",
             "host",
             *user_args,
@@ -74,7 +87,7 @@ class PodmanBackend(Backend):
         ]
 
         subprocess.run(cmd, check=True, capture_output=True)
-        print("--- Podman container started ---", flush=True)
+        log.section("Podman container started")
 
     def run(
         self,
@@ -88,7 +101,7 @@ class PodmanBackend(Backend):
         if not self.is_running():
             self.setup()
 
-        print("--- Executing Claude in container ---", flush=True)
+        log.section("Executing Claude in container")
         otel_env = self._build_otel_exec_env(otel_port)
         claude_args = self._build_claude_args(prompt, model, extra_args)
 
@@ -108,9 +121,9 @@ class PodmanBackend(Backend):
             capture_output=True,
         )
         if result.returncode == 0:
-            print("--- Podman container stopped ---", flush=True)
+            log.section("Podman container stopped")
         else:
-            print("--- No container to stop ---", flush=True)
+            log.section("No container to stop")
 
     def is_running(self):
         result = subprocess.run(
@@ -134,7 +147,7 @@ class PodmanBackend(Backend):
                 raise RuntimeError(
                     "No container image specified. Use --image or set CLAUDE_CONTAINER_IMAGE."
                 )
-        print(f"  Image: {self.image}", flush=True)
+        log.detail("Image", self.image)
 
     def _resolve_credentials(self):
         if self._config_dir is not None:
@@ -160,7 +173,7 @@ class PodmanBackend(Backend):
         with open(adc_path, "w") as f:
             f.write(creds_json)
 
-        print(f"--- Credentials staged ({creds_source}) ---", flush=True)
+        log.section(f"Credentials staged ({creds_source})")
 
     def _find_credentials(self):
         """Locate and validate gcloud credentials. Returns (json_string, source_label)."""

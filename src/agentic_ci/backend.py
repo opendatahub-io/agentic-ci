@@ -1,9 +1,11 @@
 """Abstract base class for sandbox backends."""
 
 import os
+import sys
 import time
 from abc import ABC, abstractmethod
 
+from agentic_ci import log
 from agentic_ci.stream import StreamProcessor
 
 
@@ -74,7 +76,9 @@ class Backend(ABC):
                     stream_complete = True
                     break
         else:
-            proc.stdout.read()
+            for line in proc.stdout:
+                sys.stdout.buffer.write(line)
+                sys.stdout.buffer.flush()
 
         try:
             proc.kill()
@@ -84,10 +88,7 @@ class Backend(ABC):
         rc = proc.returncode
 
         if stream_complete and rc != 0:
-            print(
-                f"--- stream processor detected run complete (rc={rc}), treating as success ---",
-                flush=True,
-            )
+            log.info(f"stream processor detected run complete (rc={rc}), treating as success")
             rc = 0
 
         return rc

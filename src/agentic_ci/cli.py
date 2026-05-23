@@ -6,7 +6,7 @@ import shutil
 import sys
 import tempfile
 
-from agentic_ci import otel
+from agentic_ci import log, otel
 from agentic_ci.backends import create_backend
 from agentic_ci.gates import resolve_gates, validate_gate_env
 
@@ -20,7 +20,7 @@ def _parse_gate_list(value: str | None) -> list[str]:
 
 def cmd_setup(args, backend):
     backend.setup()
-    print("--- Setup complete ---", flush=True)
+    log.section("Setup complete")
 
 
 def cmd_stop(args, backend):
@@ -40,7 +40,7 @@ def cmd_run(args, backend):
         validate_gate_env(all_gates)
 
     if pre_gate_names:
-        print("--- Running pre-gates ---", flush=True)
+        log.section("Running pre-gates")
         pre_specs = resolve_gates(pre_gate_names)
         for gate in pre_specs:
             errors = gate.fn(workdir=args.workdir)
@@ -48,7 +48,7 @@ def cmd_run(args, backend):
                 for err in errors:
                     print(f"Pre-gate {gate.name} blocked: {err}", flush=True)
                 sys.exit(0)
-            print(f"  {gate.name}: passed", flush=True)
+            log.info(f"{gate.name}: passed")
 
     backend.setup()
 
@@ -61,7 +61,7 @@ def cmd_run(args, backend):
     else:
         model = "claude-opus-4-6"
         model_source = "default"
-    print(f"  Model: {model} (from {model_source})", flush=True)
+    log.detail("Model", f"{model} (from {model_source})")
 
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
@@ -71,14 +71,12 @@ def cmd_run(args, backend):
     otel_proc = None
 
     if not args.no_otel:
-        print("--- Starting OTEL collector ---", flush=True)
+        log.section("Starting OTEL collector")
         otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
-        print(
-            f"--- OTEL collector started (pid {otel_proc.pid}, port {otel_port}) ---",
-            flush=True,
-        )
+        log.detail("pid", str(otel_proc.pid))
+        log.detail("port", str(otel_port))
 
-    print(f"--- Running Claude ({model}) via {args.backend} backend ---", flush=True)
+    log.section(f"Running Claude ({model}) via {args.backend} backend")
     rc = backend.run(
         prompt=args.prompt,
         model=model,
@@ -90,14 +88,16 @@ def cmd_run(args, backend):
 
     if otel_proc:
         otel.stop_collector(otel_proc)
-        print(f"\n--- Claude exit code: {rc} ---", flush=True)
-        print("--- OTEL Token/Cost Summary ---", flush=True)
+        print(flush=True)
+        log.section(f"Claude exit code: {rc}")
+        log.section("Token/Cost Summary (OpenTelemetry)")
         otel.print_summary(otel_log)
     else:
-        print(f"\n--- Claude exit code: {rc} ---", flush=True)
+        print(flush=True)
+        log.section(f"Claude exit code: {rc}")
 
     if rc == 0 and post_gate_names:
-        print("--- Running post-gates ---", flush=True)
+        log.section("Running post-gates")
         post_specs = resolve_gates(post_gate_names)
         gate_errors: list[str] = []
         for gate in post_specs:
@@ -107,7 +107,7 @@ def cmd_run(args, backend):
                 for err in errors:
                     print(f"  {gate.name}: FAILED - {err}", file=sys.stderr, flush=True)
             else:
-                print(f"  {gate.name}: passed", flush=True)
+                log.info(f"{gate.name}: passed")
         if gate_errors:
             rc = 1
 
@@ -193,7 +193,8 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    print(f"--- Backend: {args.backend} | Workdir: {os.path.abspath(args.workdir)} ---", flush=True)
+    log.section(f"Backend: {args.backend}")
+    log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,
         workdir=args.workdir,
