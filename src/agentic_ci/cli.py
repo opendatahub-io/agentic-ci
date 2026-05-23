@@ -118,6 +118,9 @@ def cmd_run(args, backend):
         except (OSError, FileNotFoundError):
             pass
 
+    if not args.keep:
+        backend.stop()
+
     sys.exit(rc)
 
 
@@ -164,6 +167,11 @@ def main():
         "--no-streaming", action="store_true", help="Disable pretty-printed stream output"
     )
     p_run.add_argument("--no-otel", action="store_true", help="Disable OTEL telemetry collection")
+    p_run.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the sandbox environment running after the run completes",
+    )
     p_run.add_argument(
         "--model",
         default=None,
