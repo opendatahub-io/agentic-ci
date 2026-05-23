@@ -112,6 +112,63 @@ class TestProcessLine:
         assert "Model not found" in captured.out
 
 
+class TestThinking:
+    def test_thinking_event(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event(
+            "thinking",
+            part={"type": "thinking", "text": "Let me analyze this code"},
+        )
+        assert proc.process_line(line) is False
+        captured = capsys.readouterr()
+        assert "\U0001f9e0" in captured.out
+        assert "Thinking" in captured.out
+        assert "Let me analyze this code" in captured.out
+
+    def test_thinking_ends_on_text(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(_make_event("thinking", part={"type": "thinking", "text": "Hmm"}))
+        proc.process_line(_make_event("text", part={"type": "text", "text": "Hello"}))
+        captured = capsys.readouterr()
+        assert "Thinking" in captured.out
+        assert "Agent" in captured.out
+
+    def test_thinking_ends_on_tool(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(_make_event("thinking", part={"type": "thinking", "text": "Planning"}))
+        proc.process_line(
+            _make_event(
+                "tool_use",
+                part={
+                    "type": "tool",
+                    "tool": "bash",
+                    "state": {"status": "completed", "input": {"command": "ls"}},
+                },
+            )
+        )
+        captured = capsys.readouterr()
+        assert "Thinking" in captured.out
+        assert "Bash" in captured.out
+
+
+class TestFallbackTruncation:
+    def test_long_value_truncated(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        long_val = "x" * 100
+        line = _make_event(
+            "tool_use",
+            part={
+                "type": "tool",
+                "tool": "custom_tool",
+                "state": {"status": "completed", "input": {"data": long_val}},
+            },
+        )
+        proc.process_line(line)
+        captured = capsys.readouterr()
+        assert "x" * 60 + "…" in captured.out
+        assert "x" * 100 not in captured.out
+
+
 class TestProcess:
     def test_full_run(self, capsys):
         proc = OpenCodeStreamProcessor(color=False)
@@ -193,3 +250,98 @@ class TestToolFormatting:
         proc.process_line(line)
         captured = capsys.readouterr()
         assert "/tmp/test.py" in captured.out
+
+    def test_read_tool_camelcase(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event(
+            "tool_use",
+            part={
+                "type": "tool",
+                "tool": "read",
+                "state": {
+                    "status": "completed",
+                    "input": {"filePath": "/workspace/README.md"},
+                },
+                "title": "README.md",
+            },
+        )
+        proc.process_line(line)
+        captured = capsys.readouterr()
+        assert "/workspace/README.md" in captured.out
+
+    def test_edit_tool_camelcase(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event(
+            "tool_use",
+            part={
+                "type": "tool",
+                "tool": "edit",
+                "state": {
+                    "status": "completed",
+                    "input": {
+                        "filePath": "/tmp/test.py",
+                        "oldString": "foo",
+                        "newString": "bar",
+                    },
+                },
+            },
+        )
+        proc.process_line(line)
+        captured = capsys.readouterr()
+        assert "/tmp/test.py" in captured.out
+
+    def test_task_tool(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event(
+            "tool_use",
+            part={
+                "type": "tool",
+                "tool": "task",
+                "state": {
+                    "status": "completed",
+                    "input": {
+                        "description": "Explore codebase structure",
+                        "subagent_type": "explore",
+                        "prompt": "Thoroughly explore the codebase\nLine 2\nLine 3",
+                    },
+                    "output": (
+                        "task_id: ses_abc123\n\n<task_result>\n"
+                        "Found 5 files.\nAll tests pass.\n</task_result>"
+                    ),
+                },
+                "title": "Explore codebase structure",
+            },
+        )
+        proc.process_line(line)
+        captured = capsys.readouterr()
+        assert "\U0001f916" in captured.out
+        assert "[explore]" in captured.out
+        assert "Explore codebase structure" in captured.out
+        assert "Thoroughly explore the codebase" in captured.out
+        assert "Line 2" in captured.out
+        assert "Found 5 files." in captured.out
+        assert "All tests pass." in captured.out
+        assert "task_id" not in captured.out
+        assert "task_result" not in captured.out
+
+    def test_task_tool_camelcase(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event(
+            "tool_use",
+            part={
+                "type": "tool",
+                "tool": "task",
+                "state": {
+                    "status": "completed",
+                    "input": {
+                        "description": "Verify README",
+                        "subagentType": "explore",
+                        "prompt": "Check the README",
+                    },
+                },
+            },
+        )
+        proc.process_line(line)
+        captured = capsys.readouterr()
+        assert "[explore]" in captured.out
+        assert "Verify README" in captured.out

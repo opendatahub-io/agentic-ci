@@ -2,11 +2,21 @@
 
 import json
 import os
+import re
 import signal
 import sys
 import time
 
 from agentic_ci import log
+
+
+def _get(params, *keys):
+    """Get the first non-empty value for any of the given keys."""
+    for k in keys:
+        v = params.get(k, "")
+        if v:
+            return v
+    return ""
 
 
 def _format_tool(name, params):
@@ -17,7 +27,7 @@ def _format_tool(name, params):
         desc = params.get("description", "")
         return f"$ {cmd}" + (f"  # {desc}" if desc else "")
     if name == "Read":
-        path = params.get("file_path", "")
+        path = _get(params, "file_path", "filePath")
         parts = [path]
         if "offset" in params:
             parts.append(f"L{params['offset']}")
@@ -25,10 +35,10 @@ def _format_tool(name, params):
             parts.append(f"+{params['limit']}")
         return " ".join(parts)
     if name == "Write":
-        return params.get("file_path", "")
+        return _get(params, "file_path", "filePath")
     if name == "Edit":
-        path = params.get("file_path", "")
-        old = params.get("old_string", "")
+        path = _get(params, "file_path", "filePath")
+        old = _get(params, "old_string", "oldString")
         preview = old.split("\n")[0][:60]
         if len(old) > len(preview):
             preview += "…"
@@ -41,17 +51,26 @@ def _format_tool(name, params):
         pattern = params.get("pattern", "")
         path = params.get("path", ".")
         return f"/{pattern}/ in {path}"
-    if name == "Agent":
+    if name in ("Agent", "Task"):
         desc = params.get("description", "")
-        agent_type = params.get("subagent_type", "")
+        agent_type = _get(params, "subagent_type", "subagentType")
         return f"[{agent_type}] {desc}" if agent_type else desc
     if name == "Skill":
         skill = params.get("skill", "")
         skill_args = params.get("args", "")
         return f"/{skill} {skill_args}".strip()
-    if name == "TaskGet":
-        return params.get("task_id", "")
-    return ", ".join(f"{k}={v}" for k, v in params.items())
+    if name in ("TaskGet", "Taskget"):
+        return _get(params, "task_id", "taskId")
+    parts = []
+    for k, v in params.items():
+        val = str(v)
+        if len(val) > 60:
+            val = val[:60] + "…"
+        parts.append(f"{k}={val}")
+    result = ", ".join(parts)
+    if len(result) > 200:
+        result = result[:200] + "…"
+    return result
 
 
 class ClaudeCodeStreamProcessor:
@@ -339,14 +358,16 @@ class OpenCodeStreamProcessor:
         self.agent_pid = agent_pid
 
         if color:
+            self.THINK = "\033[3;31m"
             self.TOOL = "\033[1;90m"
             self.AGENT = ""
             self.RED = "\033[31m"
             self.RESET = "\033[0m"
         else:
-            self.TOOL = self.AGENT = self.RED = self.RESET = ""
+            self.THINK = self.TOOL = self.AGENT = self.RED = self.RESET = ""
 
         self._in_text = False
+        self._in_thinking = False
         self._emitted_first_line = False
         self._line_buf = ""
 
@@ -387,6 +408,32 @@ class OpenCodeStreamProcessor:
             self._flush_emit()
             sys.stdout.write(self.RESET + "\n")
             self._in_text = False
+        if self._in_thinking:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_thinking = False
+
+    _TASK_INDENT = "    "
+
+    def _print_task_detail(self, inp, output):
+        prompt = inp.get("prompt", "")
+        if prompt:
+            lines = prompt.split("\n")
+            for line in lines[:10]:
+                print(f"{self._TASK_INDENT}{self.TOOL}{line}{self.RESET}", flush=True)
+            if len(lines) > 10:
+                print(
+                    f"{self._TASK_INDENT}{self.TOOL}... ({len(lines) - 10} more lines){self.RESET}",
+                    flush=True,
+                )
+        if not output:
+            return
+        body = re.sub(r"^task_id:.*\n*", "", output)
+        body = re.sub(r"</?task_result>\n?", "", body).strip()
+        if not body:
+            return
+        for line in body.split("\n"):
+            print(f"{self._TASK_INDENT}{line}", flush=True)
 
     def process_line(self, line):
         """Process a single JSONL line from OpenCode. Returns True when run is complete."""
@@ -412,8 +459,18 @@ class OpenCodeStreamProcessor:
         if msg_type == "text":
             text = part.get("text", "")
             if not self._in_text:
+                self._end_text()
                 print(f"{self._INDENT}{self.AGENT}\U0001f4ac Agent ", end="", flush=True)
                 self._in_text = True
+                self._emitted_first_line = False
+            self._emit(text + "\n")
+
+        elif msg_type == "thinking":
+            text = part.get("text", "")
+            if not self._in_thinking:
+                self._end_text()
+                print(f"{self._INDENT}{self.THINK}\U0001f9e0 Thinking ", end="", flush=True)
+                self._in_thinking = True
                 self._emitted_first_line = False
             self._emit(text + "\n")
 
@@ -425,10 +482,13 @@ class OpenCodeStreamProcessor:
             inp = state.get("input", {})
             title = part.get("title", "")
             summary = _format_tool(tool_name, inp) if inp else title
+            icon = "\U0001f916" if tool_name in ("task", "agent") else "\U0001f527"
             print(
-                f"{self._INDENT}{self.TOOL}\U0001f527 {display_name} {summary}{self.RESET}",
+                f"{self._INDENT}{self.TOOL}{icon} {display_name} {summary}{self.RESET}",
                 flush=True,
             )
+            if tool_name in ("task", "agent"):
+                self._print_task_detail(inp, state.get("output", ""))
 
         elif msg_type == "step_start":
             self._end_text()
