@@ -5,6 +5,7 @@ import shlex
 import shutil
 import tempfile
 
+from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, policy, sandbox
 
@@ -24,13 +25,13 @@ class OpenShellBackend(Backend):
 
     def setup(self):
         if not gateway.is_running():
-            print("--- Starting OpenShell gateway ---", flush=True)
+            log.section("Starting OpenShell gateway")
             gateway.start()
         else:
-            print("--- OpenShell gateway already running ---", flush=True)
+            log.section("OpenShell gateway already running")
 
         if sandbox.exists():
-            print("--- Sandbox already exists ---", flush=True)
+            log.section("Sandbox already exists")
             return
 
         resolved_policy = policy.resolve(
@@ -38,18 +39,18 @@ class OpenShellBackend(Backend):
             workdir=self.workdir,
         )
         image_info = f", image: {self.image}" if self.image else ""
-        print(f"--- Creating sandbox (policy: {resolved_policy}{image_info}) ---", flush=True)
+        log.section(f"Creating sandbox (policy: {resolved_policy}{image_info})")
         sandbox.create(image=self.image, policy_path=resolved_policy)
 
         self._upload_credentials()
 
     def stop(self):
         if not sandbox.exists():
-            print("--- No sandbox to stop ---", flush=True)
+            log.section("No sandbox to stop")
             return
 
         sandbox.delete()
-        print("--- Sandbox deleted ---", flush=True)
+        log.section("Sandbox deleted")
 
     def run(
         self,
@@ -107,10 +108,10 @@ class OpenShellBackend(Backend):
             adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
             source = "GOOGLE_APPLICATION_CREDENTIALS file"
         if not adc or not os.path.isfile(adc):
-            print("--- No credentials found to upload ---", flush=True)
+            log.section("No credentials found to upload")
             return
 
-        print(f"--- Uploading credentials ({source}) ---", flush=True)
+        log.section(f"Uploading credentials ({source})")
 
         staging = tempfile.mkdtemp(prefix="agentic-ci-creds-")
         try:

@@ -112,6 +112,7 @@ def start_collector(run_dir):
     proc = subprocess.Popen(
         [sys.executable, "-m", "agentic_ci.otel"],
         env=env,
+        stderr=subprocess.DEVNULL,
     )
 
     for _ in range(50):
@@ -217,10 +218,6 @@ def print_summary(log_file):
 
     token_totals, cost_totals, api_requests, active_time = parse_metrics(records)
 
-    print("=" * 60)
-    print("  CLAUDE TOKEN & COST SUMMARY (OpenTelemetry)")
-    print("=" * 60)
-
     if token_totals:
         models = sorted(set(m for m, _ in token_totals.keys()))
         for model in models:
@@ -256,8 +253,6 @@ def print_summary(log_file):
         total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
-
-    print("=" * 60)
 
 
 def main():

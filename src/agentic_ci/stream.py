@@ -7,6 +7,8 @@ import signal
 import sys
 import time
 
+from agentic_ci import log
+
 
 def _format_tool(name, params):
     """Return a compact one-line summary for known tools."""
@@ -138,6 +140,49 @@ class StreamProcessor:
             self._tool_name = None
             self._tool_json = ""
 
+    def _format_init(self, msg):
+        version = msg.get("claude_code_version", "unknown")
+        model = msg.get("model", "unknown")
+        perms = msg.get("permissionMode", "unknown")
+        tools = msg.get("tools", [])
+        mcp = msg.get("mcp_servers", [])
+        agents = msg.get("agents", [])
+        plugins = msg.get("plugins", [])
+        log.section(f"Claude Code v{version}")
+        log.detail("Model", model)
+        log.detail("Permissions", perms)
+        log.detail("Tools", f"{len(tools)} available")
+        if mcp:
+            log.detail(
+                "MCP servers",
+                ", ".join(s.get("name", s) if isinstance(s, dict) else s for s in mcp),
+            )
+        else:
+            log.detail("MCP servers", "none")
+        log.detail("Agents", f"{len(agents)} available")
+        if plugins:
+            log.detail(
+                "Plugins",
+                ", ".join(p.get("name", str(p)) if isinstance(p, dict) else p for p in plugins),
+            )
+
+    def _format_result(self, msg):
+        subtype = msg.get("subtype", "unknown")
+        stop = msg.get("stop_reason", "")
+        duration_ms = msg.get("duration_ms", 0)
+        api_ms = msg.get("duration_api_ms", 0)
+        ttft_ms = msg.get("ttft_ms", 0)
+        turns = msg.get("num_turns", 0)
+        cost = msg.get("total_cost_usd", 0)
+        label = f"{subtype} ({stop})" if stop else subtype
+        log.section(f"Result: {label}")
+        log.detail(
+            "Duration",
+            f"{duration_ms / 1000:.1f}s (API: {api_ms / 1000:.1f}s, TTFT: {ttft_ms / 1000:.1f}s)",
+        )
+        log.detail("Turns", str(turns))
+        log.detail("Cost", f"${cost:.4f}")
+
     def process_line(self, line):
         """Process a single line of stream-json. Returns True if run is complete."""
         line = line.strip()
@@ -153,14 +198,16 @@ class StreamProcessor:
 
         if msg_type == "system":
             subtype = msg.get("subtype", "")
-            if subtype == "api_retry":
+            if subtype == "init":
+                self._format_init(msg)
+            elif subtype == "api_retry":
                 attempt = msg.get("attempt", "?")
                 max_retries = msg.get("max_retries", "?")
                 delay = msg.get("retry_delay_ms", "?")
                 error = msg.get("error", "unknown")
                 self._last_block_type = "system"
                 print(
-                    f"{self.YELLOW}\U0001f504 Retry {attempt}/{max_retries}{self.RESET} "
+                    f"  {self.YELLOW}\U0001f504 Retry {attempt}/{max_retries}{self.RESET} "
                     f"{error} — retrying in {delay}ms",
                     flush=True,
                 )
@@ -173,15 +220,17 @@ class StreamProcessor:
                     if isinstance(content, str) and "FULL RUN COMPLETE" in content:
                         self._end_block()
                         if self.claude_pid:
-                            print(
-                                "--- FULL RUN COMPLETE detected, terminating Claude ---", flush=True
-                            )
-                            os.kill(self.claude_pid, signal.SIGTERM)
+                            log.section("FULL RUN COMPLETE detected, terminating Claude")
+                            try:
+                                os.kill(self.claude_pid, signal.SIGTERM)
+                            except ProcessLookupError:
+                                pass
                         return True
             return False
 
         if msg_type == "result":
             self._end_block()
+            self._format_result(msg)
             return True
 
         if msg_type != "stream_event":
@@ -195,11 +244,11 @@ class StreamProcessor:
             block_type = block.get("type")
             if block_type == "text":
                 self._last_block_type = "text"
-                print(f"{self.CLAUDE}\U0001f4ac Claude ", end="", flush=True)
+                print(f"  {self.CLAUDE}\U0001f4ac Claude ", end="", flush=True)
                 self._in_text = True
             elif block_type == "thinking":
                 self._last_block_type = "thinking"
-                print(f"{self.THINK}\U0001f9e0 Thinking ", end="", flush=True)
+                print(f"  {self.THINK}\U0001f9e0 Thinking ", end="", flush=True)
                 self._in_thinking = True
             elif block_type in ("tool_use", "server_tool_use"):
                 self._tool_name = block.get("name", "unknown")
@@ -269,7 +318,7 @@ class StreamProcessor:
             error_msg = error.get("message", "")
             self._last_block_type = "error"
             print(
-                f"{self.RED}❌ Error: {error_type}: {error_msg}{self.RESET}",
+                f"  {self.RED}❌ Error: {error_type}: {error_msg}{self.RESET}",
                 flush=True,
             )
 
