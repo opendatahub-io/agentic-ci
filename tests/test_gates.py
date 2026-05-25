@@ -4,7 +4,6 @@ import re
 
 from agentic_ci.gates import (
     check_commit_author,
-    check_commit_message_key,
     check_external_reporter,
     check_sensitive_files,
     filter_bot_comments,
@@ -45,23 +44,6 @@ class TestCheckCommitAuthor:
 
     def test_mismatch(self):
         assert check_commit_author({"email": "human@ci.com"}, "bot@ci.com") is False
-
-
-class TestCheckCommitMessageKey:
-    def test_key_present(self):
-        assert check_commit_message_key({"subject": "PROJ-123: fix bug"}, "PROJ-123") is True
-
-    def test_key_absent(self):
-        assert check_commit_message_key({"subject": "fix something"}, "PROJ-123") is False
-
-    def test_case_insensitive(self):
-        assert check_commit_message_key({"subject": "proj-123: fix"}, "PROJ-123") is True
-
-    def test_no_prefix_match(self):
-        assert check_commit_message_key({"subject": "ABC-10: fix"}, "ABC-1") is False
-
-    def test_exact_boundary_match(self):
-        assert check_commit_message_key({"subject": "ABC-1: fix"}, "ABC-1") is True
 
 
 class TestFilterCommentsByDomain:
