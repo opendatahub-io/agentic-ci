@@ -244,6 +244,23 @@ def check_external_reporter(
     return None
 
 
+def check_label_author_email(
+    author_info: dict,
+    domain_pattern: re.Pattern[str],
+) -> bool:
+    """Verify that the label's author email matches ``domain_pattern``.
+
+    ``author_info`` is the dict returned by ``JiraClient.get_label_author()``,
+    expected to contain ``"found"`` (bool) and ``"email"`` (str) keys.
+
+    Returns True if the author was found and the email matches.
+    """
+    if not author_info.get("found"):
+        return False
+    email = author_info.get("email", "")
+    return bool(domain_pattern.search(email))
+
+
 # -- CLI gate runners --------------------------------------------------------
 # These wrap the core gate functions with workdir-derived context
 # so the CLI can invoke them by name.

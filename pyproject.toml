@@ -35,6 +35,12 @@ Homepage = "https://github.com/opendatahub-io/agentic-ci"
 Repository = "https://github.com/opendatahub-io/agentic-ci"
 Issues = "https://github.com/opendatahub-io/agentic-ci/issues"
 
+[project.optional-dependencies]
+forge = [
+    "PyJWT>=2.0",
+    "cryptography>=3.4",
+]
+
 [project.scripts]
 agentic-ci = "agentic_ci.cli:main"
 
