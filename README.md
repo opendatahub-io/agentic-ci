@@ -1,14 +1,15 @@
 # agentic-ci
 
-Run Claude Code in sandboxed CI environments with streaming output and
-telemetry. Supports multiple isolation backends so you can choose the
-right tradeoff between simplicity and security.
+Run AI coding agents in sandboxed CI environments with streaming output
+and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
+and isolation backends so you can choose the right tradeoff between
+simplicity and security.
 
 ## Backends
 
 ### Podman (default)
 
-Runs Claude inside a Podman container. Each `run` creates a fresh
+Runs the agent inside a Podman container. Each `run` creates a fresh
 container that auto-deletes on exit. The work directory is mounted
 into the container and gcloud credentials are mounted read-only.
 
@@ -21,12 +22,12 @@ backend if you need stronger security controls.
 Good for: local development, CI runners that already have Podman,
 quick one-off runs in trusted environments.
 
-Requires: `podman`, a container image with Claude Code installed
+Requires: `podman`, a container image with the agent CLI installed
 (e.g. `ghcr.io/opendatahub-io/ai-helpers:latest`).
 
 ### OpenShell
 
-Runs Claude inside an [OpenShell](https://github.com/NVIDIA/OpenShell)
+Runs the agent inside an [OpenShell](https://github.com/NVIDIA/OpenShell)
 sandbox with network policy enforcement, Landlock-based filesystem
 access control, and fine-grained endpoint restrictions. Network
 policies limit which hosts the agent can reach (e.g. only Vertex AI,
@@ -69,12 +70,14 @@ down. `run` auto-calls `setup` if the sandbox isn't already running.
 # Start the sandbox
 agentic-ci setup --image ghcr.io/opendatahub-io/ai-helpers:latest
 
-# Run multiple prompts in the same sandbox
-agentic-ci run "Fix the flaky test" --image ghcr.io/opendatahub-io/ai-helpers:latest
-agentic-ci run "Update the changelog" --image ghcr.io/opendatahub-io/ai-helpers:latest
+# Run multiple prompts in the same sandbox (use --keep to prevent auto-teardown)
+agentic-ci run "Fix the flaky test" --keep \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest
+agentic-ci run "Update the changelog" \
+    --image ghcr.io/opendatahub-io/ai-helpers:latest
 
 # Tear down the sandbox
-agentic-ci stop --image ghcr.io/opendatahub-io/ai-helpers:latest
+agentic-ci stop
 ```
 
 ### Options
@@ -86,10 +89,12 @@ agentic-ci [--backend {podman,openshell}] {setup,run,stop} [options]
 | Flag | Default | Description |
 |---|---|---|
 | `--backend` | `podman` | Sandbox backend to use |
+| `--harness` | `claude-code` | Agent harness (`claude-code` or `opencode`) |
 | `--workdir PATH` | `.` | Working directory to mount |
 | `--image IMAGE` | — | Container or sandbox base image |
-| `--model MODEL` | `claude-opus-4-6` | Claude model (`run` only) |
-| `--no-streaming` | off | Disable pretty-printed stream output (`run` only) |
+| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode |
+| `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
+| `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
 | `--pre-gates GATES` | — | Comma-separated pre-agent gates (`run` only) |
 | `--post-gates GATES` | — | Comma-separated post-agent gates (`run` only) |
@@ -106,7 +111,7 @@ agentic-ci run "Update the changelog" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest \
     --model claude-sonnet-4-6
 
-# Disable streaming for raw output
+# Disable parsed stream output (prints raw agent output)
 agentic-ci run "Run the test suite" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest \
     --no-streaming
@@ -147,6 +152,9 @@ changes. Gates read their configuration from environment variables.
 | `commit-message-key` | `TICKET_KEY` | Verify ticket key appears in commit message |
 | `gitleaks` | — | Scan new commits for secrets using gitleaks |
 
+Pre-agent gates are supported via `--pre-gates` with custom
+implementations (e.g. filtering by comment domain or author).
+
 All required environment variables are validated before any gate runs.
 If any are missing, the CLI exits immediately with a clear error listing
 every missing variable and which gate needs it.
@@ -171,39 +179,57 @@ The **openshell** backend uploads the local ADC file
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-opus-4-6` | Default model (overridden by `--model`) |
-| `CLAUDE_CONTAINER_IMAGE` | — | Default container image for podman backend |
+| `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`) |
+| `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
+| `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`) |
+| `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
 | `GCP_PROJECT_ID` | — | Fallback for `ANTHROPIC_VERTEX_PROJECT_ID` |
+| `GOOGLE_CLOUD_PROJECT` | — | GCP project ID (OpenCode uses this before falling back to `ANTHROPIC_VERTEX_PROJECT_ID`) |
 | `CLOUD_ML_REGION` | `global` | Vertex AI region |
+| `VERTEX_LOCATION` | — | Vertex AI region (OpenCode uses this before falling back to `CLOUD_ML_REGION`) |
 | `GCLOUD_CREDENTIALS` | — | Raw JSON or base64 gcloud credentials |
 | `GCP_SERVICE_ACCOUNT_KEY` | — | Base64-encoded service account key |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to ADC credentials file |
-| `OPENSHELL_SUPERVISOR_IMAGE` | `openshell/supervisor:dev` | OpenShell supervisor image (openshell backend only) |
+| `OPENSHELL_SUPERVISOR_IMAGE` | `openshell/supervisor:dev` | OpenShell supervisor image (`openshell` backend only) |
 
 ## Streaming Output
 
-By default, Claude's stream-json output is parsed into human-readable
-CI logs with:
+By default, agent output is parsed into human-readable CI logs with:
 
 - Colored ANSI output (thinking in red, tool calls in gray)
 - Tool call summaries (bash commands, file paths, agent dispatches)
 - Token count display with throughput rate
 - OTEL token/cost summary at completion
 
-Disable with `--no-streaming` for raw output or `--no-otel` to skip
-the summary.
+Disable with `--no-streaming` to skip the parsed output and print raw
+agent output, or `--no-otel` to skip the token/cost summary.
 
 ## Python API
 
 ```python
 from agentic_ci.backends import create_backend
+from agentic_ci.harness import create_harness
 
-backend = create_backend("podman", workdir="/path/to/repo", image="my-image:latest")
+harness = create_harness("claude-code")
+backend = create_backend("podman", harness=harness, workdir="/path/to/repo", image="my-image:latest")
 backend.setup()
 rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
 backend.stop()
 ```
+
+## Additional Modules
+
+The package includes several library modules used by downstream
+pipelines:
+
+- **`agentic_ci.jira`** — Jira REST API client with `acli` delegation,
+  ADF (Atlassian Document Format) conversion, and rate limiting.
+- **`agentic_ci.git`** — Git operations (clone, branch, push, diff,
+  commit info extraction) with security hardening.
+- **`agentic_ci.pipeline`** — GitLab child pipeline YAML generation
+  with hash-based slot distribution.
+- **`agentic_ci.verdict`** — Structured verdict JSON schema validation.
 
 ## Building a Pipeline with the Generic Skill Runner
 

@@ -105,9 +105,11 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
 def _default_run_container(work_dir, prompt, output_file, *, image=None):
     """Default container runner using PodmanBackend."""
     from agentic_ci.backends.podman import PodmanBackend
+    from agentic_ci.harness import ClaudeCodeHarness
 
-    model = os.environ.get("CLAUDE_MODEL", "claude-opus-4-6")
-    backend = PodmanBackend(workdir=str(work_dir), image=image)
+    harness = ClaudeCodeHarness()
+    model = os.environ.get(harness.model_env_var()) or harness.default_model()
+    backend = PodmanBackend(workdir=str(work_dir), image=image, harness=harness)
     try:
         backend.setup()
         return backend.run(prompt, model=model)

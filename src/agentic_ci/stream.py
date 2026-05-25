@@ -1,8 +1,8 @@
-"""Parse Claude Code stream-json output into a human-readable CI log."""
+"""Stream processors for AI agent output formats."""
 
-import argparse
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -10,14 +10,24 @@ import time
 from agentic_ci import log
 
 
+def _get(params, *keys):
+    """Get the first non-empty value for any of the given keys."""
+    for k in keys:
+        v = params.get(k, "")
+        if v:
+            return v
+    return ""
+
+
 def _format_tool(name, params):
     """Return a compact one-line summary for known tools."""
+    name = name[0].upper() + name[1:] if name else name
     if name == "Bash":
         cmd = params.get("command", "")
         desc = params.get("description", "")
         return f"$ {cmd}" + (f"  # {desc}" if desc else "")
     if name == "Read":
-        path = params.get("file_path", "")
+        path = _get(params, "file_path", "filePath")
         parts = [path]
         if "offset" in params:
             parts.append(f"L{params['offset']}")
@@ -25,10 +35,10 @@ def _format_tool(name, params):
             parts.append(f"+{params['limit']}")
         return " ".join(parts)
     if name == "Write":
-        return params.get("file_path", "")
+        return _get(params, "file_path", "filePath")
     if name == "Edit":
-        path = params.get("file_path", "")
-        old = params.get("old_string", "")
+        path = _get(params, "file_path", "filePath")
+        old = _get(params, "old_string", "oldString")
         preview = old.split("\n")[0][:60]
         if len(old) > len(preview):
             preview += "…"
@@ -41,20 +51,29 @@ def _format_tool(name, params):
         pattern = params.get("pattern", "")
         path = params.get("path", ".")
         return f"/{pattern}/ in {path}"
-    if name == "Agent":
+    if name in ("Agent", "Task"):
         desc = params.get("description", "")
-        agent_type = params.get("subagent_type", "")
+        agent_type = _get(params, "subagent_type", "subagentType")
         return f"[{agent_type}] {desc}" if agent_type else desc
     if name == "Skill":
         skill = params.get("skill", "")
         skill_args = params.get("args", "")
         return f"/{skill} {skill_args}".strip()
-    if name == "TaskGet":
-        return params.get("task_id", "")
-    return ", ".join(f"{k}={v}" for k, v in params.items())
+    if name in ("TaskGet", "Taskget"):
+        return _get(params, "task_id", "taskId")
+    parts = []
+    for k, v in params.items():
+        val = str(v)
+        if len(val) > 60:
+            val = val[:60] + "…"
+        parts.append(f"{k}={val}")
+    result = ", ".join(parts)
+    if len(result) > 200:
+        result = result[:200] + "…"
+    return result
 
 
-class StreamProcessor:
+class ClaudeCodeStreamProcessor:
     """Processes Claude Code stream-json and prints human-readable output."""
 
     def __init__(self, color=True, wrap=0, claude_pid=0):
@@ -334,31 +353,178 @@ class StreamProcessor:
         return False
 
 
-def main(args=None):
-    parser = argparse.ArgumentParser(description="Parse Claude Code stream-json output")
-    parser.add_argument(
-        "--wrap",
-        type=int,
-        default=0,
-        metavar="COLS",
-        help="Word-wrap output at COLS columns (0 = no wrapping)",
-    )
-    parser.add_argument(
-        "--no-color", action="store_true", help="Disable ANSI color codes in output"
-    )
-    parser.add_argument(
-        "--claude-pid", type=int, default=0, help="PID of Claude Code process to kill on completion"
-    )
-    parsed = parser.parse_args(args)
+class OpenCodeStreamProcessor:
+    """Processes OpenCode JSON output and prints human-readable CI logs."""
 
-    processor = StreamProcessor(
-        color=not parsed.no_color,
-        wrap=parsed.wrap,
-        claude_pid=parsed.claude_pid,
-    )
-    processor.process(sys.stdin)
-    print()
+    def __init__(self, color=True, wrap=0, agent_pid=0):
+        self.wrap = wrap
+        self.agent_pid = agent_pid
 
+        if color:
+            self.THINK = "\033[3;31m"
+            self.TOOL = "\033[1;90m"
+            self.AGENT = ""
+            self.RED = "\033[31m"
+            self.RESET = "\033[0m"
+        else:
+            self.THINK = self.TOOL = self.AGENT = self.RED = self.RESET = ""
 
-if __name__ == "__main__":
-    main()
+        self._in_text = False
+        self._in_thinking = False
+        self._emitted_first_line = False
+        self._line_buf = ""
+
+    _INDENT = "  "
+
+    def _print_line(self, line):
+        prefix = self._INDENT if self._in_text and self._emitted_first_line else ""
+        if self.wrap and len(line) > self.wrap:
+            wrapped = ""
+            col = 0
+            for word in line.split(" "):
+                if col + len(word) > self.wrap and col > 0:
+                    wrapped += f"\n{prefix}"
+                    col = 0
+                if col > 0:
+                    wrapped += " "
+                    col += 1
+                wrapped += word
+                col += len(word)
+            print(f"{prefix}{wrapped}", flush=True)
+        else:
+            print(f"{prefix}{line}", flush=True)
+        self._emitted_first_line = True
+
+    def _emit(self, text):
+        self._line_buf += text
+        while "\n" in self._line_buf:
+            line, self._line_buf = self._line_buf.split("\n", 1)
+            self._print_line(line)
+
+    def _flush_emit(self):
+        if self._line_buf:
+            self._print_line(self._line_buf)
+            self._line_buf = ""
+
+    def _end_text(self):
+        if self._in_text:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_text = False
+        if self._in_thinking:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_thinking = False
+
+    _TASK_INDENT = "    "
+
+    def _print_task_detail(self, inp, output):
+        prompt = inp.get("prompt", "")
+        if prompt:
+            lines = prompt.split("\n")
+            for line in lines[:10]:
+                print(f"{self._TASK_INDENT}{self.TOOL}{line}{self.RESET}", flush=True)
+            if len(lines) > 10:
+                print(
+                    f"{self._TASK_INDENT}{self.TOOL}... ({len(lines) - 10} more lines){self.RESET}",
+                    flush=True,
+                )
+        if not output:
+            return
+        body = re.sub(r"^task_id:.*\n*", "", output)
+        body = re.sub(r"</?task_result>\n?", "", body).strip()
+        if not body:
+            return
+        for line in body.split("\n"):
+            print(f"{self._TASK_INDENT}{line}", flush=True)
+
+    def process_line(self, line):
+        """Process a single JSONL line from OpenCode. Returns True when run is complete."""
+        line = line.strip()
+        if not line:
+            return False
+
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        msg_type = msg.get("type")
+        part = msg.get("part", {})
+
+        if msg_type == "error":
+            self._end_text()
+            error = msg.get("error", {})
+            error_msg = error.get("data", {}).get("message", str(error))
+            print(f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}", flush=True)
+            return False
+
+        if msg_type == "text":
+            text = part.get("text", "")
+            if not self._in_text:
+                self._end_text()
+                print(f"{self._INDENT}{self.AGENT}\U0001f4ac Agent ", end="", flush=True)
+                self._in_text = True
+                self._emitted_first_line = False
+            self._emit(text + "\n")
+
+        elif msg_type == "thinking":
+            text = part.get("text", "")
+            if not self._in_thinking:
+                self._end_text()
+                print(f"{self._INDENT}{self.THINK}\U0001f9e0 Thinking ", end="", flush=True)
+                self._in_thinking = True
+                self._emitted_first_line = False
+            self._emit(text + "\n")
+
+        elif msg_type == "tool_use":
+            self._end_text()
+            tool_name = part.get("tool", "unknown")
+            display_name = tool_name[0].upper() + tool_name[1:] if tool_name else tool_name
+            state = part.get("state", {})
+            inp = state.get("input", {})
+            title = part.get("title", "")
+            summary = _format_tool(tool_name, inp) if inp else title
+            icon = "\U0001f916" if tool_name in ("task", "agent") else "\U0001f527"
+            print(
+                f"{self._INDENT}{self.TOOL}{icon} {display_name} {summary}{self.RESET}",
+                flush=True,
+            )
+            if tool_name in ("task", "agent"):
+                self._print_task_detail(inp, state.get("output", ""))
+
+        elif msg_type == "step_start":
+            self._end_text()
+
+        elif msg_type == "step_finish":
+            self._end_text()
+            reason = part.get("reason", "")
+            tokens = part.get("tokens", {})
+            cost = part.get("cost", 0)
+            total = tokens.get("total", 0)
+            inp = tokens.get("input", 0)
+            out = tokens.get("output", 0)
+            cache = tokens.get("cache", {})
+            cache_r = cache.get("read", 0)
+            cache_w = cache.get("write", 0)
+            print(
+                f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS in={inp} "
+                f"out={out} "
+                f"cache_r={cache_r} "
+                f"cache_w={cache_w} "
+                f"total={total} cost=${cost:.4f}{self.RESET}",
+                flush=True,
+            )
+            if reason == "stop":
+                return True
+
+        return False
+
+    def process(self, input_stream):
+        """Process a stream of lines. Returns True if run completed normally."""
+        for line in input_stream:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="replace")
+            if self.process_line(line):
+                return True
+        return False

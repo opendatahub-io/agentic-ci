@@ -1,17 +1,22 @@
 # Agentic CI
 
-agentic-ci runs Claude Code in sandboxed CI environments with pluggable backends. Users run `agentic-ci run "prompt"` to execute Claude in an isolated environment with streaming output and OTEL telemetry.
+agentic-ci runs AI coding agents in sandboxed CI environments with pluggable backends and harnesses. Users run `agentic-ci run "prompt"` to execute an agent in an isolated environment with streaming output and OTEL telemetry.
 
-Two backends are available:
-- **Podman** (default): Runs Claude in a Podman container. Simple, widely available.
-- **OpenShell**: Runs Claude in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox with network policy enforcement and filesystem isolation.
+Two **backends** provide execution environments:
+- **Podman** (default): Runs the agent in a Podman container. Simple, widely available.
+- **OpenShell**: Runs the agent in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox with network policy enforcement and filesystem isolation.
+
+Two **harnesses** define which agent CLI to run:
+- **claude-code** (default): [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with `stream-json` output format.
+- **opencode**: [OpenCode](https://github.com/anomalyco/opencode) with JSON event output format.
 
 ## Architecture
 
-```
+```text
 src/agentic_ci/
-    cli.py              # Entry point, backend selection, OTEL orchestration
+    cli.py              # Entry point, backend/harness selection, OTEL orchestration
     backend.py          # Backend ABC + shared stream processing
+    harness.py          # Harness ABC + ClaudeCode/OpenCode implementations
     backends/
         __init__.py     # Backend factory (create_backend)
         podman.py       # PodmanBackend — container execution
@@ -20,27 +25,28 @@ src/agentic_ci/
             gateway.py  # OpenShell gateway lifecycle
             sandbox.py  # OpenShell sandbox lifecycle
             policy.py   # Policy resolution + built-in default
-    stream.py           # Stream-json parser, pretty-printing
+    stream.py           # Stream parsers for Claude Code and OpenCode output
     otel.py             # OTLP collector + token/cost summary
 ```
 
-- **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` flag. Delegates to backend for setup/execution, handles OTEL lifecycle.
+- **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` and `--harness` flags. Creates harness and backend, handles OTEL lifecycle.
 
-- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads stream-json from a subprocess through `StreamProcessor`.
+- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor.
 
-- **`backends/podman.py`**: `PodmanBackend` — runs Claude in a `podman run --rm` container. Mounts workdir and gcloud credentials as volumes. Uses `--network host` when OTEL is enabled.
+- **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`.
 
-- **`backends/openshell/`**: `OpenShellBackend` — runs Claude in an OpenShell sandbox. Manages gateway lifecycle, sandbox creation with network policy, and credential upload. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+- **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Mounts workdir and gcloud credentials as volumes. Uses `--network host` when OTEL is enabled.
 
-- **`stream.py`**: Parses Claude's stream-json output into human-readable CI logs with colored ANSI output, tool call summaries, and token rate display.
+- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Manages gateway lifecycle, sandbox creation with network policy, and credential upload. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+
+- **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. Both produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 
 - **`otel.py`**: Lightweight OTLP HTTP/JSON receiver (stdlib `http.server`) that logs payloads to JSONL, tracks token usage over a sliding window, and prints a token/cost summary.
 
 ### Key
 
-- **Claude Code only** for now. Other agents can be added later.
 - **Vertex AI** for Claude API access. Credentials are staged via gcloud ADC files.
-- **OTEL collector runs on the host**, not inside the sandbox/container.
+- **OTEL collector runs on the host**, not inside the sandbox/container. Currently only Claude Code emits OTEL metrics; OpenCode provides token/cost data via its JSON output.
 
 ## Commands
 

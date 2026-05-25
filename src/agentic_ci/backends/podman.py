@@ -1,28 +1,42 @@
 """Podman container backend for agentic-ci."""
 
+from __future__ import annotations
+
 import base64
 import json
 import os
 import subprocess
 import tempfile
+from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
+
+if TYPE_CHECKING:
+    from agentic_ci.harness import Harness
 
 CONTAINER_NAME = "agentic-ci"
 
 
 class PodmanBackend(Backend):
-    """Runs Claude Code inside a persistent Podman container.
+    """Runs an AI agent inside a persistent Podman container.
 
     setup() creates a long-running detached container. run() execs
-    Claude inside it. stop() tears it down. The work directory is
+    the agent inside it. stop() tears it down. The work directory is
     mounted into the container and gcloud credentials are mounted
     read-only.
     """
 
-    def __init__(self, workdir=".", image=None, timeout=1200, extra_env=None):
-        super().__init__(workdir=workdir, image=image)
+    def __init__(
+        self,
+        workdir=".",
+        image=None,
+        timeout=1200,
+        extra_env=None,
+        *,
+        harness: Harness,
+    ):
+        super().__init__(workdir=workdir, image=image, harness=harness)
         self.timeout = timeout
         self._config_dir = None
         self._extra_env = extra_env or {}
@@ -53,17 +67,20 @@ class PodmanBackend(Backend):
             ["--user", "1000:1000"] if os.getuid() == 0 else ["--userns=keep-id:uid=1000,gid=1000"]
         )
 
-        log.section("Pulling image")
-        proc = subprocess.Popen(
-            ["podman", "pull", self.image],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-        for line in proc.stdout:
-            log.info(line.decode("utf-8", errors="replace").rstrip())
-        rc = proc.wait()
-        if rc != 0:
-            raise subprocess.CalledProcessError(rc, ["podman", "pull", self.image])
+        if self._is_local_image():
+            log.section("Local image, skipping pull")
+        else:
+            log.section("Pulling image")
+            proc = subprocess.Popen(
+                ["podman", "pull", self.image],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            for line in proc.stdout:
+                log.info(line.decode("utf-8", errors="replace").rstrip())
+            rc = proc.wait()
+            if rc != 0:
+                raise subprocess.CalledProcessError(rc, ["podman", "pull", self.image])
 
         cmd = [
             "podman",
@@ -101,12 +118,12 @@ class PodmanBackend(Backend):
         if not self.is_running():
             self.setup()
 
-        log.section("Executing Claude in container")
-        otel_env = self._build_otel_exec_env(otel_port)
-        claude_args = self._build_claude_args(prompt, model, extra_args)
+        log.section(f"Executing {self.harness.name} in container")
+        otel_env = self.harness.build_otel_exec_env(otel_port)
+        agent_args = self.harness.build_args(prompt, model, extra_args)
 
         proc = subprocess.Popen(
-            ["podman", "exec", *otel_env, CONTAINER_NAME, *claude_args],
+            ["podman", "exec", *otel_env, CONTAINER_NAME, *agent_args],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -146,13 +163,21 @@ class PodmanBackend(Backend):
         )
         return result.returncode == 0 and result.stdout.strip() == "true"
 
+    def _is_local_image(self):
+        """Check if the image reference is local-only (not from a remote registry).
+
+        Images prefixed with 'localhost/' are local podman builds.
+        All other references (registry.example.com/..., ghcr.io/...,
+        or bare names) are treated as remote.
+        """
+        return self.image.startswith("localhost/")
+
     def _resolve_image(self):
         if not self.image:
-            self.image = os.environ.get("CLAUDE_CONTAINER_IMAGE")
+            env_var = self.harness.image_env_var()
+            self.image = os.environ.get(env_var)
             if not self.image:
-                raise RuntimeError(
-                    "No container image specified. Use --image or set CLAUDE_CONTAINER_IMAGE."
-                )
+                raise RuntimeError(f"No container image specified. Use --image or set {env_var}.")
         log.detail("Image", self.image)
 
     def _resolve_credentials(self):
@@ -217,41 +242,14 @@ class PodmanBackend(Backend):
         )
 
     def _build_env_args(self):
-        args = [
-            "--env",
-            "CLAUDE_CODE_USE_VERTEX=1",
-            "--env",
-            f"CLOUD_ML_REGION={os.environ.get('CLOUD_ML_REGION', 'global')}",
-            "--env",
-            f"ANTHROPIC_VERTEX_PROJECT_ID={os.environ.get('ANTHROPIC_VERTEX_PROJECT_ID', '')}",
-            "--env",
-            "DISABLE_AUTOUPDATER=1",
-        ]
+        args = list(self.harness.build_env_args())
         for key, val in self._extra_env.items():
             args.extend(["--env", f"{key}={val}"])
         return args
 
-    def _build_otel_exec_env(self, otel_port=None):
-        """Build --env flags for podman exec when OTEL is enabled."""
-        if not otel_port:
-            return []
-        return [
-            "--env",
-            "CLAUDE_CODE_ENABLE_TELEMETRY=1",
-            "--env",
-            "OTEL_METRICS_EXPORTER=otlp",
-            "--env",
-            "OTEL_LOGS_EXPORTER=otlp",
-            "--env",
-            "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-            "--env",
-            f"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:{otel_port}",
-            "--env",
-            "OTEL_METRIC_EXPORT_INTERVAL=10000",
-        ]
-
     def _build_vol_args(self):
         assert self._config_dir is not None
+        mount_target = self.harness.credential_mount_target()
         adc = os.path.join(
             self._config_dir,
             ".config",
@@ -267,9 +265,9 @@ class PodmanBackend(Backend):
         )
         return [
             "-v",
-            f"{adc}:/home/claude/.config/gcloud/application_default_credentials.json:ro,z",
+            f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z",
             "-v",
-            f"{config}:/home/claude/.config/gcloud/configurations/config_default:ro,z",
+            f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z",
             "-v",
             f"{self.workdir}:/workspace:z",
         ]

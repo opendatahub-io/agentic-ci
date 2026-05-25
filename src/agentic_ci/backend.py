@@ -1,12 +1,17 @@
 """Abstract base class for sandbox backends."""
 
+from __future__ import annotations
+
 import os
 import sys
 import time
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from agentic_ci import log
-from agentic_ci.stream import StreamProcessor
+
+if TYPE_CHECKING:
+    from agentic_ci.harness import Harness
 
 
 class Backend(ABC):
@@ -16,13 +21,14 @@ class Backend(ABC):
     execution environments (OpenShell sandbox, Podman container, etc.).
     """
 
-    def __init__(self, workdir=".", image=None):
+    def __init__(self, workdir=".", image=None, *, harness: Harness):
         self.workdir = os.path.abspath(workdir)
         self.image = image
+        self.harness = harness
 
     @abstractmethod
     def setup(self):
-        """Prepare the backend for running Claude. Idempotent."""
+        """Prepare the backend. Idempotent."""
 
     @abstractmethod
     def stop(self):
@@ -38,30 +44,10 @@ class Backend(ABC):
         otel_rate_file=None,
         extra_args=None,
     ) -> int:
-        """Execute Claude with the given prompt. Returns the exit code."""
-
-    @staticmethod
-    def _build_claude_args(prompt, model, extra_args=None):
-        """Build the Claude CLI argument list."""
-        args = [
-            "claude",
-            "--permission-mode",
-            "bypassPermissions",
-            "--model",
-            model,
-            "--output-format",
-            "stream-json",
-            "--include-partial-messages",
-            "--verbose",
-            "-p",
-            prompt,
-        ]
-        if extra_args:
-            args.extend(extra_args)
-        return args
+        """Execute the agent with the given prompt. Returns the exit code."""
 
     def _process_stream(self, proc, streaming):
-        """Read stream-json from proc.stdout through StreamProcessor.
+        """Read output from proc.stdout through the harness stream processor.
 
         Returns the exit code, treating stream-complete as success even
         if the process exit code is non-zero.
@@ -69,7 +55,7 @@ class Backend(ABC):
         stream_complete = False
 
         if streaming:
-            processor = StreamProcessor(claude_pid=proc.pid)
+            processor = self.harness.create_stream_processor(pid=proc.pid)
             for line in proc.stdout:
                 text = line.decode("utf-8", errors="replace")
                 if processor.process_line(text):
