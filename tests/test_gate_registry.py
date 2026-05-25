@@ -18,7 +18,6 @@ class TestGateRegistry:
     def test_built_in_gates_registered(self):
         assert "sensitive-files" in GATE_REGISTRY
         assert "commit-author" in GATE_REGISTRY
-        assert "commit-message-key" in GATE_REGISTRY
         assert "gitleaks" in GATE_REGISTRY
 
     def test_sensitive_files_is_post(self):
@@ -26,9 +25,6 @@ class TestGateRegistry:
 
     def test_commit_author_requires_bot_email(self):
         assert "BOT_EMAIL" in GATE_REGISTRY["commit-author"].required_env
-
-    def test_commit_message_key_requires_ticket_key(self):
-        assert "TICKET_KEY" in GATE_REGISTRY["commit-message-key"].required_env
 
     def test_gitleaks_has_no_required_env(self):
         assert GATE_REGISTRY["gitleaks"].required_env == []
@@ -48,8 +44,8 @@ class TestResolveGates:
 
 class TestValidateGateEnv:
     def test_all_vars_present(self):
-        gates = [GATE_REGISTRY["commit-author"], GATE_REGISTRY["commit-message-key"]]
-        with patch.dict(os.environ, {"BOT_EMAIL": "bot@ci.com", "TICKET_KEY": "PROJ-1"}):
+        gates = [GATE_REGISTRY["commit-author"]]
+        with patch.dict(os.environ, {"BOT_EMAIL": "bot@ci.com"}):
             validate_gate_env(gates)
 
     def test_missing_var_exits(self):
@@ -59,13 +55,12 @@ class TestValidateGateEnv:
                 validate_gate_env(gates)
 
     def test_reports_all_missing_at_once(self):
-        gates = [GATE_REGISTRY["commit-author"], GATE_REGISTRY["commit-message-key"]]
+        gates = [GATE_REGISTRY["commit-author"], GATE_REGISTRY["sensitive-files"]]
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(SystemExit) as exc_info:
                 validate_gate_env(gates)
             msg = str(exc_info.value)
             assert "BOT_EMAIL" in msg
-            assert "TICKET_KEY" in msg
 
     def test_no_required_env_passes(self):
         gates = [GATE_REGISTRY["sensitive-files"]]
@@ -113,33 +108,6 @@ class TestRunCommitAuthor:
             errors = gate.fn(workdir="/tmp/test")
         assert len(errors) == 1
         assert "human@ci.com" in errors[0]
-
-
-class TestRunCommitMessageKey:
-    def test_key_present_passes(self):
-        gate = GATE_REGISTRY["commit-message-key"]
-        with (
-            patch.dict(os.environ, {"TICKET_KEY": "PROJ-123"}),
-            patch(
-                "agentic_ci.git.get_commit_info",
-                return_value={"email": "bot@ci.com", "subject": "PROJ-123: fix bug"},
-            ),
-        ):
-            errors = gate.fn(workdir="/tmp/test")
-        assert errors == []
-
-    def test_key_missing_fails(self):
-        gate = GATE_REGISTRY["commit-message-key"]
-        with (
-            patch.dict(os.environ, {"TICKET_KEY": "PROJ-123"}),
-            patch(
-                "agentic_ci.git.get_commit_info",
-                return_value={"email": "bot@ci.com", "subject": "random fix"},
-            ),
-        ):
-            errors = gate.fn(workdir="/tmp/test")
-        assert len(errors) == 1
-        assert "PROJ-123" in errors[0]
 
 
 class TestGitleaksScan:

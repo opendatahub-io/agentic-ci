@@ -125,16 +125,6 @@ def check_commit_author(commit_info: dict, expected_email: str) -> bool:
     return actual.lower() == expected_email.lower()
 
 
-def check_commit_message_key(commit_info: dict, ticket_key: str) -> bool:
-    """Verify the ticket key appears as a whole token in the commit subject.
-
-    Uses word-boundary matching so "ABC-1" does not match "ABC-10".
-    """
-    subject = commit_info.get("subject", "")
-    escaped = re.escape(ticket_key)
-    return bool(re.search(rf"(?<![A-Za-z0-9]){escaped}(?![A-Za-z0-9])", subject, re.IGNORECASE))
-
-
 def log_changed_files(changed_files: list[str], ticket_key: str) -> None:
     """Log changed files for observability."""
     if changed_files:
@@ -289,21 +279,6 @@ def _run_commit_author(workdir: str, **_kw: object) -> list[str]:
     return []
 
 
-def _run_commit_message_key(workdir: str, **_kw: object) -> list[str]:
-    """CLI runner for the commit-message-key gate."""
-    from agentic_ci.git import get_commit_info
-
-    ticket_key = os.environ.get("TICKET_KEY", "")
-    try:
-        info = get_commit_info(Path(workdir))
-    except subprocess.CalledProcessError as exc:
-        return [f"Could not read commit info: {exc}"]
-
-    if not check_commit_message_key(info, ticket_key):
-        return [f"Ticket key '{ticket_key}' not found in commit message: '{info.get('subject')}'"]
-    return []
-
-
 def _run_gitleaks(workdir: str, **_kw: object) -> list[str]:
     """CLI runner for the gitleaks gate."""
     return gitleaks_scan(Path(workdir))
@@ -313,10 +288,4 @@ def _run_gitleaks(workdir: str, **_kw: object) -> list[str]:
 
 _register("sensitive-files", _run_sensitive_files, phase="post")
 _register("commit-author", _run_commit_author, phase="post", required_env=["BOT_EMAIL"])
-_register(
-    "commit-message-key",
-    _run_commit_message_key,
-    phase="post",
-    required_env=["TICKET_KEY"],
-)
 _register("gitleaks", _run_gitleaks, phase="post")
