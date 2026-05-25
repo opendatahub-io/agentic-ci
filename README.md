@@ -1,5 +1,11 @@
 # agentic-ci
 
+[![PyPI version](https://img.shields.io/pypi/v/agentic-ci)](https://pypi.org/project/agentic-ci/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/agentic-ci)](https://pypi.org/project/agentic-ci/)
+[![CI](https://github.com/opendatahub-io/agentic-ci/actions/workflows/ci.yml/badge.svg)](https://github.com/opendatahub-io/agentic-ci/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/opendatahub-io/agentic-ci)](https://github.com/opendatahub-io/agentic-ci/blob/main/LICENSE)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/agentic-ci)](https://pypi.org/project/agentic-ci/)
+
 Run AI coding agents in sandboxed CI environments with streaming output
 and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
 and isolation backends so you can choose the right tradeoff between
