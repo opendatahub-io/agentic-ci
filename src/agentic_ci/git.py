@@ -244,7 +244,7 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
         if not _validate_ref(branch):
             log.error("push_branch: detected invalid branch name: %s", branch)
             return False
-    cmd = ["git", "push", "--set-upstream", remote, branch]
+    cmd = ["git", "push", "--force-with-lease", "--set-upstream", remote, branch]
     try:
         subprocess.run(
             cmd,
