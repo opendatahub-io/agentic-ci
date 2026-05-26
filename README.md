@@ -64,7 +64,7 @@ agentic-ci run "Fix the flaky test in test_auth.py" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest
 
 # OpenShell
-agentic-ci --backend openshell run "Fix the flaky test in test_auth.py"
+agentic-ci run --backend openshell "Fix the flaky test in test_auth.py"
 ```
 
 ### Setup and stop
@@ -89,7 +89,7 @@ agentic-ci stop
 ### Options
 
 ```
-agentic-ci [--backend {podman,openshell}] {setup,run,stop} [options]
+agentic-ci {setup,run,stop} [options]
 ```
 
 | Flag | Default | Description |
@@ -135,12 +135,12 @@ agentic-ci run "Fix the bug" \
     --post-gates sensitive-files,commit-author,commit-message-key,gitleaks
 
 # OpenShell with custom policy
-agentic-ci --backend openshell run "Deploy staging" \
+agentic-ci run --backend openshell "Deploy staging" \
     --policy custom-policy.yml
 
 # OpenShell with repo-level policy (auto-discovered from
 # .agentic-ci/openshell-policy.yml in the workdir)
-agentic-ci --backend openshell run "Add input validation"
+agentic-ci run --backend openshell "Add input validation"
 ```
 
 ### Gates
