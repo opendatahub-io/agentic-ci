@@ -77,6 +77,13 @@ class Backend(ABC):
             log.info(f"stream processor detected run complete (rc={rc}), treating as success")
             rc = 0
 
+        if rc != 0 and proc.stderr:
+            stderr = proc.stderr.read()
+            if stderr:
+                log.section("Agent stderr")
+                sys.stderr.buffer.write(stderr)
+                sys.stderr.buffer.flush()
+
         return rc
 
     def _wait_for_otel_flush(self, otel_port):

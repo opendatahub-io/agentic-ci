@@ -44,6 +44,18 @@ network_policies:
       - path: /usr/local/bin/claude
       - path: /usr/local/bin/node
 
+  anthropic_api:
+    name: anthropic-api
+    endpoints:
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+    binaries:
+      - path: /usr/local/bin/claude
+      - path: /usr/local/bin/node
+
   github_api:
     name: github-api
     endpoints:

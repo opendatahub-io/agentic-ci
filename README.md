@@ -167,8 +167,25 @@ every missing variable and which gate needs it.
 
 ## Credentials
 
-Both backends use Vertex AI for Claude API access via gcloud
-Application Default Credentials.
+Two authentication modes are supported. The mode is auto-detected
+and logged at startup.
+
+### Anthropic API key (direct)
+
+Set `ANTHROPIC_API_KEY` in the environment. No gcloud credentials
+are needed; the key is passed directly to the agent inside the
+container or sandbox. Vertex-specific env vars and credential mounts
+are skipped.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+agentic-ci run "Fix the bug" --image ghcr.io/opendatahub-io/ai-helpers:latest
+```
+
+### Vertex AI (default)
+
+When `ANTHROPIC_API_KEY` is not set, both backends use Vertex AI for
+Claude API access via gcloud Application Default Credentials.
 
 The **podman** backend checks credentials in this order:
 
@@ -185,6 +202,7 @@ The **openshell** backend uploads the local ADC file
 
 | Variable | Default | Description |
 |---|---|---|
+| `ANTHROPIC_API_KEY` | -- | Anthropic API key. When set, uses direct API auth instead of Vertex AI |
 | `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`) |
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
 | `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`) |

@@ -83,6 +83,10 @@ class OpenShellBackend(Backend):
         sandbox.exec_cmd(["bash", "-c", f"cat > {self._ENV_SCRIPT} << 'ENVEOF'\n{script}ENVEOF"])
 
     def _upload_credentials(self):
+        if self.harness.auth_mode == "api-key":
+            log.section("Using API key auth (skipping credential upload)")
+            return
+
         adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
         if os.path.isfile(adc):
             source = "default ADC file"

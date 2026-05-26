@@ -219,6 +219,7 @@ def main():
 
     log.section(f"Backend: {args.backend}")
     log.detail("Harness", harness.name)
+    log.detail("Auth", "API key" if harness.auth_mode == "api-key" else "Vertex AI")
     log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,

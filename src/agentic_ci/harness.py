@@ -15,6 +15,13 @@ class Harness(ABC):
     """Base class for agent CLI harnesses."""
 
     @property
+    def auth_mode(self) -> str:
+        """Return 'api-key' if ANTHROPIC_API_KEY is set, else 'vertex'."""
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            return "api-key"
+        return "vertex"
+
+    @property
     @abstractmethod
     def name(self) -> str:
         """Human-readable name for log messages."""
@@ -91,6 +98,13 @@ class ClaudeCodeHarness(Harness):
         return args
 
     def build_env_args(self):
+        if self.auth_mode == "api-key":
+            return [
+                "--env",
+                "ANTHROPIC_API_KEY",
+                "--env",
+                "DISABLE_AUTOUPDATER=1",
+            ]
         return [
             "--env",
             "CLAUDE_CODE_USE_VERTEX=1",
@@ -103,16 +117,22 @@ class ClaudeCodeHarness(Harness):
         ]
 
     def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
-        vertex_project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
-        cloud_region = os.environ.get("CLOUD_ML_REGION", "global")
-        lines = [
-            "export CLAUDE_CODE_USE_VERTEX=1",
-            f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
-            f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
-            "export DISABLE_AUTOUPDATER=1",
-            "export GOOGLE_APPLICATION_CREDENTIALS="
-            '"$HOME/.config/gcloud/application_default_credentials.json"',
-        ]
+        if self.auth_mode == "api-key":
+            lines = [
+                f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
+                "export DISABLE_AUTOUPDATER=1",
+            ]
+        else:
+            vertex_project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
+            cloud_region = os.environ.get("CLOUD_ML_REGION", "global")
+            lines = [
+                "export CLAUDE_CODE_USE_VERTEX=1",
+                f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
+                f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
+                "export DISABLE_AUTOUPDATER=1",
+                "export GOOGLE_APPLICATION_CREDENTIALS="
+                '"$HOME/.config/gcloud/application_default_credentials.json"',
+            ]
         if otel_port:
             lines.extend(
                 [
@@ -191,6 +211,13 @@ class OpenCodeHarness(Harness):
         return args
 
     def build_env_args(self):
+        if self.auth_mode == "api-key":
+            return [
+                "--env",
+                "ANTHROPIC_API_KEY",
+                "--env",
+                "OPENCODE_DISABLE_AUTOUPDATE=1",
+            ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
             os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
@@ -212,6 +239,11 @@ class OpenCodeHarness(Harness):
         ]
 
     def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
+        if self.auth_mode == "api-key":
+            return [
+                f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
+                "export OPENCODE_DISABLE_AUTOUPDATE=1",
+            ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
             os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
@@ -220,14 +252,13 @@ class OpenCodeHarness(Harness):
             "VERTEX_LOCATION",
             os.environ.get("CLOUD_ML_REGION", "global"),
         )
-        lines = [
+        return [
             f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
             f"export VERTEX_LOCATION={shlex.quote(location)}",
             "export OPENCODE_DISABLE_AUTOUPDATE=1",
             "export GOOGLE_APPLICATION_CREDENTIALS="
             '"$HOME/.config/gcloud/application_default_credentials.json"',
         ]
-        return lines
 
     def build_otel_exec_env(self, otel_port=None):
         return []
