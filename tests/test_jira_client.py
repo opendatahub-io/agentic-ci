@@ -342,6 +342,178 @@ class TestRetryOn429:
         assert resp.status_code == 200
         mock_sleep.assert_called_once_with(1.0)
 
+
+class TestGetDescriptionEditors:
+    @patch("agentic_ci.jira.client.requests")
+    def test_no_edits_returns_empty(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"values": [], "total": 0}
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == []
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_redhat_editor_returned(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {
+                        "emailAddress": "dev@redhat.com",
+                        "accountId": "abc123",
+                    },
+                    "items": [{"field": "description", "fromString": "old", "toString": "new"}],
+                }
+            ],
+            "total": 1,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["dev@redhat.com"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_external_editor_returned(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {
+                        "emailAddress": "attacker@evil.com",
+                        "accountId": "xyz789",
+                    },
+                    "items": [{"field": "description", "fromString": "old", "toString": "new"}],
+                }
+            ],
+            "total": 1,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["attacker@evil.com"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_missing_email_produces_sentinel(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {"accountId": "hidden-user-42"},
+                    "items": [{"field": "description", "fromString": "old", "toString": "new"}],
+                }
+            ],
+            "total": 1,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["missing-email:hidden-user-42"]
+
+    @pytest.mark.parametrize("email_value", [None, ""])
+    @patch("agentic_ci.jira.client.requests")
+    def test_null_or_empty_email_produces_sentinel(self, mock_requests, client, email_value):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {
+                        "emailAddress": email_value,
+                        "accountId": "hidden-user-42",
+                    },
+                    "items": [{"field": "description"}],
+                }
+            ],
+            "total": 1,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["missing-email:hidden-user-42"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_non_description_changes_ignored(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {"emailAddress": "dev@redhat.com"},
+                    "items": [{"field": "summary", "fromString": "old", "toString": "new"}],
+                },
+                {
+                    "author": {"emailAddress": "dev@redhat.com"},
+                    "items": [{"field": "labels", "fromString": "", "toString": "bug"}],
+                },
+            ],
+            "total": 2,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == []
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_deduplicates_editors(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": [
+                {
+                    "author": {"emailAddress": "dev@redhat.com"},
+                    "items": [{"field": "description"}],
+                },
+                {
+                    "author": {"emailAddress": "dev@redhat.com"},
+                    "items": [{"field": "description"}],
+                },
+                {
+                    "author": {"emailAddress": "other@redhat.com"},
+                    "items": [{"field": "description"}],
+                },
+            ],
+            "total": 3,
+        }
+        mock_requests.get.return_value = resp
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["dev@redhat.com", "other@redhat.com"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_paginates_changelog(self, mock_requests, client):
+        page1 = MagicMock()
+        page1.status_code = 200
+        page1.json.return_value = {
+            "values": [
+                {
+                    "author": {"emailAddress": "dev@redhat.com"},
+                    "items": [{"field": "description"}],
+                }
+            ],
+            "total": 2,
+        }
+        page2 = MagicMock()
+        page2.status_code = 200
+        page2.json.return_value = {
+            "values": [
+                {
+                    "author": {"emailAddress": "attacker@evil.com"},
+                    "items": [{"field": "description"}],
+                }
+            ],
+            "total": 2,
+        }
+        mock_requests.get.side_effect = [page1, page2]
+
+        result = client.get_description_editors("TEST-1")
+        assert result == ["dev@redhat.com", "attacker@evil.com"]
+        assert mock_requests.get.call_count == 2
+
     @pytest.mark.parametrize("bad_value", ["nan", "NaN", "inf", "-inf", "Infinity"])
     @patch("time.sleep")
     @patch("agentic_ci.jira.client.random.uniform", return_value=0.0)
