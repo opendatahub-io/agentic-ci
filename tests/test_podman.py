@@ -173,6 +173,7 @@ def test_resolve_image_raises_with_correct_env_var(monkeypatch, tmp_path, openco
 
 
 def test_build_vol_args_claude_mount_target(monkeypatch, tmp_path, claude_harness):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     creds = json.dumps({"type": "authorized_user"})
     monkeypatch.setenv("GCLOUD_CREDENTIALS", creds)
     backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
@@ -183,6 +184,7 @@ def test_build_vol_args_claude_mount_target(monkeypatch, tmp_path, claude_harnes
 
 
 def test_build_vol_args_opencode_mount_target(monkeypatch, tmp_path, opencode_harness):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     creds = json.dumps({"type": "authorized_user"})
     monkeypatch.setenv("GCLOUD_CREDENTIALS", creds)
     backend = PodmanBackend(workdir=str(tmp_path), harness=opencode_harness)
@@ -190,3 +192,21 @@ def test_build_vol_args_opencode_mount_target(monkeypatch, tmp_path, opencode_ha
     vol_args = backend._build_vol_args()
     mount_str = " ".join(vol_args)
     assert "/home/agent/.config/gcloud/" in mount_str
+
+
+def test_build_vol_args_api_key_no_gcloud_mounts(monkeypatch, tmp_path, claude_harness):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    vol_args = backend._build_vol_args()
+    mount_str = " ".join(vol_args)
+    assert "/workspace" in mount_str
+    assert ".config/gcloud" not in mount_str
+
+
+def test_build_env_args_api_key(monkeypatch, tmp_path, claude_harness):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    args = backend._build_env_args()
+    assert "ANTHROPIC_API_KEY" in args
+    assert "ANTHROPIC_API_KEY=sk-test-key" not in args
+    assert "CLAUDE_CODE_USE_VERTEX=1" not in args

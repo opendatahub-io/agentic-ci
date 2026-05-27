@@ -45,7 +45,7 @@ src/agentic_ci/
 
 ### Key
 
-- **Vertex AI** for Claude API access. Credentials are staged via gcloud ADC files.
+- **Authentication** is auto-detected: if `ANTHROPIC_API_KEY` is set, direct API auth is used (no gcloud credentials needed); otherwise Vertex AI with gcloud ADC files.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Currently only Claude Code emits OTEL metrics; OpenCode provides token/cost data via its JSON output.
 
 ## Commands

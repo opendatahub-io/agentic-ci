@@ -138,16 +138,16 @@ def main():
         prog="agentic-ci",
         description="Run AI coding agents in a sandboxed CI environment",
     )
-    parser.add_argument(
+    sub = parser.add_subparsers(dest="command")
+
+    # Common arguments shared by all subcommands
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
         "--backend",
         choices=["podman", "openshell"],
         default="podman",
         help="Sandbox backend (default: podman)",
     )
-    sub = parser.add_subparsers(dest="command")
-
-    # Common arguments shared by both subcommands
-    common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
     common.add_argument(
@@ -228,6 +228,7 @@ def main():
 
     log.section(f"Backend: {args.backend}")
     log.detail("Harness", harness.name)
+    log.detail("Auth", "API key" if harness.auth_mode == "api-key" else "Vertex AI")
     log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,

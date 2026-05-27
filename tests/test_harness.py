@@ -24,6 +24,23 @@ def test_create_unknown_harness_raises():
         create_harness("gemini")
 
 
+class TestAuthMode:
+    def test_vertex_when_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        assert ClaudeCodeHarness().auth_mode == "vertex"
+        assert OpenCodeHarness().auth_mode == "vertex"
+
+    def test_api_key_when_set(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        assert ClaudeCodeHarness().auth_mode == "api-key"
+        assert OpenCodeHarness().auth_mode == "api-key"
+
+    def test_vertex_when_api_key_empty(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+        assert ClaudeCodeHarness().auth_mode == "vertex"
+        assert OpenCodeHarness().auth_mode == "vertex"
+
+
 class TestClaudeCodeHarness:
     def test_name(self):
         assert ClaudeCodeHarness().name == "Claude Code"
@@ -48,6 +65,7 @@ class TestClaudeCodeHarness:
         assert "bar" in args
 
     def test_build_env_args(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("CLOUD_ML_REGION", "us-east1")
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-proj")
         harness = ClaudeCodeHarness()
@@ -56,6 +74,15 @@ class TestClaudeCodeHarness:
         assert "CLOUD_ML_REGION=us-east1" in args
         assert "ANTHROPIC_VERTEX_PROJECT_ID=my-proj" in args
         assert "DISABLE_AUTOUPDATER=1" in args
+
+    def test_build_env_args_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        harness = ClaudeCodeHarness()
+        args = harness.build_env_args()
+        assert "ANTHROPIC_API_KEY" in args
+        assert "ANTHROPIC_API_KEY=sk-test-key" not in args
+        assert "DISABLE_AUTOUPDATER=1" in args
+        assert "CLAUDE_CODE_USE_VERTEX=1" not in args
 
     def test_build_otel_exec_env(self):
         harness = ClaudeCodeHarness()
@@ -67,12 +94,22 @@ class TestClaudeCodeHarness:
         assert ClaudeCodeHarness().build_otel_exec_env(otel_port=None) == []
 
     def test_build_env_script_lines(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
         monkeypatch.setenv("CLOUD_ML_REGION", "us-west1")
         harness = ClaudeCodeHarness()
         lines = harness.build_env_script_lines()
         assert any("CLAUDE_CODE_USE_VERTEX=1" in line for line in lines)
         assert any("DISABLE_AUTOUPDATER=1" in line for line in lines)
+
+    def test_build_env_script_lines_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        harness = ClaudeCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert "export ANTHROPIC_API_KEY=sk-test-key" in lines
+        assert any("DISABLE_AUTOUPDATER=1" in line for line in lines)
+        assert not any("CLAUDE_CODE_USE_VERTEX" in line for line in lines)
+        assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
     def test_build_env_script_lines_with_otel(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
@@ -123,6 +160,7 @@ class TestOpenCodeHarness:
         assert "--thinking" in args
 
     def test_build_env_args(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
         monkeypatch.setenv("VERTEX_LOCATION", "us-central1")
         harness = OpenCodeHarness()
@@ -130,6 +168,15 @@ class TestOpenCodeHarness:
         assert "GOOGLE_CLOUD_PROJECT=my-proj" in args
         assert "VERTEX_LOCATION=us-central1" in args
         assert "OPENCODE_DISABLE_AUTOUPDATE=1" in args
+
+    def test_build_env_args_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        harness = OpenCodeHarness()
+        args = harness.build_env_args()
+        assert "ANTHROPIC_API_KEY" in args
+        assert "ANTHROPIC_API_KEY=sk-test-key" not in args
+        assert "OPENCODE_DISABLE_AUTOUPDATE=1" in args
+        assert not any("GOOGLE_CLOUD_PROJECT" in a for a in args)
 
     def test_build_env_args_fallback(self, monkeypatch):
         monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
@@ -145,12 +192,22 @@ class TestOpenCodeHarness:
         assert OpenCodeHarness().build_otel_exec_env(otel_port=4318) == []
 
     def test_build_env_script_lines(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
         monkeypatch.setenv("VERTEX_LOCATION", "global")
         harness = OpenCodeHarness()
         lines = harness.build_env_script_lines()
         assert any("GOOGLE_CLOUD_PROJECT=" in line for line in lines)
         assert any("OPENCODE_DISABLE_AUTOUPDATE=1" in line for line in lines)
+
+    def test_build_env_script_lines_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        harness = OpenCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert "export ANTHROPIC_API_KEY=sk-test-key" in lines
+        assert any("OPENCODE_DISABLE_AUTOUPDATE=1" in line for line in lines)
+        assert not any("GOOGLE_CLOUD_PROJECT" in line for line in lines)
+        assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
     def test_credential_mount_target(self):
         assert OpenCodeHarness().credential_mount_target() == "/home/agent"

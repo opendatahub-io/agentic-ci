@@ -43,7 +43,8 @@ class PodmanBackend(Backend):
 
     def setup(self):
         self._resolve_image()
-        self._resolve_credentials()
+        if self.harness.auth_mode == "vertex":
+            self._resolve_credentials()
 
         if self.is_running():
             log.section("Podman container already running")
@@ -248,29 +249,31 @@ class PodmanBackend(Backend):
         return args
 
     def _build_vol_args(self):
-        assert self._config_dir is not None
-        mount_target = self.harness.credential_mount_target()
-        adc = os.path.join(
-            self._config_dir,
-            ".config",
-            "gcloud",
-            "application_default_credentials.json",
-        )
-        config = os.path.join(
-            self._config_dir,
-            ".config",
-            "gcloud",
-            "configurations",
-            "config_default",
-        )
-        return [
-            "-v",
-            f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z",
-            "-v",
-            f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z",
-            "-v",
-            f"{self.workdir}:/workspace:z",
-        ]
+        vols = ["-v", f"{self.workdir}:/workspace:z"]
+        if self._config_dir is not None:
+            mount_target = self.harness.credential_mount_target()
+            adc = os.path.join(
+                self._config_dir,
+                ".config",
+                "gcloud",
+                "application_default_credentials.json",
+            )
+            config = os.path.join(
+                self._config_dir,
+                ".config",
+                "gcloud",
+                "configurations",
+                "config_default",
+            )
+            vols.extend(
+                [
+                    "-v",
+                    f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z",
+                    "-v",
+                    f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z",
+                ]
+            )
+        return vols
 
     @staticmethod
     def _is_valid_json(text):
