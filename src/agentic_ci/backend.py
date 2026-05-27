@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -52,8 +53,23 @@ class Backend(ABC):
         Returns the exit code, treating stream-complete as success even
         if the process exit code is non-zero.
         """
+        stderr_buf = bytearray()
+
+        def _drain_stderr():
+            if proc.stderr is None:
+                return
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                stderr_buf.extend(chunk)
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
+
         stream_complete = False
 
+        processor = None
         if streaming:
             processor = self.harness.create_stream_processor(pid=proc.pid)
             for line in proc.stdout:
@@ -71,20 +87,36 @@ class Backend(ABC):
         except OSError:
             pass
         proc.wait()
+        stderr_thread.join(timeout=5)
         rc = proc.returncode
+
+        if processor:
+            processor.flush_errors()
 
         if stream_complete and rc != 0:
             log.info(f"stream processor detected run complete (rc={rc}), treating as success")
             rc = 0
 
-        if rc != 0 and proc.stderr:
-            stderr = proc.stderr.read()
-            if stderr:
+        if rc != 0 and stderr_buf:
+            filtered = self._filter_stderr_noise(stderr_buf)
+            if filtered:
                 log.section("Agent stderr")
-                sys.stderr.buffer.write(stderr)
+                sys.stderr.buffer.write(filtered)
                 sys.stderr.buffer.flush()
 
         return rc
+
+    _STDERR_NOISE = (
+        "Performing one time database migration",
+        "sqlite-migration:",
+        "Database migration complete",
+    )
+
+    @classmethod
+    def _filter_stderr_noise(cls, buf):
+        lines = buf.decode("utf-8", errors="replace").splitlines(keepends=True)
+        filtered = [line for line in lines if not any(p in line for p in cls._STDERR_NOISE)]
+        return "".join(filtered).encode("utf-8") if filtered else b""
 
     def _wait_for_otel_flush(self, otel_port):
         """Wait for OTEL metrics to flush after Claude exits."""
