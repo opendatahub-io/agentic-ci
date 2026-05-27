@@ -108,8 +108,44 @@ class TestProcessLine:
             error={"name": "UnknownError", "data": {"message": "Model not found"}},
         )
         assert proc.process_line(line) is False
+        proc.flush_errors()
         captured = capsys.readouterr()
         assert "Model not found" in captured.out
+
+    def test_error_dedup_generic(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        specific = _make_event(
+            "error",
+            error={"name": "UnknownError", "data": {"message": "Model not found: foo"}},
+        )
+        generic = _make_event(
+            "error",
+            error={
+                "name": "UnknownError",
+                "data": {"message": "Unexpected server error. Check server logs for details."},
+            },
+        )
+        proc.process_line(specific)
+        proc.process_line(generic)
+        proc.flush_errors()
+        captured = capsys.readouterr()
+        assert "Model not found: foo" in captured.out
+        assert "Unexpected server error" not in captured.out
+
+    def test_error_generic_only(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        generic = _make_event(
+            "error",
+            error={
+                "name": "UnknownError",
+                "data": {"message": "Unexpected server error. Check server logs for details."},
+            },
+        )
+        proc.process_line(generic)
+        proc.flush_errors()
+        captured = capsys.readouterr()
+        assert "Common causes:" in captured.out
+        assert "invalid model name" in captured.out
 
 
 class TestThinking:

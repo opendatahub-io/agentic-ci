@@ -202,6 +202,10 @@ class ClaudeCodeStreamProcessor:
         log.detail("Turns", str(turns))
         log.detail("Cost", f"${cost:.4f}")
 
+    def flush_errors(self):
+        # Claude Code reports errors inline; nothing to flush.
+        pass
+
     def process_line(self, line):
         """Process a single line of stream-json. Returns True if run is complete."""
         line = line.strip()
@@ -373,6 +377,7 @@ class OpenCodeStreamProcessor:
         self._in_thinking = False
         self._emitted_first_line = False
         self._line_buf = ""
+        self._errors: list[str] = []
 
     _INDENT = "  "
 
@@ -438,6 +443,27 @@ class OpenCodeStreamProcessor:
         for line in body.split("\n"):
             print(f"{self._TASK_INDENT}{line}", flush=True)
 
+    _GENERIC_ERROR = "Unexpected server error. Check server logs for details."
+
+    def flush_errors(self):
+        """Print collected errors, deduplicating generic messages."""
+        if not self._errors:
+            return
+        specific = [e for e in self._errors if e != self._GENERIC_ERROR]
+        if specific:
+            for error_msg in dict.fromkeys(specific):
+                print(
+                    f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}",
+                    flush=True,
+                )
+        else:
+            print(
+                f"{self._INDENT}{self.RED}❌ Error: OpenCode returned a server error. "
+                f"Common causes: invalid model name, missing or expired credentials, "
+                f"or insufficient API permissions.{self.RESET}",
+                flush=True,
+            )
+
     def process_line(self, line):
         """Process a single JSONL line from OpenCode. Returns True when run is complete."""
         line = line.strip()
@@ -456,7 +482,7 @@ class OpenCodeStreamProcessor:
             self._end_text()
             error = msg.get("error", {})
             error_msg = error.get("data", {}).get("message", str(error))
-            print(f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}", flush=True)
+            self._errors.append(error_msg)
             return False
 
         if msg_type == "text":
