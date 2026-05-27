@@ -5,6 +5,7 @@ import re
 from agentic_ci.gates import (
     check_commit_author,
     check_external_reporter,
+    check_label_author_email,
     check_sensitive_files,
     filter_bot_comments,
     filter_comments_by_domain,
@@ -97,3 +98,25 @@ class TestLogChangedFiles:
         with caplog.at_level(logging.INFO):
             log_changed_files([], "TEST-1")
         assert "No files changed" in caplog.text
+
+
+class TestCheckLabelAuthorEmail:
+    def test_author_found_email_matches(self):
+        author_info = {"found": True, "email": "dev@redhat.com"}
+        assert check_label_author_email(author_info, REDHAT_RE) is True
+
+    def test_author_not_found(self):
+        author_info = {"found": False, "email": ""}
+        assert check_label_author_email(author_info, REDHAT_RE) is False
+
+    def test_email_does_not_match(self):
+        author_info = {"found": True, "email": "user@gmail.com"}
+        assert check_label_author_email(author_info, REDHAT_RE) is False
+
+    def test_empty_email(self):
+        author_info = {"found": True, "email": ""}
+        assert check_label_author_email(author_info, REDHAT_RE) is False
+
+    def test_missing_found_key(self):
+        author_info = {"email": "dev@redhat.com"}
+        assert check_label_author_email(author_info, REDHAT_RE) is False

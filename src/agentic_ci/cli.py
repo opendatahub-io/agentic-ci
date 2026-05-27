@@ -173,6 +173,11 @@ def main():
     sub.add_parser("setup", parents=[common], help="Prepare the AI agent sandbox environment")
     sub.add_parser("stop", parents=[common], help="Tear down the sandbox environment")
 
+    p_forge = sub.add_parser("forge", help="Git forge (GitLab/GitHub) MR/PR operations")
+    from agentic_ci.forge.cli import register_subcommands
+
+    register_subcommands(p_forge)
+
     p_run = sub.add_parser(
         "run", parents=[common], help="Execute a prompt in a sandbox environment"
     )
@@ -210,6 +215,10 @@ def main():
         args.extra_args = extra
     else:
         args.extra_args = []
+
+    if args.command == "forge":
+        args.func(args)
+        return
 
     if args.command not in ("setup", "run", "stop"):
         parser.print_help()

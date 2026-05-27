@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
@@ -337,3 +338,100 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
         raise GitDiffError(
             f"git diff failed for base_ref={base_ref}: {exc.stderr.strip()}"
         ) from exc
+
+
+# -- Git credential setup ----------------------------------------------------
+
+
+def setup_git_credentials(
+    repo_url: str,
+    *,
+    github_token_resolver: Callable[[str], str | None] | None = None,
+) -> bool:
+    """Configure ``git url.insteadOf`` for the forge hosting *repo_url*.
+
+    Sets up transparent credential injection so that ``clone_repo()`` and
+    ``push_branch()`` (which use bare HTTPS URLs) can authenticate
+    without modification.
+
+    For **GitLab**, reads ``BOT_PAT`` from the environment.
+    For **GitHub**, calls *github_token_resolver(repo_url)* to obtain a
+    short-lived token. If no resolver is provided for GitHub URLs,
+    returns False.
+
+    Idempotent and safe to call multiple times. Returns True on success,
+    False if credentials are unavailable.
+    """
+    if not repo_url:
+        return False
+
+    parsed = urlparse(repo_url)
+    hostname = (parsed.hostname or "").lower()
+
+    if hostname == "gitlab.com":
+        return _setup_gitlab_credentials()
+    elif hostname == "github.com":
+        if github_token_resolver is None:
+            log.error("No github_token_resolver provided for GitHub URL: %s", repo_url)
+            return False
+        return _setup_github_credentials(repo_url, github_token_resolver)
+
+    log.debug("No credential setup needed for URL: %s", repo_url)
+    return True
+
+
+def _setup_gitlab_credentials() -> bool:
+    """Configure ``git insteadOf`` for GitLab using ``BOT_PAT`` env var."""
+    token = os.environ.get("BOT_PAT")
+    if not token:
+        log.error("BOT_PAT environment variable not set; cannot authenticate to GitLab")
+        return False
+    return _set_insteadof(
+        f"https://oauth2:{token}@gitlab.com/",
+        "https://gitlab.com/",
+    )
+
+
+def _setup_github_credentials(
+    repo_url: str,
+    token_resolver: Callable[[str], str | None],
+) -> bool:
+    """Configure ``git insteadOf`` for GitHub using a caller-provided token."""
+    token = token_resolver(repo_url)
+    if not token:
+        log.error("GitHub token resolver returned no token for: %s", repo_url)
+        return False
+    return _set_insteadof(
+        f"https://x-access-token:{token}@github.com/",
+        "https://github.com/",
+    )
+
+
+def _set_insteadof(authenticated_prefix: str, original_prefix: str) -> bool:
+    """Run ``git config --global url.<auth>.insteadOf <original>``.
+
+    WARNING: Writes credentials to ``~/.gitconfig`` via ``--global``.
+    In CI the container is ephemeral so this is safe. For local
+    development, credentials persist until manually removed.
+    """
+    if not os.environ.get("CI"):
+        log.warning(
+            "Writing git credentials to ~/.gitconfig (--global). "
+            "This persists on local machines -- remove manually after use."
+        )
+    key = f"url.{authenticated_prefix}.insteadOf"
+    try:
+        subprocess.run(
+            ["git", "config", "--global", key, original_prefix],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        log.debug("Configured git insteadOf for %s", original_prefix)
+        return True
+    except subprocess.CalledProcessError as exc:
+        log.error("git config --global failed: %s", exc.stderr)
+        return False
+    except FileNotFoundError:
+        log.error("git binary not found")
+        return False
