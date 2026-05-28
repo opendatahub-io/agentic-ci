@@ -389,6 +389,47 @@ class JiraClient:
             return {"found": False}
         return {"found": True, "email": author_email, "displayName": author_name}
 
+    def get_description_editors(self, key: str) -> list[str]:
+        """Return email addresses of all users who edited the issue description.
+
+        Walks the full changelog looking for description field changes.
+        Returns a list of unique email addresses (may be empty if the
+        description was never edited after creation).
+        """
+        editors: list[str] = []
+        seen: set[str] = set()
+        start_at = 0
+
+        while True:
+            resp = self._request(
+                "get",
+                self._api_url(f"issue/{key}/changelog"),
+                headers=self._headers(),
+                params={"startAt": start_at, "maxResults": 100},
+            )
+            self._check(resp)
+
+            data = resp.json()
+            for entry in data.get("values", []):
+                if not any(item.get("field") == "description" for item in entry.get("items", [])):
+                    continue
+                author = entry.get("author", {})
+                email = author.get("emailAddress", "")
+                if not email:
+                    account_id = author.get("accountId", "unknown")
+                    email = f"missing-email:{account_id}"
+                if email not in seen:
+                    editors.append(email)
+                    seen.add(email)
+
+            total = data.get("total", 0)
+            values = data.get("values", [])
+            start_at += len(values)
+            if start_at >= total or not values:
+                break
+
+        return editors
+
     def get_custom_field(self, key: str, *field_names: str) -> dict[str, object]:
         """Read custom fields by name. Returns ``{name: value}``."""
         field_ids = {name: self._resolve_field_id(name) for name in field_names}
