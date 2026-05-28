@@ -299,8 +299,12 @@ def harden_git_config(repo_dir: Path) -> None:
 
 
 def get_commit_info(repo_dir: Path) -> dict:
-    """Get the latest commit info (author, email, message, sha)."""
-    fmt = "%H%n%ae%n%an%n%s"
+    """Get the latest commit info (committer, email, message, sha).
+
+    Uses committer identity (not author) so that rebased or
+    cherry-picked commits always reflect the current git config.
+    """
+    fmt = "%H%n%ce%n%cn%n%s"
     result = subprocess.run(
         ["git", "log", "-1", f"--format={fmt}"],
         cwd=str(repo_dir),
