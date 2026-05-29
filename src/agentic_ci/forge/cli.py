@@ -70,6 +70,13 @@ def cmd_pipeline_failures(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_mr_update(args: argparse.Namespace) -> None:
+    """Update MR/PR title and/or description."""
+    forge = Forge.detect(args.url, github_token=args.token)
+    forge.update_description(args.url, title=args.title, description=args.description)
+    print(f"Updated {args.url}")
+
+
 def cmd_mr_diff_position(args: argparse.Namespace) -> None:
     """Get the first changed line position and diff refs (GitLab only)."""
     from agentic_ci.forge.gitlab import GitLabForge
@@ -147,6 +154,12 @@ def register_subcommands(forge_parser: argparse.ArgumentParser) -> None:
     )
     p_pipeline.add_argument("url", help="MR/PR URL")
     p_pipeline.set_defaults(func=cmd_pipeline_failures)
+
+    p_update = subparsers.add_parser("mr-update", help="Update MR/PR title and/or description")
+    p_update.add_argument("url", help="MR/PR URL")
+    p_update.add_argument("--title", help="New title")
+    p_update.add_argument("--description", help="New description")
+    p_update.set_defaults(func=cmd_mr_update)
 
     p_diffpos = subparsers.add_parser(
         "mr-diff-position",

@@ -178,6 +178,44 @@ class TestGithubTokenCommand:
         assert output == "inst-tok"
 
 
+class TestMrUpdateCommand:
+    def test_dispatches_with_description(self, capsys):
+        mock_forge = MagicMock()
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=mock_forge):
+            _run_forge_cli(
+                [
+                    "mr-update",
+                    "https://gitlab.com/o/r/-/merge_requests/1",
+                    "--description",
+                    "New desc",
+                ]
+            )
+
+        mock_forge.update_description.assert_called_once_with(
+            "https://gitlab.com/o/r/-/merge_requests/1",
+            title=None,
+            description="New desc",
+        )
+
+    def test_dispatches_with_title(self, capsys):
+        mock_forge = MagicMock()
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=mock_forge):
+            _run_forge_cli(
+                [
+                    "mr-update",
+                    "https://gitlab.com/o/r/-/merge_requests/1",
+                    "--title",
+                    "New title",
+                ]
+            )
+
+        mock_forge.update_description.assert_called_once_with(
+            "https://gitlab.com/o/r/-/merge_requests/1",
+            title="New title",
+            description=None,
+        )
+
+
 class TestMrDiffPositionCommand:
     def test_non_gitlab_exits(self, capsys):
         mock_forge = MagicMock(spec=[])

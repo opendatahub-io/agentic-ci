@@ -79,6 +79,29 @@ class GitHubForge(Forge):
             "pipeline_status": pipeline_status,
         }
 
+    def update_description(
+        self,
+        mr_url: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        repo_path, pr_number = parse_github_pr_url(mr_url)
+        payload: dict[str, str] = {}
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["body"] = description
+        if not payload:
+            return
+        resp = self._session.patch(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            json=payload,
+        )
+        if resp.status_code != 200:
+            error = extract_api_error(resp)
+            raise ForgeError(f"HTTP {resp.status_code} updating PR: {error}")
+
     def review_comments(self, mr_url: str) -> list[dict]:
         repo_path, pr_number = parse_github_pr_url(mr_url)
         owner, repo = repo_path.split("/", 1)

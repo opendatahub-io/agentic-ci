@@ -59,6 +59,39 @@ class TestCreateMergeRequest:
         assert error == "Validation Failed"
 
 
+class TestUpdateMergeRequest:
+    def test_updates_body(self, forge, mock_session):
+        mock_session.patch.return_value = _make_response(200)
+        forge.update_description(
+            "https://github.com/owner/repo/pull/42",
+            description="Updated desc",
+        )
+        mock_session.patch.assert_called_once()
+        call_kwargs = mock_session.patch.call_args
+        assert call_kwargs[1]["json"] == {"body": "Updated desc"}
+
+    def test_updates_title(self, forge, mock_session):
+        mock_session.patch.return_value = _make_response(200)
+        forge.update_description(
+            "https://github.com/owner/repo/pull/42",
+            title="New title",
+        )
+        call_kwargs = mock_session.patch.call_args
+        assert call_kwargs[1]["json"] == {"title": "New title"}
+
+    def test_noop_when_nothing_provided(self, forge, mock_session):
+        forge.update_description("https://github.com/owner/repo/pull/42")
+        mock_session.patch.assert_not_called()
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.patch.return_value = _make_response(403, {"message": "Forbidden"}, "Forbidden")
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.update_description(
+                "https://github.com/owner/repo/pull/42",
+                description="x",
+            )
+
+
 class TestMrStatus:
     def test_open_pr(self, forge, mock_session):
         pr_resp = _make_response(
