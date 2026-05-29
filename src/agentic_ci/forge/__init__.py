@@ -109,6 +109,22 @@ class Forge(ABC):
         """Resolve a review comment thread."""
 
     @abstractmethod
+    def update_description(
+        self,
+        mr_url: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Update an existing MR/PR title and/or description.
+
+        Only the provided keyword arguments are updated; omitted fields
+        are left unchanged.
+
+        Raises ``ForgeError`` on API failure.
+        """
+
+    @abstractmethod
     def pipeline_failures(self, mr_url: str) -> dict:
         """Get failed CI job names and log tails.
 

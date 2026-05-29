@@ -71,6 +71,53 @@ class TestCreateMergeRequest:
         assert error == "Branch already exists"
 
 
+class TestUpdateMergeRequest:
+    def test_updates_description(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(200)
+        forge.update_description(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            description="Updated desc",
+        )
+        mock_session.put.assert_called_once()
+        call_kwargs = mock_session.put.call_args
+        assert call_kwargs[1]["json"] == {"description": "Updated desc"}
+
+    def test_updates_title(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(200)
+        forge.update_description(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            title="New title",
+        )
+        call_kwargs = mock_session.put.call_args
+        assert call_kwargs[1]["json"] == {"title": "New title"}
+
+    def test_updates_both(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(200)
+        forge.update_description(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            title="New title",
+            description="New desc",
+        )
+        call_kwargs = mock_session.put.call_args
+        assert call_kwargs[1]["json"] == {"title": "New title", "description": "New desc"}
+
+    def test_noop_when_nothing_provided(self, forge, mock_session):
+        forge.update_description("https://gitlab.com/org/repo/-/merge_requests/10")
+        mock_session.put.assert_not_called()
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(403, {"message": "Forbidden"}, "Forbidden")
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.update_description(
+                "https://gitlab.com/org/repo/-/merge_requests/10",
+                description="x",
+            )
+
+
 class TestMrStatus:
     def test_normalizes_opened_to_open(self, forge, mock_session):
         mr_resp = _make_response(200, {"state": "opened", "source_branch": "fix/bug"})
