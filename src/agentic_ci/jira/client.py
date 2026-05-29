@@ -185,6 +185,33 @@ class JiraClient:
             self._field_schema_cache[name] = f.get("schema", {}).get("type", "")
             self._field_schema_cache[fid] = f.get("schema", {}).get("type", "")
 
+    def _resolve_account_id(self, assignee: str) -> str:
+        """Resolve an email address to a Jira account ID.
+
+        If the input is already an account ID (no '@'), returns it as-is.
+        """
+        assignee = assignee.strip()
+        if not assignee:
+            raise JiraError("Assignee cannot be empty")
+
+        if "@" not in assignee:
+            return assignee
+
+        resp = self._request(
+            "get",
+            self._api_url("user/search"),
+            headers=self._headers(),
+            params={"query": assignee},
+        )
+        self._check(resp)
+        users = resp.json()
+        if not users:
+            raise JiraError(f"No Jira user found for '{assignee}'")
+        account_id = users[0].get("accountId")
+        if not account_id:
+            raise JiraError(f"Jira user search returned invalid response for '{assignee}'")
+        return account_id
+
     def _resolve_field_id(self, field_name: str) -> str:
         """Resolve a human-readable field name to its ``customfield_XXXXX`` ID."""
         self._load_field_metadata()
@@ -646,11 +673,12 @@ class JiraClient:
             except acli_mod.AcliError as exc:
                 log.warning("acli assign failed, falling back to REST: %s", exc)
 
+        account_id = self._resolve_account_id(assignee)
         resp = self._request(
             "put",
             self._api_url(f"issue/{key}/assignee"),
             headers=self._headers(),
-            json={"accountId": assignee},
+            json={"accountId": account_id},
         )
         self._check(resp, expected=(200, 204))
         log.info("Assigned %s to %s", key, assignee)
