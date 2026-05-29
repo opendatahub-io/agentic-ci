@@ -180,7 +180,7 @@ def test_build_vol_args_claude_mount_target(monkeypatch, tmp_path, claude_harnes
     backend._resolve_credentials()
     vol_args = backend._build_vol_args()
     mount_str = " ".join(vol_args)
-    assert "/home/claude/.config/gcloud/" in mount_str
+    assert "/home/agent-ci/.config/gcloud/" in mount_str
 
 
 def test_build_vol_args_opencode_mount_target(monkeypatch, tmp_path, opencode_harness):
