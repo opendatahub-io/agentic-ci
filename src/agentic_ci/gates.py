@@ -119,10 +119,13 @@ def check_sensitive_files(
     return blocked
 
 
-def check_commit_author(commit_info: dict, expected_email: str) -> bool:
-    """Verify the commit author matches the expected bot email."""
+def check_commit_identity(commit_info: dict, expected_email: str) -> bool:
+    """Verify the commit committer matches the expected bot email."""
     actual = commit_info.get("email", "")
     return actual.lower() == expected_email.lower()
+
+
+check_commit_author = check_commit_identity
 
 
 def log_changed_files(changed_files: list[str], ticket_key: str) -> None:
@@ -291,8 +294,8 @@ def _run_commit_author(workdir: str, **_kw: object) -> list[str]:
     except subprocess.CalledProcessError as exc:
         return [f"Could not read commit info: {exc}"]
 
-    if not check_commit_author(info, expected):
-        return [f"Commit author '{info.get('email')}' does not match expected '{expected}'"]
+    if not check_commit_identity(info, expected):
+        return [f"Commit committer '{info.get('email')}' does not match expected '{expected}'"]
     return []
 
 

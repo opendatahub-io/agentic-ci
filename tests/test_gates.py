@@ -3,7 +3,7 @@
 import re
 
 from agentic_ci.gates import (
-    check_commit_author,
+    check_commit_identity,
     check_external_reporter,
     check_label_author_email,
     check_sensitive_files,
@@ -38,13 +38,13 @@ class TestCheckSensitiveFiles:
 
 class TestCheckCommitAuthor:
     def test_match(self):
-        assert check_commit_author({"email": "bot@ci.com"}, "bot@ci.com") is True
+        assert check_commit_identity({"email": "bot@ci.com"}, "bot@ci.com") is True
 
     def test_case_insensitive(self):
-        assert check_commit_author({"email": "Bot@CI.com"}, "bot@ci.com") is True
+        assert check_commit_identity({"email": "Bot@CI.com"}, "bot@ci.com") is True
 
     def test_mismatch(self):
-        assert check_commit_author({"email": "human@ci.com"}, "bot@ci.com") is False
+        assert check_commit_identity({"email": "human@ci.com"}, "bot@ci.com") is False
 
 
 class TestFilterCommentsByDomain:
