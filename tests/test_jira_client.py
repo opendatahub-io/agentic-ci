@@ -534,3 +534,82 @@ class TestGetDescriptionEditors:
         resp = client._request("get", "https://test.atlassian.net/rest/api/3/test")
         assert resp.status_code == 200
         mock_sleep.assert_called_once_with(1.0)
+
+
+class TestResolveAccountId:
+    @patch("agentic_ci.jira.client.requests")
+    def test_resolve_account_id_email(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = [{"accountId": "abc123", "displayName": "Test User"}]
+        mock_requests.get.return_value = resp
+
+        result = client._resolve_account_id("user@example.com")
+        assert result == "abc123"
+        mock_requests.get.assert_called_once()
+        assert mock_requests.get.call_args.kwargs["params"] == {"query": "user@example.com"}
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_resolve_account_id_passthrough(self, mock_requests, client):
+        result = client._resolve_account_id("abc123")
+        assert result == "abc123"
+        mock_requests.get.assert_not_called()
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_resolve_account_id_not_found(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = []
+        mock_requests.get.return_value = resp
+
+        with pytest.raises(JiraError, match="No Jira user found"):
+            client._resolve_account_id("nobody@example.com")
+
+    def test_resolve_account_id_empty_raises(self, client):
+        with pytest.raises(JiraError, match="cannot be empty"):
+            client._resolve_account_id("")
+
+    def test_resolve_account_id_whitespace_raises(self, client):
+        with pytest.raises(JiraError, match="cannot be empty"):
+            client._resolve_account_id("   ")
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_resolve_account_id_missing_key_raises(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = [{"displayName": "Test User"}]
+        mock_requests.get.return_value = resp
+
+        with pytest.raises(JiraError, match="invalid response"):
+            client._resolve_account_id("user@example.com")
+
+
+class TestAssignRest:
+    @patch("agentic_ci.jira.client.requests")
+    def test_assign_rest_resolves_email(self, mock_requests, client):
+        search_resp = MagicMock()
+        search_resp.status_code = 200
+        search_resp.json.return_value = [{"accountId": "acct-456"}]
+
+        assign_resp = MagicMock()
+        assign_resp.status_code = 204
+
+        mock_requests.get.return_value = search_resp
+        mock_requests.put.return_value = assign_resp
+
+        client.assign("TEST-1", "dev@example.com")
+
+        mock_requests.put.assert_called_once()
+        assert mock_requests.put.call_args.kwargs["json"] == {"accountId": "acct-456"}
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_assign_rest_account_id_passthrough(self, mock_requests, client):
+        assign_resp = MagicMock()
+        assign_resp.status_code = 204
+        mock_requests.put.return_value = assign_resp
+
+        client.assign("TEST-1", "acct-456")
+
+        mock_requests.get.assert_not_called()
+        mock_requests.put.assert_called_once()
+        assert mock_requests.put.call_args.kwargs["json"] == {"accountId": "acct-456"}
