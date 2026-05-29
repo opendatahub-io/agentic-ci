@@ -120,6 +120,10 @@ class TestClaudeCodeHarness:
         assert any(f"OTEL_RATE_FILE={rate_file}" in line for line in lines)
 
     def test_credential_mount_target(self):
+        assert ClaudeCodeHarness().credential_mount_target() == "/home/agent-ci"
+
+    def test_credential_mount_target_env_override(self, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONTAINER_HOME", "/home/claude")
         assert ClaudeCodeHarness().credential_mount_target() == "/home/claude"
 
     def test_create_stream_processor(self):

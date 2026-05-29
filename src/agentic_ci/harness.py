@@ -167,7 +167,7 @@ class ClaudeCodeHarness(Harness):
         ]
 
     def credential_mount_target(self):
-        return "/home/claude"
+        return os.environ.get("CLAUDE_CONTAINER_HOME", "/home/agent-ci")
 
     def create_stream_processor(self, pid=0):
         from agentic_ci.stream import ClaudeCodeStreamProcessor
