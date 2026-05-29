@@ -191,7 +191,7 @@ def test_build_vol_args_opencode_mount_target(monkeypatch, tmp_path, opencode_ha
     backend._resolve_credentials()
     vol_args = backend._build_vol_args()
     mount_str = " ".join(vol_args)
-    assert "/home/agent/.config/gcloud/" in mount_str
+    assert "/home/agent-ci/.config/gcloud/" in mount_str
 
 
 def test_build_vol_args_api_key_no_gcloud_mounts(monkeypatch, tmp_path, claude_harness):
