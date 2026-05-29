@@ -214,7 +214,11 @@ class TestOpenCodeHarness:
         assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
     def test_credential_mount_target(self):
-        assert OpenCodeHarness().credential_mount_target() == "/home/agent"
+        assert OpenCodeHarness().credential_mount_target() == "/home/agent-ci"
+
+    def test_credential_mount_target_env_override(self, monkeypatch):
+        monkeypatch.setenv("OPENCODE_CONTAINER_HOME", "/home/opencode")
+        assert OpenCodeHarness().credential_mount_target() == "/home/opencode"
 
     def test_create_stream_processor(self):
         from agentic_ci.stream import OpenCodeStreamProcessor
