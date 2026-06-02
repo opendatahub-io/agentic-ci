@@ -124,6 +124,14 @@ class JiraClient:
         timeout = int(os.environ.get("JIRA_API_TIMEOUT", "30"))
         return cls(jira_url, email, token, timeout=timeout)
 
+    @classmethod
+    def from_env_optional(cls, url: str | None = None) -> JiraClient | None:
+        """Create a client from env vars, or return ``None`` if credentials are missing."""
+        try:
+            return cls.from_env(url)
+        except RuntimeError:
+            return None
+
     def _api_url(self, path: str) -> str:
         return f"{self.url}/rest/api/{API_VERSION}/{path}"
 

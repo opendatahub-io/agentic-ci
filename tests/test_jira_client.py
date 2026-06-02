@@ -47,6 +47,43 @@ class TestFromEnv:
             assert c.url == "https://right.atlassian.net"
 
 
+class TestFromEnvOptional:
+    def test_returns_none_when_url_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert JiraClient.from_env_optional() is None
+
+    def test_returns_none_when_email_missing(self):
+        with patch.dict(os.environ, {"JIRA_URL": "https://x.atlassian.net"}, clear=True):
+            assert JiraClient.from_env_optional() is None
+
+    def test_returns_none_when_token_missing(self):
+        env = {"JIRA_URL": "https://x.atlassian.net", "JIRA_EMAIL": "a@b.com"}
+        with patch.dict(os.environ, env, clear=True):
+            assert JiraClient.from_env_optional() is None
+
+    def test_returns_client_when_all_set(self):
+        env = {
+            "JIRA_URL": "https://x.atlassian.net",
+            "JIRA_EMAIL": "a@b.com",
+            "JIRA_API_TOKEN": "tok",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            c = JiraClient.from_env_optional()
+            assert c is not None
+            assert c.url == "https://x.atlassian.net"
+
+    def test_url_param_override(self):
+        env = {
+            "JIRA_URL": "https://wrong.atlassian.net",
+            "JIRA_EMAIL": "a@b.com",
+            "JIRA_API_TOKEN": "tok",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            c = JiraClient.from_env_optional(url="https://right.atlassian.net")
+            assert c is not None
+            assert c.url == "https://right.atlassian.net"
+
+
 class TestGetIssue:
     @patch("agentic_ci.jira.client.requests")
     def test_get_issue_basic(self, mock_requests, client):
