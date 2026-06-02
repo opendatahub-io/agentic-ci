@@ -98,7 +98,11 @@ class JiraClient:
         self._field_schema_cache: dict[str, str] | None = None
         self._acli_available = acli_mod.is_available()
         if self._acli_available:
-            log.debug("acli detected on PATH, will delegate supported operations")
+            try:
+                acli_mod.setup_auth()
+            except acli_mod.AcliError as exc:
+                log.debug("acli on PATH but auth failed, using REST only: %s", exc)
+                self._acli_available = False
 
     @classmethod
     def from_env(cls, url: str | None = None) -> JiraClient:
