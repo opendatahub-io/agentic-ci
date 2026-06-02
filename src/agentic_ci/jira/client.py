@@ -100,9 +100,9 @@ class JiraClient:
         if self._acli_available:
             try:
                 acli_mod.setup_auth()
-                log.debug("acli authenticated, will use acli for supported operations")
+                log.info("acli authenticated, will use acli for supported operations")
             except acli_mod.AcliError as exc:
-                log.debug("acli on PATH but auth failed, using REST only: %s", exc)
+                log.info("acli on PATH but auth failed, using REST only: %s", exc)
                 self._acli_available = False
 
     @classmethod
@@ -593,7 +593,7 @@ class JiraClient:
                     "--labels",
                     ",".join(add),
                 )
-                log.debug("Labels updated on %s (via acli)", key)
+                log.info("Labels updated on %s (via acli)", key)
                 return
             except acli_mod.AcliError as exc:
                 log.warning("acli edit_labels failed, falling back to REST: %s", exc)
@@ -611,7 +611,7 @@ class JiraClient:
             json={"update": update},
         )
         self._check(resp, expected=(200, 204))
-        log.debug("Labels updated on %s", key)
+        log.info("Labels updated on %s", key)
 
     def transition(self, key: str, status: str) -> None:
         """Transition an issue to a new status by name."""

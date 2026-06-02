@@ -145,7 +145,7 @@ def run_acli(
     if json_output:
         cmd.append("--json")
 
-    log.debug("Running: %s", " ".join(_redact_cmd(cmd)))
+    log.info("Running: %s", " ".join(_redact_cmd(cmd)))
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
