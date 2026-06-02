@@ -837,6 +837,56 @@ class JiraClient:
         assert self._field_schema_cache is not None
         return self._field_schema_cache.get(field_name, "")
 
+    def set_security_level(self, key: str, level_name: str) -> None:
+        """Set the security level on an issue by level name.
+
+        Fetches available security levels for the issue, matches
+        *level_name* (case-insensitive), and sets it via the REST API.
+
+        Raises ``JiraError`` if the level name is not found.
+        """
+        resp = self._request(
+            "get",
+            self._api_url(f"issue/{key}"),
+            headers=self._headers(),
+            params={"fields": "project"},
+        )
+        self._check(resp)
+        project_id = resp.json().get("fields", {}).get("project", {}).get("id")
+        if not project_id:
+            raise JiraError(f"Could not determine project ID for issue {key}")
+
+        resp = self._request(
+            "get",
+            self._api_url(f"project/{project_id}/securitylevel"),
+            headers=self._headers(),
+        )
+        self._check(resp)
+
+        level_id = None
+        available = []
+        for level in resp.json().get("levels", []):
+            name = level.get("name", "")
+            available.append(name)
+            if name.lower() == level_name.lower():
+                level_id = level.get("id")
+                break
+
+        if level_id is None:
+            raise JiraError(
+                f"Security level '{level_name}' not found for {key}. "
+                f"Available: {', '.join(available)}"
+            )
+
+        resp = self._request(
+            "put",
+            self._api_url(f"issue/{key}"),
+            headers=self._headers(),
+            json={"fields": {"security": {"id": level_id}}},
+        )
+        self._check(resp, expected=(200, 204))
+        log.info("Set security level '%s' on %s", level_name, key)
+
     def set_custom_field(self, key: str, field_name: str, value: str) -> None:
         """Set a custom field by name.
 

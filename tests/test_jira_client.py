@@ -536,6 +536,72 @@ class TestGetDescriptionEditors:
         mock_sleep.assert_called_once_with(1.0)
 
 
+class TestSetSecurityLevel:
+    @patch("agentic_ci.jira.client.requests")
+    def test_set_security_level_success(self, mock_requests, client):
+        issue_resp = MagicMock()
+        issue_resp.status_code = 200
+        issue_resp.json.return_value = {"fields": {"project": {"id": "10001"}}}
+
+        levels_resp = MagicMock()
+        levels_resp.status_code = 200
+        levels_resp.json.return_value = {
+            "levels": [
+                {"id": "100", "name": "Internal"},
+                {"id": "200", "name": "Confidential"},
+            ]
+        }
+
+        put_resp = MagicMock()
+        put_resp.status_code = 204
+
+        mock_requests.get.side_effect = [issue_resp, levels_resp]
+        mock_requests.put.return_value = put_resp
+
+        client.set_security_level("TEST-1", "Confidential")
+
+        mock_requests.put.assert_called_once()
+        call_json = mock_requests.put.call_args.kwargs["json"]
+        assert call_json == {"fields": {"security": {"id": "200"}}}
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_set_security_level_case_insensitive(self, mock_requests, client):
+        issue_resp = MagicMock()
+        issue_resp.status_code = 200
+        issue_resp.json.return_value = {"fields": {"project": {"id": "10001"}}}
+
+        levels_resp = MagicMock()
+        levels_resp.status_code = 200
+        levels_resp.json.return_value = {"levels": [{"id": "100", "name": "Internal"}]}
+
+        put_resp = MagicMock()
+        put_resp.status_code = 204
+
+        mock_requests.get.side_effect = [issue_resp, levels_resp]
+        mock_requests.put.return_value = put_resp
+
+        client.set_security_level("TEST-1", "internal")
+
+        mock_requests.put.assert_called_once()
+        call_json = mock_requests.put.call_args.kwargs["json"]
+        assert call_json == {"fields": {"security": {"id": "100"}}}
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_set_security_level_not_found(self, mock_requests, client):
+        issue_resp = MagicMock()
+        issue_resp.status_code = 200
+        issue_resp.json.return_value = {"fields": {"project": {"id": "10001"}}}
+
+        levels_resp = MagicMock()
+        levels_resp.status_code = 200
+        levels_resp.json.return_value = {"levels": [{"id": "100", "name": "Internal"}]}
+
+        mock_requests.get.side_effect = [issue_resp, levels_resp]
+
+        with pytest.raises(JiraError, match="Security level 'TopSecret' not found"):
+            client.set_security_level("TEST-1", "TopSecret")
+
+
 class TestResolveAccountId:
     @patch("agentic_ci.jira.client.requests")
     def test_resolve_account_id_email(self, mock_requests, client):
