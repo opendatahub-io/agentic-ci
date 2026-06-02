@@ -100,6 +100,7 @@ class JiraClient:
         if self._acli_available:
             try:
                 acli_mod.setup_auth()
+                log.debug("acli authenticated, will use acli for supported operations")
             except acli_mod.AcliError as exc:
                 log.debug("acli on PATH but auth failed, using REST only: %s", exc)
                 self._acli_available = False
