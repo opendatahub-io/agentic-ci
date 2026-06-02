@@ -11,7 +11,10 @@ from agentic_ci.jira.client import JiraClient
 @pytest.fixture()
 def acli_client():
     """JiraClient with acli detected as available."""
-    with patch("agentic_ci.jira.client.acli_mod.is_available", return_value=True):
+    with (
+        patch("agentic_ci.jira.client.acli_mod.is_available", return_value=True),
+        patch("agentic_ci.jira.client.acli_mod.setup_auth"),
+    ):
         return JiraClient("https://test.atlassian.net", "user@test.com", "tok123")
 
 
