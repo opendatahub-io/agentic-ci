@@ -380,7 +380,7 @@ def setup_git_credentials(
             return False
         return _setup_github_credentials(repo_url, github_token_resolver)
 
-    log.debug("No credential setup needed for URL: %s", repo_url)
+    log.info("No credential setup needed for URL: %s", repo_url)
     return True
 
 
@@ -431,7 +431,7 @@ def _set_insteadof(authenticated_prefix: str, original_prefix: str) -> bool:
             capture_output=True,
             text=True,
         )
-        log.debug("Configured git insteadOf for %s", original_prefix)
+        log.info("Configured git insteadOf for %s", original_prefix)
         return True
     except subprocess.CalledProcessError as exc:
         log.error("git config --global failed: %s", exc.stderr)
