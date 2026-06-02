@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
@@ -65,15 +66,42 @@ class OpenShellBackend(Backend):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        output_file=None,
+        error_file=None,
     ):
         self._write_env_script(otel_port, otel_rate_file)
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         cmd = ["bash", "-c", f'. {self._ENV_SCRIPT} && exec "$@"', "--", *agent_args]
+
+        if output_file is not None:
+            return self._run_to_file(cmd, output_file, error_file, otel_port)
+
         proc = sandbox.exec_cmd_streaming(cmd)
 
         rc = self._process_stream(proc, streaming)
         self._wait_for_otel_flush(otel_port)
+        return rc
+
+    def _run_to_file(self, cmd, output_file, error_file, otel_port):
+        """Run agent with stdout/stderr redirected to files."""
+        out_path = Path(output_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        err_fh = None
+        if error_file is not None:
+            err_path = Path(error_file)
+            err_path.parent.mkdir(parents=True, exist_ok=True)
+            err_fh = open(err_path, "w")
+
+        try:
+            with open(out_path, "w") as out_f:
+                rc = sandbox.exec_cmd_to_file(cmd, out_f, err_fh)
+        finally:
+            if err_fh is not None:
+                err_fh.close()
+            self._wait_for_otel_flush(otel_port)
+
         return rc
 
     def _write_env_script(self, otel_port=None, otel_rate_file=None):

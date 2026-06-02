@@ -58,6 +58,25 @@ def exec_cmd_streaming(cmd):
     )
 
 
+def exec_cmd_to_file(cmd, stdout_fh, stderr_fh=None, timeout=None):
+    """Run a command inside the sandbox with stdout/stderr redirected to file handles.
+
+    Returns the exit code.
+    """
+    proc = subprocess.Popen(
+        ["openshell", "sandbox", "exec", "--name", SANDBOX_NAME, "--no-tty", "--"] + cmd,
+        stdout=stdout_fh,
+        stderr=stderr_fh if stderr_fh is not None else subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    return proc.returncode
+
+
 def delete():
     """Delete the sandbox."""
     subprocess.run(
