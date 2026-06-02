@@ -3,6 +3,8 @@
 import base64
 import json
 import os
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -210,3 +212,92 @@ def test_build_env_args_api_key(monkeypatch, tmp_path, claude_harness):
     assert "ANTHROPIC_API_KEY" in args
     assert "ANTHROPIC_API_KEY=sk-test-key" not in args
     assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+
+
+class TestRunToFile:
+    def test_run_to_file_writes_stdout(self, tmp_path, claude_harness, monkeypatch):
+        """output_file captures subprocess stdout to file."""
+        out_file = tmp_path / "out.txt"
+
+        proc_mock = MagicMock()
+        proc_mock.wait.return_value = None
+        proc_mock.returncode = 0
+
+        with patch("agentic_ci.backends.podman.subprocess.Popen", return_value=proc_mock) as popen:
+            backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+            rc = backend._run_to_file([], ["claude", "-p", "hi"], str(out_file), None, None)
+
+        assert rc == 0
+        assert popen.call_count == 1
+        call_kwargs = popen.call_args.kwargs
+        assert call_kwargs["stdin"] == subprocess.DEVNULL
+        assert call_kwargs["stderr"] == subprocess.DEVNULL
+
+    def test_run_to_file_writes_stderr(self, tmp_path, claude_harness):
+        """error_file captures subprocess stderr to file."""
+        out_file = tmp_path / "out.txt"
+        err_file = tmp_path / "err.txt"
+
+        proc_mock = MagicMock()
+        proc_mock.wait.return_value = None
+        proc_mock.returncode = 0
+
+        with patch("agentic_ci.backends.podman.subprocess.Popen", return_value=proc_mock):
+            backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+            rc = backend._run_to_file([], ["claude"], str(out_file), str(err_file), None)
+
+        assert rc == 0
+
+    def test_run_to_file_creates_parent_dirs(self, tmp_path, claude_harness):
+        """Parent directories are created if they don't exist."""
+        out_file = tmp_path / "subdir" / "nested" / "out.txt"
+
+        proc_mock = MagicMock()
+        proc_mock.wait.return_value = None
+        proc_mock.returncode = 0
+
+        with patch("agentic_ci.backends.podman.subprocess.Popen", return_value=proc_mock):
+            backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+            backend._run_to_file([], ["claude"], str(out_file), None, None)
+
+        assert out_file.parent.exists()
+
+    def test_run_to_file_returns_exit_code(self, tmp_path, claude_harness):
+        """Non-zero exit code is passed through."""
+        out_file = tmp_path / "out.txt"
+
+        proc_mock = MagicMock()
+        proc_mock.wait.return_value = None
+        proc_mock.returncode = 1
+
+        with patch("agentic_ci.backends.podman.subprocess.Popen", return_value=proc_mock):
+            backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+            rc = backend._run_to_file([], ["claude"], str(out_file), None, None)
+
+        assert rc == 1
+
+    def test_run_dispatches_to_file_mode(self, tmp_path, claude_harness):
+        """run() dispatches to _run_to_file when output_file is set."""
+        backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+        backend.is_running = MagicMock(return_value=True)
+        backend._run_to_file = MagicMock(return_value=0)
+        backend.image = "test:latest"
+
+        rc = backend.run("prompt", "model", output_file="/tmp/out.txt")
+
+        assert rc == 0
+        backend._run_to_file.assert_called_once()
+
+    def test_run_streams_by_default(self, tmp_path, claude_harness):
+        """run() uses stream processing when output_file is None."""
+        backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+        backend.is_running = MagicMock(return_value=True)
+        backend._process_stream = MagicMock(return_value=0)
+        backend.image = "test:latest"
+
+        with patch("agentic_ci.backends.podman.subprocess.Popen") as popen:
+            popen.return_value = MagicMock()
+            rc = backend.run("prompt", "model")
+
+        assert rc == 0
+        backend._process_stream.assert_called_once()

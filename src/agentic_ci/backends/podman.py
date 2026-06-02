@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
@@ -115,6 +116,8 @@ class PodmanBackend(Backend):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        output_file=None,
+        error_file=None,
     ):
         if not self.is_running():
             self.setup()
@@ -122,6 +125,9 @@ class PodmanBackend(Backend):
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port)
         agent_args = self.harness.build_args(prompt, model, extra_args)
+
+        if output_file is not None:
+            return self._run_to_file(otel_env, agent_args, output_file, error_file, otel_port)
 
         proc = subprocess.Popen(
             ["podman", "exec", *otel_env, CONTAINER_NAME, *agent_args],
@@ -132,6 +138,37 @@ class PodmanBackend(Backend):
         rc = self._process_stream(proc, streaming)
         self._wait_for_otel_flush(otel_port)
         return rc
+
+    def _run_to_file(self, otel_env, agent_args, output_file, error_file, otel_port):
+        """Run agent with stdout/stderr redirected to files."""
+        out_path = Path(output_file)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        err_fh = None
+        if error_file is not None:
+            err_path = Path(error_file)
+            err_path.parent.mkdir(parents=True, exist_ok=True)
+            err_fh = open(err_path, "w")
+
+        try:
+            with open(out_path, "w") as out_f:
+                proc = subprocess.Popen(
+                    ["podman", "exec", "-i", *otel_env, CONTAINER_NAME, *agent_args],
+                    stdout=out_f,
+                    stderr=err_fh if err_fh is not None else subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                )
+                try:
+                    proc.wait(timeout=self.timeout)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        finally:
+            if err_fh is not None:
+                err_fh.close()
+            self._wait_for_otel_flush(otel_port)
+
+        return proc.returncode
 
     def stop(self):
         result = subprocess.run(

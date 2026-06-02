@@ -44,8 +44,15 @@ class Backend(ABC):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        output_file=None,
+        error_file=None,
     ) -> int:
-        """Execute the agent with the given prompt. Returns the exit code."""
+        """Execute the agent with the given prompt. Returns the exit code.
+
+        When *output_file* is set, subprocess stdout is written to that
+        path instead of being processed by the stream processor.  When
+        *error_file* is set, stderr is written to that path.
+        """
 
     def _process_stream(self, proc, streaming):
         """Read output from proc.stdout through the harness stream processor.
