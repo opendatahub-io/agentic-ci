@@ -190,7 +190,7 @@ Claude API access via gcloud Application Default Credentials.
 The **podman** backend checks credentials in this order:
 
 1. `GCLOUD_CREDENTIALS` env var (raw JSON or base64-encoded)
-2. `GCP_SERVICE_ACCOUNT_KEY` env var (base64-encoded)
+2. `GCP_SERVICE_ACCOUNT_KEY` env var (file path, raw JSON, or base64-encoded)
 3. `~/.config/gcloud/application_default_credentials.json`
 4. Path in `GOOGLE_APPLICATION_CREDENTIALS` env var
 
@@ -213,7 +213,7 @@ The **openshell** backend uploads the local ADC file
 | `CLOUD_ML_REGION` | `global` | Vertex AI region |
 | `VERTEX_LOCATION` | — | Vertex AI region (OpenCode uses this before falling back to `CLOUD_ML_REGION`) |
 | `GCLOUD_CREDENTIALS` | — | Raw JSON or base64 gcloud credentials |
-| `GCP_SERVICE_ACCOUNT_KEY` | — | Base64-encoded service account key |
+| `GCP_SERVICE_ACCOUNT_KEY` | — | Service account key: file path, raw JSON, or base64-encoded JSON |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to ADC credentials file |
 | `OPENSHELL_SUPERVISOR_IMAGE` | `openshell/supervisor:dev` | OpenShell supervisor image (`openshell` backend only) |
 

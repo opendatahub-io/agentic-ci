@@ -220,10 +220,24 @@ class PodmanBackend(Backend):
 
         sa_key = os.environ.get("GCP_SERVICE_ACCOUNT_KEY", "")
         if sa_key:
+            if os.path.isfile(sa_key):
+                try:
+                    with open(sa_key) as f:
+                        content = f.read().strip()
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"Failed to read GCP_SERVICE_ACCOUNT_KEY file {sa_key}: {exc}"
+                    ) from exc
+                sa_key = content
+                source_label = "GCP_SERVICE_ACCOUNT_KEY file"
+            else:
+                source_label = "GCP_SERVICE_ACCOUNT_KEY env var"
+            if self._is_valid_json(sa_key):
+                return sa_key, source_label
             decoded = self._try_base64_decode(sa_key)
             if decoded and self._is_valid_json(decoded):
-                return decoded, "GCP_SERVICE_ACCOUNT_KEY env var"
-            raise RuntimeError("GCP_SERVICE_ACCOUNT_KEY is not valid base64-encoded JSON")
+                return decoded, source_label
+            raise RuntimeError("GCP_SERVICE_ACCOUNT_KEY is not valid JSON or base64-encoded JSON")
 
         adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
         ga_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
