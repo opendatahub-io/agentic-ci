@@ -53,6 +53,48 @@ def test_find_credentials_from_service_account_key(monkeypatch, tmp_path, claude
     assert source == "GCP_SERVICE_ACCOUNT_KEY env var"
 
 
+def test_find_credentials_from_service_account_key_json_file(monkeypatch, tmp_path, claude_harness):
+    creds = json.dumps({"type": "service_account", "project_id": "sa-file-test"})
+    key_file = tmp_path / "sa-key.json"
+    key_file.write_text(creds)
+    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
+    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
+
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    result, source = backend._find_credentials()
+    assert json.loads(result)["project_id"] == "sa-file-test"
+    assert source == "GCP_SERVICE_ACCOUNT_KEY file"
+
+
+def test_find_credentials_from_service_account_key_base64_file(
+    monkeypatch, tmp_path, claude_harness
+):
+    creds = json.dumps({"type": "service_account", "project_id": "sa-b64-file"})
+    encoded = base64.b64encode(creds.encode()).decode()
+    key_file = tmp_path / "sa-key.b64"
+    key_file.write_text(encoded)
+    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
+    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
+
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    result, source = backend._find_credentials()
+    assert json.loads(result)["project_id"] == "sa-b64-file"
+    assert source == "GCP_SERVICE_ACCOUNT_KEY file"
+
+
+def test_find_credentials_from_service_account_key_file_invalid(
+    monkeypatch, tmp_path, claude_harness
+):
+    key_file = tmp_path / "bad-key.json"
+    key_file.write_text("not valid json or base64")
+    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
+    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
+
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    with pytest.raises(RuntimeError, match="not valid JSON or base64"):
+        backend._find_credentials()
+
+
 def test_find_credentials_from_adc_file(monkeypatch, tmp_path, claude_harness):
     creds = json.dumps({"type": "authorized_user", "client_id": "file-test"})
     adc_path = tmp_path / "adc.json"
