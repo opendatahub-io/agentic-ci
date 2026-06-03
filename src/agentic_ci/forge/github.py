@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import time
+from pathlib import Path
 
 import requests
 
@@ -22,6 +25,8 @@ from agentic_ci.forge import (
 from agentic_ci.forge.session import API_TIMEOUT, build_session, extract_api_error
 
 log = logging.getLogger(__name__)
+
+_GITHUB_ORG_RE = re.compile(r"github\.com/([^/]+)", re.IGNORECASE)
 
 
 class GitHubForge(Forge):
@@ -367,3 +372,74 @@ def get_installation_token(jwt_token: str, installation_id: str | int) -> str:
     if resp.status_code != 201:
         raise RuntimeError(f"HTTP {resp.status_code} creating installation token: {resp.text}")
     return resp.json()["token"]
+
+
+def _find_private_key(filename: str) -> Path | None:
+    """Locate a GitHub App private key file.
+
+    Searches ``SECURE_FILES_DOWNLOAD_PATH`` (defaulting to
+    ``.secure_files``) then the current directory.
+    """
+    secure_dir = os.environ.get("SECURE_FILES_DOWNLOAD_PATH", ".secure_files")
+    for path in [Path(secure_dir) / filename, Path(filename)]:
+        if path.is_file():
+            return path
+    return None
+
+
+def resolve_app_token(repo_url: str, github_config: dict) -> str | None:
+    """Resolve a GitHub App installation token for a repo URL.
+
+    Extracts the GitHub org from ``repo_url``, looks up the matching
+    App configuration in ``github_config``, and returns a short-lived
+    installation token.
+
+    Returns ``None`` (with an error log) on any failure.
+    """
+    match = _GITHUB_ORG_RE.search(repo_url)
+    if not match:
+        log.error("Cannot extract GitHub org from URL: %s", repo_url)
+        return None
+    org_name = match.group(1).lower()
+    app_config = None
+    for key, value in github_config.items():
+        if key.lower() == org_name:
+            app_config = value
+            break
+    if not app_config:
+        log.error("No GitHub App configured for org '%s'", org_name)
+        return None
+    credentials_env = app_config.get("credentials_env", "")
+    private_key_file = app_config.get("private_key_file", "")
+    if not credentials_env or not private_key_file:
+        log.error("Incomplete GitHub App config for org '%s'", org_name)
+        return None
+    credentials_json = os.environ.get(credentials_env, "")
+    if not credentials_json:
+        log.error("GitHub App env var %s is not set", credentials_env)
+        return None
+    try:
+        creds = json.loads(credentials_json)
+    except (json.JSONDecodeError, TypeError):
+        log.error("GitHub App env var %s is not valid JSON", credentials_env)
+        return None
+    app_id = creds.get("app_id", "")
+    installation_id = creds.get("installation_id", "")
+    if not app_id or not installation_id:
+        log.error("GitHub App credentials missing app_id or installation_id")
+        return None
+    key_path = _find_private_key(private_key_file)
+    if not key_path:
+        log.error("GitHub App private key file not found: %s", private_key_file)
+        return None
+    try:
+        private_key_pem = key_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.error("Cannot read private key %s: %s", key_path, exc)
+        return None
+    try:
+        jwt_token = generate_github_jwt(app_id, private_key_pem)
+        return get_installation_token(jwt_token, installation_id)
+    except Exception as exc:
+        log.error("GitHub token generation failed: %s", exc)
+        return None
