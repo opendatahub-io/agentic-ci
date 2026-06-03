@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import tempfile
 from typing import TYPE_CHECKING
@@ -66,7 +67,7 @@ class OpenShellBackend(Backend):
         otel_rate_file=None,
         extra_args=None,
     ):
-        self._write_env_script(otel_port, otel_rate_file)
+        self._write_env_script(model, otel_port, otel_rate_file)
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         cmd = ["bash", "-c", f'. {self._ENV_SCRIPT} && exec "$@"', "--", *agent_args]
@@ -76,9 +77,10 @@ class OpenShellBackend(Backend):
         self._wait_for_otel_flush(otel_port)
         return rc
 
-    def _write_env_script(self, otel_port=None, otel_rate_file=None):
+    def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
         """Write env vars to a script inside the sandbox, sourced before the agent runs."""
         lines = self.harness.build_env_script_lines(otel_port, otel_rate_file)
+        lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
         script = "\n".join(lines) + "\n"
         sandbox.exec_cmd(["bash", "-c", f"cat > {self._ENV_SCRIPT} << 'ENVEOF'\n{script}ENVEOF"])
 

@@ -124,7 +124,15 @@ class PodmanBackend(Backend):
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         proc = subprocess.Popen(
-            ["podman", "exec", *otel_env, CONTAINER_NAME, *agent_args],
+            [
+                "podman",
+                "exec",
+                "--env",
+                f"AGENT_MODEL={model}",
+                *otel_env,
+                CONTAINER_NAME,
+                *agent_args,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
