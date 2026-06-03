@@ -105,13 +105,16 @@ class ClaudeCodeHarness(Harness):
                 "--env",
                 "DISABLE_AUTOUPDATER=1",
             ]
+        vertex_project = os.environ.get(
+            "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+        )
         return [
             "--env",
             "CLAUDE_CODE_USE_VERTEX=1",
             "--env",
             f"CLOUD_ML_REGION={os.environ.get('CLOUD_ML_REGION', 'global')}",
             "--env",
-            f"ANTHROPIC_VERTEX_PROJECT_ID={os.environ.get('ANTHROPIC_VERTEX_PROJECT_ID', '')}",
+            f"ANTHROPIC_VERTEX_PROJECT_ID={vertex_project}",
             "--env",
             "DISABLE_AUTOUPDATER=1",
         ]
@@ -123,7 +126,9 @@ class ClaudeCodeHarness(Harness):
                 "export DISABLE_AUTOUPDATER=1",
             ]
         else:
-            vertex_project = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
+            vertex_project = os.environ.get(
+                "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+            )
             cloud_region = os.environ.get("CLOUD_ML_REGION", "global")
             lines = [
                 "export CLAUDE_CODE_USE_VERTEX=1",
@@ -220,7 +225,7 @@ class OpenCodeHarness(Harness):
             ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
-            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
+            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
         )
         location = os.environ.get(
             "VERTEX_LOCATION",
@@ -246,7 +251,7 @@ class OpenCodeHarness(Harness):
             ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
-            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", ""),
+            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
         )
         location = os.environ.get(
             "VERTEX_LOCATION",
