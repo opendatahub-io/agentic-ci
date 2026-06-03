@@ -419,3 +419,187 @@ class TestDerivePipelineStatus:
     def test_unknown_conclusion(self):
         runs = [{"status": "completed", "conclusion": "some_new_state"}]
         assert _derive_pipeline_status(runs) == "unknown"
+
+
+class TestFindPrivateKey:
+    def test_finds_in_secure_dir(self, tmp_path, monkeypatch):
+        secure_dir = tmp_path / "secure"
+        secure_dir.mkdir()
+        key_file = secure_dir / "app.pem"
+        key_file.write_text("KEY")
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(secure_dir))
+
+        from agentic_ci.forge.github import _find_private_key
+
+        result = _find_private_key("app.pem")
+        assert result == key_file
+
+    def test_finds_in_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SECURE_FILES_DOWNLOAD_PATH", raising=False)
+        key_file = tmp_path / "app.pem"
+        key_file.write_text("KEY")
+
+        from agentic_ci.forge.github import _find_private_key
+
+        result = _find_private_key("app.pem")
+        assert result is not None
+        assert result.resolve() == key_file.resolve()
+
+    def test_returns_none_when_missing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(tmp_path / "nonexistent"))
+
+        from agentic_ci.forge.github import _find_private_key
+
+        result = _find_private_key("missing.pem")
+        assert result is None
+
+    def test_secure_dir_takes_precedence(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        secure_dir = tmp_path / "secure"
+        secure_dir.mkdir()
+        secure_key = secure_dir / "app.pem"
+        secure_key.write_text("SECURE_KEY")
+        cwd_key = tmp_path / "app.pem"
+        cwd_key.write_text("CWD_KEY")
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(secure_dir))
+
+        from agentic_ci.forge.github import _find_private_key
+
+        result = _find_private_key("app.pem")
+        assert result == secure_key
+
+    def test_default_secure_dir(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("SECURE_FILES_DOWNLOAD_PATH", raising=False)
+        secure_dir = tmp_path / ".secure_files"
+        secure_dir.mkdir()
+        key_file = secure_dir / "app.pem"
+        key_file.write_text("KEY")
+
+        from agentic_ci.forge.github import _find_private_key
+
+        result = _find_private_key("app.pem")
+        assert result is not None
+        assert result.resolve() == key_file.resolve()
+
+
+class TestResolveAppToken:
+    """Tests for resolve_app_token()."""
+
+    @pytest.fixture()
+    def github_config(self):
+        return {
+            "opendatahub-io": {
+                "credentials_env": "GITHUB_APP_ODH",
+                "private_key_file": "odh-app.pem",
+            }
+        }
+
+    @pytest.fixture()
+    def valid_env(self, monkeypatch, tmp_path):
+        monkeypatch.setenv(
+            "GITHUB_APP_ODH",
+            '{"app_id": "12345", "installation_id": "67890"}',
+        )
+        key_file = tmp_path / "odh-app.pem"
+        key_file.write_text("-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----")
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(tmp_path))
+        return tmp_path
+
+    def test_valid_flow(self, github_config, valid_env):
+        from agentic_ci.forge.github import resolve_app_token
+
+        with (
+            patch("agentic_ci.forge.github.generate_github_jwt", return_value="jwt-token"),
+            patch(
+                "agentic_ci.forge.github.get_installation_token",
+                return_value="install-token",
+            ),
+        ):
+            token = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert token == "install-token"
+
+    def test_missing_org_in_url(self, github_config):
+        from agentic_ci.forge.github import resolve_app_token
+
+        result = resolve_app_token("https://example.com/repo", github_config)
+        assert result is None
+
+    def test_no_config_for_org(self, github_config):
+        from agentic_ci.forge.github import resolve_app_token
+
+        result = resolve_app_token("https://github.com/unknown-org/repo", github_config)
+        assert result is None
+
+    def test_missing_env_var(self, github_config, monkeypatch):
+        from agentic_ci.forge.github import resolve_app_token
+
+        monkeypatch.delenv("GITHUB_APP_ODH", raising=False)
+        result = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert result is None
+
+    def test_invalid_json_env(self, github_config, monkeypatch):
+        from agentic_ci.forge.github import resolve_app_token
+
+        monkeypatch.setenv("GITHUB_APP_ODH", "not-json")
+        result = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert result is None
+
+    def test_missing_pem_file(self, github_config, monkeypatch, tmp_path):
+        from agentic_ci.forge.github import resolve_app_token
+
+        monkeypatch.setenv(
+            "GITHUB_APP_ODH",
+            '{"app_id": "12345", "installation_id": "67890"}',
+        )
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        result = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert result is None
+
+    def test_case_insensitive_org_match(self, github_config, valid_env):
+        from agentic_ci.forge.github import resolve_app_token
+
+        with (
+            patch("agentic_ci.forge.github.generate_github_jwt", return_value="jwt"),
+            patch("agentic_ci.forge.github.get_installation_token", return_value="token"),
+        ):
+            token = resolve_app_token("https://github.com/OpenDataHub-IO/repo", github_config)
+        assert token == "token"
+
+    def test_incomplete_config_no_credentials_env(self):
+        from agentic_ci.forge.github import resolve_app_token
+
+        config = {"myorg": {"private_key_file": "key.pem"}}
+        result = resolve_app_token("https://github.com/myorg/repo", config)
+        assert result is None
+
+    def test_incomplete_config_no_key_file(self, monkeypatch):
+        from agentic_ci.forge.github import resolve_app_token
+
+        monkeypatch.setenv("MY_ENV", '{"app_id": "1", "installation_id": "2"}')
+        config = {"myorg": {"credentials_env": "MY_ENV"}}
+        result = resolve_app_token("https://github.com/myorg/repo", config)
+        assert result is None
+
+    def test_missing_app_id(self, github_config, monkeypatch, tmp_path):
+        from agentic_ci.forge.github import resolve_app_token
+
+        monkeypatch.setenv("GITHUB_APP_ODH", '{"installation_id": "67890"}')
+        monkeypatch.setenv("SECURE_FILES_DOWNLOAD_PATH", str(tmp_path))
+        key_file = tmp_path / "odh-app.pem"
+        key_file.write_text("KEY")
+        result = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert result is None
+
+    def test_jwt_generation_failure(self, github_config, valid_env):
+        from agentic_ci.forge.github import resolve_app_token
+
+        with patch(
+            "agentic_ci.forge.github.generate_github_jwt",
+            side_effect=Exception("JWT fail"),
+        ):
+            result = resolve_app_token("https://github.com/opendatahub-io/repo", github_config)
+        assert result is None
