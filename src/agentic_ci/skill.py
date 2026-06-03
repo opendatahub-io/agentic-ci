@@ -61,6 +61,7 @@ class SkillConfig:
     post_gates: list[Callable[..., tuple[dict | None, list[str]]]] = field(default_factory=list)
 
     extra_skills: list[str] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
 
     max_retries: int = 1
     retryable_modes: frozenset[str] = frozenset({"resolve"})
