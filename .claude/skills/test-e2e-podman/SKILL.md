@@ -13,12 +13,27 @@ Each section below is independent. Run whichever sections match your environment
 
 All sections require:
 - `podman` installed and working (rootless)
-- Network access to `ghcr.io` (image pull)
+- Network access to container registries (image pull)
 
 Per-section requirements:
 - **Vertex AI auth**: GCP ADC credentials (`~/.config/gcloud/application_default_credentials.json`)
 - **API key auth**: `ANTHROPIC_API_KEY` set in the environment
-- **OpenCode harness**: An OpenCode container image (set `OPENCODE_CONTAINER_IMAGE` or pass `--image`)
+
+## Container images
+
+Default images are used unless overridden by environment variables:
+
+| Harness    | Default image                                        | Override env var           |
+|------------|------------------------------------------------------|----------------------------|
+| Claude Code | `quay.io/aipcc/agentic-ci/claude-runner:latest`     | `CLAUDE_CONTAINER_IMAGE`   |
+| OpenCode   | `quay.io/aipcc/agentic-ci/opencode-runner:latest`   | `OPENCODE_CONTAINER_IMAGE` |
+
+The commands below use `$CLAUDE_IMAGE` and `$OPENCODE_IMAGE` variables. Set them at the start of the session:
+
+```bash
+CLAUDE_IMAGE="${CLAUDE_CONTAINER_IMAGE:-quay.io/aipcc/agentic-ci/claude-runner:latest}"
+OPENCODE_IMAGE="${OPENCODE_CONTAINER_IMAGE:-quay.io/aipcc/agentic-ci/opencode-runner:latest}"
+```
 
 ## Auth isolation
 
@@ -45,7 +60,7 @@ podman rm -f agentic-ci 2>/dev/null || true
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci setup \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest
+    --image $CLAUDE_IMAGE
 ```
 
 Verify:
@@ -57,8 +72,8 @@ Verify:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci run "Respond with exactly: A2_OK" \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest \
-    --model claude-haiku-4-5-20251001 --no-otel
+    --image $CLAUDE_IMAGE \
+    --model claude-haiku-4-5 --no-otel
 ```
 
 Verify:
@@ -71,8 +86,8 @@ Verify:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci run "Respond with exactly: A3_OK" \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest \
-    --model claude-haiku-4-5-20251001
+    --image $CLAUDE_IMAGE \
+    --model claude-haiku-4-5
 ```
 
 Verify:
@@ -87,8 +102,8 @@ Verify:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci run "Respond with exactly: A4_OK" \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest \
-    --model claude-haiku-4-5-20251001 --no-streaming --no-otel
+    --image $CLAUDE_IMAGE \
+    --model claude-haiku-4-5 --no-streaming --no-otel
 ```
 
 Verify:
@@ -99,7 +114,7 @@ Verify:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci stop \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest
+    --image $CLAUDE_IMAGE
 ```
 
 Verify:
@@ -117,8 +132,8 @@ Requires `ANTHROPIC_API_KEY` set in the environment.
 ```bash
 podman rm -f agentic-ci 2>/dev/null || true
 uv run --with . agentic-ci run "Respond with exactly: B1_OK" \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest \
-    --model claude-haiku-4-5-20251001 --no-otel
+    --image $CLAUDE_IMAGE \
+    --model claude-haiku-4-5 --no-otel
 ```
 
 Verify:
@@ -131,8 +146,8 @@ Verify:
 
 ```bash
 uv run --with . agentic-ci run "Respond with exactly: B2_OK" \
-    --image ghcr.io/opendatahub-io/ai-helpers:latest \
-    --model claude-haiku-4-5-20251001
+    --image $CLAUDE_IMAGE \
+    --model claude-haiku-4-5
 ```
 
 Verify:
@@ -143,7 +158,7 @@ Verify:
 ### B3. Stop
 
 ```bash
-uv run --with . agentic-ci stop --image ghcr.io/opendatahub-io/ai-helpers:latest
+uv run --with . agentic-ci stop --image $CLAUDE_IMAGE
 ```
 
 Verify:
@@ -153,7 +168,7 @@ Verify:
 
 ## Section C: OpenCode + Vertex AI
 
-Requires GCP ADC credentials and an OpenCode container image.
+Requires GCP ADC credentials.
 
 ### C1. Run
 
@@ -161,7 +176,7 @@ Requires GCP ADC credentials and an OpenCode container image.
 podman rm -f agentic-ci 2>/dev/null || true
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci run "Respond with exactly: C1_OK" \
     --harness opencode \
-    --image "$OPENCODE_CONTAINER_IMAGE" \
+    --image "$OPENCODE_IMAGE" \
     --model google-vertex/claude-haiku-4-5@20251001 \
     --no-otel
 ```
@@ -175,7 +190,7 @@ Verify:
 
 ```bash
 env -u ANTHROPIC_API_KEY uv run --with . agentic-ci stop --harness opencode \
-    --image "$OPENCODE_CONTAINER_IMAGE"
+    --image "$OPENCODE_IMAGE"
 ```
 
 Verify:
@@ -185,7 +200,7 @@ Verify:
 
 ## Section D: OpenCode + API Key
 
-Requires `ANTHROPIC_API_KEY` set in the environment and an OpenCode container image.
+Requires `ANTHROPIC_API_KEY` set in the environment.
 
 ### D1. Run
 
@@ -193,7 +208,7 @@ Requires `ANTHROPIC_API_KEY` set in the environment and an OpenCode container im
 podman rm -f agentic-ci 2>/dev/null || true
 uv run --with . agentic-ci run "Respond with exactly: D1_OK" \
     --harness opencode \
-    --image "$OPENCODE_CONTAINER_IMAGE" \
+    --image "$OPENCODE_IMAGE" \
     --model anthropic/claude-haiku-4-5-20251001 \
     --no-otel
 ```
@@ -207,7 +222,7 @@ Verify:
 
 ```bash
 uv run --with . agentic-ci stop --harness opencode \
-    --image "$OPENCODE_CONTAINER_IMAGE"
+    --image "$OPENCODE_IMAGE"
 ```
 
 Verify:
