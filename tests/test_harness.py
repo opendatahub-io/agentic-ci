@@ -84,6 +84,22 @@ class TestClaudeCodeHarness:
         assert "DISABLE_AUTOUPDATER=1" in args
         assert "CLAUDE_CODE_USE_VERTEX=1" not in args
 
+    def test_build_env_args_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        harness = ClaudeCodeHarness()
+        args = harness.build_env_args()
+        assert "ANTHROPIC_VERTEX_PROJECT_ID=gcp-proj" in args
+
+    def test_build_env_script_lines_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        harness = ClaudeCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert any("ANTHROPIC_VERTEX_PROJECT_ID=gcp-proj" in line for line in lines)
+
     def test_build_otel_exec_env(self):
         harness = ClaudeCodeHarness()
         args = harness.build_otel_exec_env(otel_port=4318)
@@ -191,6 +207,28 @@ class TestOpenCodeHarness:
         args = harness.build_env_args()
         assert "GOOGLE_CLOUD_PROJECT=fallback-proj" in args
         assert "VERTEX_LOCATION=eu-west1" in args
+
+    def test_build_env_args_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+        monkeypatch.delenv("CLOUD_ML_REGION", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        harness = OpenCodeHarness()
+        args = harness.build_env_args()
+        assert "GOOGLE_CLOUD_PROJECT=gcp-proj" in args
+
+    def test_build_env_script_lines_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+        monkeypatch.delenv("CLOUD_ML_REGION", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        harness = OpenCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert any("GOOGLE_CLOUD_PROJECT=gcp-proj" in line for line in lines)
 
     def test_build_otel_exec_env_always_empty(self):
         assert OpenCodeHarness().build_otel_exec_env(otel_port=4318) == []
