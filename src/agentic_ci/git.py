@@ -214,6 +214,73 @@ def create_branch(repo_dir: Path, branch_name: str) -> bool:
         return False
 
 
+def checkout_branch(repo_dir: Path, branch: str) -> bool:
+    """Checkout an existing branch. Returns True on success."""
+    if not _validate_ref(branch):
+        log.error("checkout_branch: invalid branch name: %s", branch)
+        return False
+    try:
+        subprocess.run(
+            ["git", "checkout", branch],
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=_DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        log.error("git checkout failed: %s", exc.stderr)
+        return False
+    except FileNotFoundError:
+        log.error("git binary not found")
+        return False
+
+
+def get_default_branch(repo_dir: Path) -> str:
+    """Detect the default branch of the remote origin.
+
+    Runs ``git rev-parse --abbrev-ref origin/HEAD`` and strips the
+    ``origin/`` prefix. Falls back to ``"main"`` when the remote HEAD
+    cannot be determined.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "origin/HEAD"],
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=_DEVNULL,
+        )
+        ref = result.stdout.strip()
+        if ref and ref != "origin/HEAD":
+            return ref.removeprefix("origin/")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return "main"
+
+
+def git_output(repo_dir: Path, *args: str) -> str | None:
+    """Run a git command and return its stripped stdout, or None on error.
+
+    This is a thin wrapper around ``subprocess.run`` for cases where
+    the caller only needs the text output of a git command.
+    """
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=_DEVNULL,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
 _SAFE_REMOTE_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
 
 
