@@ -25,6 +25,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from agentic_ci.git import GitDiffError, get_changed_files, get_commit_info
+from agentic_ci.jira.client import JiraClient
+
 log = logging.getLogger(__name__)
 
 
@@ -227,6 +230,32 @@ def filter_bot_comments(
     return [c for c in comments if not any(s in c.get("body", "") for s in sentinel_phrases)]
 
 
+def check_description_editors(
+    editors: list[str],
+    reporter_email: str,
+    internal_domain_re: re.Pattern[str],
+) -> list[str]:
+    """Check if any description editors are outside the trusted domain.
+
+    Validates the reporter (original author) and all changelog editors.
+    Returns a list of untrusted email addresses (empty means all clear).
+    Treats empty or missing emails as untrusted.
+    """
+    untrusted: list[str] = []
+    if not reporter_email:
+        untrusted.append("missing-email:reporter")
+    elif not internal_domain_re.search(reporter_email):
+        untrusted.append(reporter_email)
+
+    for email in editors:
+        normalized = email or "missing-email:unknown"
+        if normalized.startswith("missing-email:") or not internal_domain_re.search(normalized):
+            if normalized not in untrusted:
+                untrusted.append(normalized)
+
+    return untrusted
+
+
 def check_external_reporter(
     ticket: dict,
     internal_domain_re: re.Pattern[str],
@@ -271,8 +300,6 @@ def check_label_author_email(
 
 def _run_sensitive_files(workdir: str, **_kw: object) -> list[str]:
     """CLI runner for the sensitive-files gate."""
-    from agentic_ci.git import GitDiffError, get_changed_files
-
     try:
         changed = get_changed_files(Path(workdir), base_ref="origin/HEAD")
     except GitDiffError as exc:
@@ -286,8 +313,6 @@ def _run_sensitive_files(workdir: str, **_kw: object) -> list[str]:
 
 def _run_commit_author(workdir: str, **_kw: object) -> list[str]:
     """CLI runner for the commit-author gate."""
-    from agentic_ci.git import get_commit_info
-
     expected = os.environ.get("BOT_EMAIL", "")
     try:
         info = get_commit_info(Path(workdir))
@@ -304,8 +329,56 @@ def _run_gitleaks(workdir: str, **_kw: object) -> list[str]:
     return gitleaks_scan(Path(workdir))
 
 
+def _run_jira_description_editors(**_kw: object) -> str | None:
+    """CLI runner for the description-editors gate (pre-gate contract)."""
+    ticket_key = os.environ.get("TICKET_KEY", "")
+    if not ticket_key:
+        return "TICKET_KEY env var not set; cannot check description editors"
+
+    domain_pattern = os.environ.get("INTERNAL_DOMAIN_RE", "")
+    if not domain_pattern:
+        return "INTERNAL_DOMAIN_RE env var not set; cannot validate editor emails"
+    if not domain_pattern.endswith("$"):
+        return "INTERNAL_DOMAIN_RE must be end-anchored ($) to prevent partial matches"
+
+    try:
+        internal_re = re.compile(domain_pattern, re.IGNORECASE)
+    except re.error as exc:
+        return f"Invalid INTERNAL_DOMAIN_RE pattern: {exc}"
+
+    try:
+        client = JiraClient.from_env()
+    except Exception as exc:
+        return f"Could not create Jira client: {exc}"
+
+    try:
+        issue = client.get_issue(ticket_key)
+    except Exception as exc:
+        return f"Could not fetch issue {ticket_key}: {exc}"
+
+    reporter_email = issue.get("reporter_email", "")
+    try:
+        editors = client.get_description_editors(ticket_key)
+    except Exception as exc:
+        return f"Could not fetch changelog for {ticket_key}: {exc}"
+
+    untrusted = check_description_editors(editors, reporter_email, internal_re)
+    if untrusted:
+        return (
+            f"Description edited by untrusted user(s): {', '.join(untrusted)}. "
+            f"Only users matching {domain_pattern} may author or edit the ticket description."
+        )
+    return None
+
+
 # -- Register built-in gates -------------------------------------------------
 
 _register("sensitive-files", _run_sensitive_files, phase="post")
 _register("commit-author", _run_commit_author, phase="post", required_env=["BOT_EMAIL"])
 _register("gitleaks", _run_gitleaks, phase="post")
+_register(
+    "jira-description-editors",
+    _run_jira_description_editors,
+    phase="pre",
+    required_env=["JIRA_URL", "JIRA_API_TOKEN", "TICKET_KEY", "INTERNAL_DOMAIN_RE"],
+)

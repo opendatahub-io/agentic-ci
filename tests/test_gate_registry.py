@@ -71,13 +71,13 @@ class TestValidateGateEnv:
 class TestRunSensitiveFiles:
     def test_no_changes_passes(self):
         gate = GATE_REGISTRY["sensitive-files"]
-        with patch("agentic_ci.git.get_changed_files", return_value=[]):
+        with patch("agentic_ci.gates.get_changed_files", return_value=[]):
             errors = gate.fn(workdir="/tmp/test")
         assert errors == []
 
     def test_sensitive_file_blocked(self):
         gate = GATE_REGISTRY["sensitive-files"]
-        with patch("agentic_ci.git.get_changed_files", return_value=[".env", "main.py"]):
+        with patch("agentic_ci.gates.get_changed_files", return_value=[".env", "main.py"]):
             errors = gate.fn(workdir="/tmp/test")
         assert len(errors) == 1
         assert ".env" in errors[0]
@@ -89,7 +89,7 @@ class TestRunCommitAuthor:
         with (
             patch.dict(os.environ, {"BOT_EMAIL": "bot@ci.com"}),
             patch(
-                "agentic_ci.git.get_commit_info",
+                "agentic_ci.gates.get_commit_info",
                 return_value={"email": "bot@ci.com", "subject": "fix"},
             ),
         ):
@@ -101,7 +101,7 @@ class TestRunCommitAuthor:
         with (
             patch.dict(os.environ, {"BOT_EMAIL": "bot@ci.com"}),
             patch(
-                "agentic_ci.git.get_commit_info",
+                "agentic_ci.gates.get_commit_info",
                 return_value={"email": "human@ci.com", "subject": "fix"},
             ),
         ):
