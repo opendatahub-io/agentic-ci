@@ -60,7 +60,8 @@ class SkillConfig:
     pre_gates: list[Callable[..., str | None]] = field(default_factory=list)
     post_gates: list[Callable[..., tuple[dict | None, list[str]]]] = field(default_factory=list)
 
-    extra_skills: list[str] = field(default_factory=list)
+    extra_skills: list[str | dict] = field(default_factory=list)
+    context_dir: str = ".context"
     artifacts: list[str] = field(default_factory=list)
 
     max_retries: int = 1
@@ -164,6 +165,28 @@ def run_skill(
         work_dir=work_dir,
         **extra_kwargs,
     )
+
+    if config.extra_skills:
+        raw_ctx_dir = work_dir / config.context_dir
+        if raw_ctx_dir.is_symlink():
+            raise ValueError(f"context_dir is a symlink: {raw_ctx_dir}")
+        ctx_dir = raw_ctx_dir.resolve()
+        try:
+            ctx_dir.relative_to(work_dir.resolve())
+        except ValueError as exc:
+            raise ValueError(f"context_dir escapes work_dir: {config.context_dir!r}") from exc
+        ctx_dir.mkdir(parents=True, exist_ok=True)
+        config_path = ctx_dir / "config.json"
+        if config_path.is_symlink():
+            raise ValueError(f"config.json is a symlink: {config_path}")
+        config_path.write_text(
+            json.dumps(
+                {"extra_skills": config.extra_skills},
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     config.extension_config_writer(
         ticket_key=ticket_key,
