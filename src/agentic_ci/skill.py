@@ -180,7 +180,6 @@ def run_skill(
         **extra_kwargs,
     )
     output_file = work_dir / "agent-output.txt"
-    _deprecated_output = work_dir / "claude-output.txt"
 
     runner = config.container_runner or _default_run_container
 
@@ -209,13 +208,6 @@ def run_skill(
                 config.max_retries,
             )
             rc = runner(work_dir, prompt, output_file, image=config.container_image)
-
-    if output_file.exists() and not _deprecated_output.exists():
-        _deprecated_output.symlink_to(output_file.name)
-        log.warning(
-            "claude-output.txt is deprecated; use agent-output.txt instead. "
-            "The symlink will be removed in a future release.",
-        )
 
     if rc != 0:
         log.error("[%s] Container exited with code %d", ticket_key, rc)
