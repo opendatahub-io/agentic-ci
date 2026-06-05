@@ -1,0 +1,80 @@
+site_name: agentic-ci
+site_description: Run AI coding agents in sandboxed CI environments
+site_url: https://opendatahub-io.github.io/agentic-ci/
+repo_url: https://github.com/opendatahub-io/agentic-ci
+repo_name: opendatahub-io/agentic-ci
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            docstring_style: google
+            merge_init_into_class: true
+            show_if_no_docstring: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - API Reference:
+      - Overview: api/index.md
+      - Core:
+          - CLI: api/cli.md
+          - Backend: api/backend.md
+          - Harness: api/harness.md
+          - Stream Processors: api/stream.md
+          - OTEL Collector: api/otel.md
+      - Backends:
+          - Factory & Podman: api/backends.md
+          - OpenShell: api/openshell.md
+      - Pipeline:
+          - Gates: api/gates.md
+          - Skill Runner: api/skill.md
+          - Verdict: api/verdict.md
+          - Git Operations: api/git.md
+          - Pipeline Generation: api/pipeline.md
+      - Integrations:
+          - Forge (GitHub/GitLab): api/forge.md
+          - Jira: api/jira.md
+      - Utilities:
+          - Logging: api/log.md
+          - Skill Metadata: api/skill_metadata.md

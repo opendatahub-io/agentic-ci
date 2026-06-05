@@ -5,6 +5,7 @@
 [![CI](https://github.com/opendatahub-io/agentic-ci/actions/workflows/ci.yml/badge.svg)](https://github.com/opendatahub-io/agentic-ci/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/opendatahub-io/agentic-ci)](https://github.com/opendatahub-io/agentic-ci/blob/main/LICENSE)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/agentic-ci)](https://pypi.org/project/agentic-ci/)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://opendatahub-io.github.io/agentic-ci/)
 
 Run AI coding agents in sandboxed CI environments with streaming output
 and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
@@ -334,5 +335,22 @@ config = SkillConfig(
     cost_formatter=_format_otel_cost,     # Formats cost for Jira comments
     post_gates=[_autofix_post_gate],      # Commit author check, sensitive files, gitleaks
 )
+```
+
+## Documentation
+
+API reference documentation is auto-generated from docstrings and
+published to [GitHub Pages](https://opendatahub-io.github.io/agentic-ci/).
+
+To build the docs locally:
+
+```bash
+tox -e docs
+```
+
+Or to preview with live reload:
+
+```bash
+uv run --with '.[docs]' mkdocs serve
 ```
 

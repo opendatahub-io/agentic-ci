@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agentic_ci.backends.openshell import OpenShellBackend
 from agentic_ci.backends.podman import PodmanBackend
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from agentic_ci.harness import Harness
 
 
-def create_backend(name: str, *, harness: Harness, **kwargs) -> Backend:
+def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
     """Create a backend instance by name.
 
     Args:
