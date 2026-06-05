@@ -271,6 +271,39 @@ class TestGeneralComments:
         assert len(comments) == 1
         assert comments[0]["body"] == "Real feedback here"
 
+    def test_filters_ai_review_marker(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        discussions = [
+            {
+                "notes": [
+                    {
+                        "body": (
+                            "## AI Code Review Summary\n\n"
+                            "Looks good.\n\n"
+                            "<!-- ai-review sha:abc123 -->"
+                        ),
+                        "author": {"name": "Bot"},
+                        "created_at": "2025-01-01T00:00:00Z",
+                    }
+                ],
+            },
+            {
+                "notes": [
+                    {
+                        "body": "Please fix the typo on line 42",
+                        "author": {"name": "Alice"},
+                        "created_at": "2025-01-02T00:00:00Z",
+                    }
+                ],
+            },
+        ]
+        disc_resp = _make_response(200, discussions)
+        mock_session.get.side_effect = [project_resp, disc_resp]
+
+        comments = forge.general_comments("https://gitlab.com/org/repo/-/merge_requests/1")
+        assert len(comments) == 1
+        assert comments[0]["body"] == "Please fix the typo on line 42"
+
     def test_since_filter(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
         discussions = [

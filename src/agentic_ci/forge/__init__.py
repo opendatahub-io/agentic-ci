@@ -141,6 +141,7 @@ _GITHUB_PR_RE = re.compile(
 
 DEFAULT_SKIP_PATTERNS: list[str] = [
     "<!-- agentic-ci",
+    "<!-- ai-review",
     "Addressed in the latest revision",
 ]
 
