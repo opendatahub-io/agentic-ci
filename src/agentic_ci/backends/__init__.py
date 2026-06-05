@@ -28,6 +28,7 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             workdir=kwargs.get("workdir", "."),
             image=kwargs.get("image"),
             timeout=kwargs.get("timeout", 1200),
+            extra_env=kwargs.get("extra_env"),
             harness=harness,
         )
     elif name == "openshell":
@@ -35,6 +36,7 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             workdir=kwargs.get("workdir", "."),
             image=kwargs.get("image"),
             policy=kwargs.get("policy"),
+            extra_env=kwargs.get("extra_env"),
             harness=harness,
         )
     else:

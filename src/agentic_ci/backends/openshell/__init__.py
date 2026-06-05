@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import os
 import shlex
-import shutil
 import tempfile
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
-from agentic_ci.backends.openshell import gateway, policy, sandbox
+from agentic_ci.backends.openshell import gateway, provider, sandbox
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -21,13 +20,17 @@ class OpenShellBackend(Backend):
 
     OpenShell provides security-focused sandboxing with network policy
     enforcement, filesystem isolation, and Landlock-based access control.
+    Authentication is handled through the OpenShell google-cloud provider,
+    which injects GCP credentials via the supervisor proxy. The agent
+    uses its native Vertex AI integration directly.
     """
 
     _ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
 
-    def __init__(self, workdir=".", image=None, policy=None, *, harness: Harness):
+    def __init__(self, workdir=".", image=None, policy=None, extra_env=None, *, harness: Harness):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.policy_path = policy
+        self._extra_env = extra_env or {}
 
     def setup(self):
         if not gateway.is_running():
@@ -36,27 +39,28 @@ class OpenShellBackend(Backend):
         else:
             log.section("OpenShell gateway already running")
 
+        log.section("Configuring provider")
+        provider.setup(auth_mode=self.harness.auth_mode)
+
         if sandbox.exists():
             log.section("Sandbox already exists")
             return
 
-        resolved_policy = policy.resolve(
-            flag_path=self.policy_path,
-            workdir=self.workdir,
-        )
         image_info = f", image: {self.image}" if self.image else ""
-        log.section(f"Creating sandbox (policy: {resolved_policy}{image_info})")
-        sandbox.create(image=self.image, policy_path=resolved_policy)
+        log.section(f"Creating sandbox ({image_info.lstrip(', ') or 'default image'})")
 
-        self._upload_credentials()
+        sandbox.create(image=self.image, policy_path=self.policy_path)
 
     def stop(self):
-        if not sandbox.exists():
-            log.section("No sandbox to stop")
-            return
-
-        sandbox.delete()
-        log.section("Sandbox deleted")
+        try:
+            if sandbox.exists():
+                sandbox.delete()
+                log.section("Sandbox deleted")
+            else:
+                log.section("No sandbox to stop")
+        finally:
+            gateway.stop()
+            log.section("Gateway stopped")
 
     def run(
         self,
@@ -78,49 +82,28 @@ class OpenShellBackend(Backend):
         return rc
 
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
-        """Write env vars to a script inside the sandbox, sourced before the agent runs."""
+        """Write env vars to a script inside the sandbox, sourced before the agent runs.
+
+        Uses the harness's native env script (Vertex AI vars or API key)
+        since the google-cloud provider injects GCP credentials directly.
+        """
         lines = self.harness.build_env_script_lines(otel_port, otel_rate_file)
+        lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+
+        for key, val in self._extra_env.items():
+            lines.append(f"export {key}={shlex.quote(val)}")
+
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
         script = "\n".join(lines) + "\n"
-        sandbox.exec_cmd(["bash", "-c", f"cat > {self._ENV_SCRIPT} << 'ENVEOF'\n{script}ENVEOF"])
 
-    def _upload_credentials(self):
-        if self.harness.auth_mode == "api-key":
-            log.section("Using API key auth (skipping credential upload)")
-            return
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix="agentic-ci-env-", suffix=".sh", delete=False
+        ) as f:
+            f.write(script)
+            local_path = f.name
 
-        adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
-        if os.path.isfile(adc):
-            source = "default ADC file"
-        else:
-            adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-            source = "GOOGLE_APPLICATION_CREDENTIALS file"
-        if not adc or not os.path.isfile(adc):
-            log.section("No credentials found to upload")
-            return
-
-        log.section(f"Uploading credentials ({source})")
-
-        staging = tempfile.mkdtemp(prefix="agentic-ci-creds-")
-        try:
-            gcloud_dir = os.path.join(staging, "gcloud")
-            os.makedirs(gcloud_dir, exist_ok=True)
-            shutil.copy2(adc, os.path.join(gcloud_dir, "application_default_credentials.json"))
-
-            config_default = os.path.expanduser("~/.config/gcloud/configurations/config_default")
-            if os.path.isfile(config_default):
-                conf_dest = os.path.join(gcloud_dir, "configurations")
-                os.makedirs(conf_dest, exist_ok=True)
-                shutil.copy2(config_default, os.path.join(conf_dest, "config_default"))
-
-            sandbox.upload(os.path.join(staging, "gcloud"))
-            sandbox.exec_cmd(
-                [
-                    "bash",
-                    "-c",
-                    'mkdir -p "$HOME/.config/gcloud/configurations"'
-                    ' && cp -r gcloud/* "$HOME/.config/gcloud/"',
-                ]
-            )
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+        sandbox.upload(local_path)
+        sandbox.exec_cmd(
+            ["bash", "-c", f"mv {shlex.quote(os.path.basename(local_path))} {self._ENV_SCRIPT}"]
+        )
+        os.unlink(local_path)

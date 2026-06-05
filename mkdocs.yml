@@ -55,6 +55,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Sandbox Backends:
+      - Podman: backends/podman.md
+      - OpenShell: backends/openshell.md
   - API Reference:
       - Overview: api/index.md
       - Core:
