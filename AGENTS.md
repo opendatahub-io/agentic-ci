@@ -57,6 +57,7 @@ tox -e lint-fix                  # ruff lint with auto-fix
 tox -e check-format              # ruff format check
 tox -e format                    # ruff format with auto-fix
 tox -e typecheck                 # mypy type check
+tox -e docs                      # build API docs
 ```
 
 ## Verification

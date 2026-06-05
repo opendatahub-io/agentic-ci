@@ -33,12 +33,18 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/opendatahub-io/agentic-ci"
 Repository = "https://github.com/opendatahub-io/agentic-ci"
+Documentation = "https://opendatahub-io.github.io/agentic-ci/"
 Issues = "https://github.com/opendatahub-io/agentic-ci/issues"
 
 [project.optional-dependencies]
 forge = [
     "PyJWT>=2.0",
     "cryptography>=3.4",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
 ]
 
 [project.scripts]
