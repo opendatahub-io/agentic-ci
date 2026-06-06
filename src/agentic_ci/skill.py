@@ -103,17 +103,20 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
 
 
-def _default_run_container(work_dir, prompt, output_file, *, image=None):
+def _default_run_container(
+    work_dir, prompt, output_file, *, image=None, otel_port=None, otel_rate_file=None
+):
     """Default container runner using PodmanBackend."""
     from agentic_ci.backends.podman import PodmanBackend
     from agentic_ci.harness import ClaudeCodeHarness
 
     harness = ClaudeCodeHarness()
     model = os.environ.get(harness.model_env_var()) or harness.default_model()
+
     backend = PodmanBackend(workdir=str(work_dir), image=image, harness=harness)
     try:
         backend.setup()
-        return backend.run(prompt, model=model)
+        return backend.run(prompt, model=model, otel_port=otel_port, otel_rate_file=otel_rate_file)
     finally:
         backend.stop()
 
@@ -183,126 +186,161 @@ def run_skill(
 
     runner = config.container_runner or _default_run_container
 
-    if dry_run:
-        if dry_run_verdict_path:
-            verdict_dest = config.verdict_path_fn(work_dir)
-            verdict_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dry_run_verdict_path, verdict_dest)
-        rc = 0
-    else:
-        rc = runner(work_dir, prompt, output_file, image=config.container_image)
+    otel_proc = None
+    otel_port = None
+    otel_log = None
+    otel_rate = None
 
-        attempt = 0
-        while (
-            rc != 0
-            and mode in config.retryable_modes
-            and rc in TRANSIENT_EXIT_CODES
-            and attempt < config.max_retries
-        ):
-            attempt += 1
-            log.warning(
-                "[%s] Transient failure (exit %d), retry %d/%d",
-                ticket_key,
-                rc,
-                attempt,
-                config.max_retries,
-            )
-            rc = runner(work_dir, prompt, output_file, image=config.container_image)
+    if not dry_run:
+        from agentic_ci import otel
+        from agentic_ci.harness import ClaudeCodeHarness
 
-    if rc != 0:
-        log.error("[%s] Container exited with code %d", ticket_key, rc)
-        config.label_applier(
-            ticket_key=ticket_key,
-            verdict=None,
-            rc=rc,
-            mode=mode,
-            work_dir=work_dir,
-            **extra_kwargs,
-        )
-        return rc
+        run_dir = work_dir / "_run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        harness = ClaudeCodeHarness()
+        if harness.supports_otel:
+            try:
+                otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(str(run_dir))
+                log.info("OTEL collector started on port %s", otel_port)
+            except Exception as exc:
+                log.warning("Failed to start OTEL collector: %s", exc)
 
-    cost_data = _load_otel_cost(work_dir)
+    runner_kwargs = dict(
+        image=config.container_image, otel_port=otel_port, otel_rate_file=otel_rate
+    )
 
-    gate_errors: list[str] = []
-    verdict = None
-    for gate in config.post_gates:
-        v, errors = gate(work_dir=work_dir, ticket_key=ticket_key, **extra_kwargs)
-        if v is not None:
-            verdict = v
-        gate_errors.extend(errors)
+    otel_stopped = False
 
-    if gate_errors:
-        log.error("[%s] Post-gate failures: %s", ticket_key, gate_errors)
-        config.label_applier(
-            ticket_key=ticket_key,
-            verdict=None,
-            gate_errors=gate_errors,
-            mode=mode,
-            work_dir=work_dir,
-            **extra_kwargs,
-        )
-        return 1
+    def _stop_otel():
+        nonlocal otel_stopped
+        if otel_proc and not otel_stopped:
+            otel_stopped = True
+            otel.stop_collector(otel_proc)
+            if otel_log:
+                otel.print_summary(otel_log)
 
-    if verdict is None:
-        verdict_error: Exception | None = None
-        try:
-            verdict = config.verdict_loader(work_dir)
-        except Exception as exc:
-            verdict_error = exc
-            if not dry_run and mode in config.retryable_modes and config.max_retries > 0:
-                log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
-                rc = runner(
-                    work_dir,
-                    prompt,
-                    output_file,
-                    image=config.container_image,
+    try:
+        if dry_run:
+            if dry_run_verdict_path:
+                verdict_dest = config.verdict_path_fn(work_dir)
+                verdict_dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(dry_run_verdict_path, verdict_dest)
+            rc = 0
+        else:
+            rc = runner(work_dir, prompt, output_file, **runner_kwargs)
+
+            attempt = 0
+            while (
+                rc != 0
+                and mode in config.retryable_modes
+                and rc in TRANSIENT_EXIT_CODES
+                and attempt < config.max_retries
+            ):
+                attempt += 1
+                log.warning(
+                    "[%s] Transient failure (exit %d), retry %d/%d",
+                    ticket_key,
+                    rc,
+                    attempt,
+                    config.max_retries,
                 )
-                if rc != 0:
-                    log.error("[%s] Retry container also failed (exit %d)", ticket_key, rc)
+                rc = runner(work_dir, prompt, output_file, **runner_kwargs)
+
+        if rc != 0:
+            log.error("[%s] Container exited with code %d", ticket_key, rc)
+            config.label_applier(
+                ticket_key=ticket_key,
+                verdict=None,
+                rc=rc,
+                mode=mode,
+                work_dir=work_dir,
+                **extra_kwargs,
+            )
+            return rc
+
+        gate_errors: list[str] = []
+        verdict = None
+        for gate in config.post_gates:
+            v, errors = gate(work_dir=work_dir, ticket_key=ticket_key, **extra_kwargs)
+            if v is not None:
+                verdict = v
+            gate_errors.extend(errors)
+
+        if gate_errors:
+            log.error("[%s] Post-gate failures: %s", ticket_key, gate_errors)
+            config.label_applier(
+                ticket_key=ticket_key,
+                verdict=None,
+                gate_errors=gate_errors,
+                mode=mode,
+                work_dir=work_dir,
+                **extra_kwargs,
+            )
+            return 1
+
+        if verdict is None:
+            verdict_error: Exception | None = None
+            try:
+                verdict = config.verdict_loader(work_dir)
+            except Exception as exc:
+                verdict_error = exc
+                if not dry_run and mode in config.retryable_modes and config.max_retries > 0:
+                    log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
+                    rc = runner(work_dir, prompt, output_file, **runner_kwargs)
+                    if rc != 0:
+                        log.error("[%s] Retry container also failed (exit %d)", ticket_key, rc)
+                        config.label_applier(
+                            ticket_key=ticket_key,
+                            verdict=None,
+                            rc=rc,
+                            mode=mode,
+                            work_dir=work_dir,
+                            **extra_kwargs,
+                        )
+                        return rc
+                    try:
+                        verdict = config.verdict_loader(work_dir)
+                        verdict_error = None
+                    except Exception as retry_exc:
+                        log.error(
+                            "[%s] Verdict still missing after retry: %s",
+                            ticket_key,
+                            retry_exc,
+                        )
+                        verdict_error = retry_exc
+
+                if verdict is None:
+                    log.error("[%s] Failed to load verdict: %s", ticket_key, verdict_error)
                     config.label_applier(
                         ticket_key=ticket_key,
                         verdict=None,
-                        rc=rc,
+                        gate_errors=[str(verdict_error)],
                         mode=mode,
                         work_dir=work_dir,
                         **extra_kwargs,
                     )
-                    return rc
-                try:
-                    verdict = config.verdict_loader(work_dir)
-                    verdict_error = None
-                except Exception as retry_exc:
-                    log.error("[%s] Verdict still missing after retry: %s", ticket_key, retry_exc)
-                    verdict_error = retry_exc
+                    return 1
 
-            if verdict is None:
-                log.error("[%s] Failed to load verdict: %s", ticket_key, verdict_error)
-                config.label_applier(
-                    ticket_key=ticket_key,
-                    verdict=None,
-                    gate_errors=[str(verdict_error)],
-                    mode=mode,
-                    work_dir=work_dir,
-                    **extra_kwargs,
-                )
-                return 1
+        _stop_otel()
+        cost_data = _load_otel_cost(work_dir)
+        cost_summary = config.cost_formatter(cost_data)
+        if cost_summary:
+            verdict["_cost_summary"] = cost_summary
 
-    cost_summary = config.cost_formatter(cost_data)
-    if cost_summary:
-        verdict["_cost_summary"] = cost_summary
+        config.label_applier(
+            ticket_key=ticket_key,
+            verdict=verdict,
+            mode=mode,
+            work_dir=work_dir,
+            **extra_kwargs,
+        )
 
-    config.label_applier(
-        ticket_key=ticket_key,
-        verdict=verdict,
-        mode=mode,
-        work_dir=work_dir,
-        **extra_kwargs,
-    )
-
-    log.info(
-        "[%s] %s complete: verdict=%s",
-        ticket_key,
-        config.skill_name,
-        verdict.get("verdict", "unknown"),
-    )
-    return 0
+        log.info(
+            "[%s] %s complete: verdict=%s",
+            ticket_key,
+            config.skill_name,
+            verdict.get("verdict", "unknown"),
+        )
+        return 0
+    finally:
+        _stop_otel()
