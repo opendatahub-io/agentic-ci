@@ -121,6 +121,28 @@ class TestCommentAcli:
         assert call_json["visibility"]["value"] == "Red Hat Employee"
 
 
+class TestUpdateCommentAcli:
+    @patch("agentic_ci.jira.client.acli_mod.run_acli")
+    def test_uses_acli_without_visibility(self, mock_run, acli_client):
+        result = acli_client.update_comment("TEST-1", "10001", "Updated text")
+        assert result is True
+        args = mock_run.call_args[0]
+        assert args[:6] == ("jira", "workitem", "comment", "update", "--key", "TEST-1")
+        assert args[6:8] == ("--id", "10001")
+        assert args[8] == "--body-adf"
+        assert args[9].endswith(".json")
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_uses_rest_with_visibility(self, mock_requests, acli_client):
+        resp = MagicMock()
+        resp.status_code = 200
+        mock_requests.put.return_value = resp
+
+        acli_client.update_comment("TEST-1", "10001", "Secret", visibility_group="Red Hat Employee")
+        call_json = mock_requests.put.call_args.kwargs["json"]
+        assert call_json["visibility"]["value"] == "Red Hat Employee"
+
+
 class TestLinkAcli:
     @patch("agentic_ci.jira.client.acli_mod.run_acli")
     def test_uses_acli(self, mock_run, acli_client):

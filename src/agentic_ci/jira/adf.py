@@ -14,6 +14,8 @@ def text_to_adf(text: str) -> dict:
 
     Handles:
     - ```lang ... ``` fenced code blocks -> codeBlock nodes
+    - {expand:Title}...{expand} -> expand nodes (collapsible sections)
+    - ---- or --- on a line by itself -> rule nodes (horizontal dividers)
     - # through ###### headings -> heading nodes
     - - bullets -> bulletList nodes
     - **bold** and *italic* inline markup
@@ -24,32 +26,51 @@ def text_to_adf(text: str) -> dict:
         return {"type": "doc", "version": 1, "content": []}
 
     content: list[dict] = []
-    code_pattern = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
+    block_pattern = re.compile(
+        r"```(\w*)\n(.*?)```"
+        r"|"
+        r"\{expand:([^}]*)\}\n?(.*?)\n?\{expand\}",
+        re.DOTALL,
+    )
 
     last_end = 0
-    for match in code_pattern.finditer(text):
+    for match in block_pattern.finditer(text):
         before = text[last_end : match.start()]
         if before.strip():
-            content.extend(_markdown_text_to_adf_blocks(before))
-        code_text = match.group(2)
-        if code_text.endswith("\n"):
-            code_text = code_text[:-1]
-        lang = match.group(1) or ""
-        node: dict = {"type": "text", "text": code_text}
-        block: dict = {"type": "codeBlock", "content": [node]}
-        if lang:
-            block["attrs"] = {"language": lang}
-        content.append(block)
+            content.extend(_markdown_text_to_adf_blocks(before.strip()))
+
+        if match.group(2) is not None:
+            code_text = match.group(2)
+            if code_text.endswith("\n"):
+                code_text = code_text[:-1]
+            lang = match.group(1) or ""
+            node: dict = {"type": "text", "text": code_text}
+            block: dict = {"type": "codeBlock", "content": [node]}
+            if lang:
+                block["attrs"] = {"language": lang}
+            content.append(block)
+        else:
+            title = match.group(3) or ""
+            inner_text = match.group(4) or ""
+            inner_blocks = text_to_adf(inner_text).get("content", []) if inner_text.strip() else []
+            expand_node: dict = {"type": "expand", "attrs": {"title": title}}
+            if inner_blocks:
+                expand_node["content"] = inner_blocks
+            content.append(expand_node)
+
         last_end = match.end()
 
     remaining = text[last_end:]
     if remaining.strip():
-        content.extend(_markdown_text_to_adf_blocks(remaining))
+        content.extend(_markdown_text_to_adf_blocks(remaining.strip()))
 
     if not content:
         content.append({"type": "paragraph", "content": [{"type": "text", "text": ""}]})
 
     return {"type": "doc", "version": 1, "content": content}
+
+
+_RULE_RE = re.compile(r"^-{3,}$")
 
 
 def _markdown_text_to_adf_blocks(text: str) -> list[dict]:
@@ -71,7 +92,15 @@ def _markdown_text_to_adf_blocks(text: str) -> list[dict]:
             m_h = heading_re.match(stripped)
             m_b = bullet_re.match(stripped)
 
-            if m_h:
+            if _RULE_RE.match(stripped):
+                if pending_bullets:
+                    blocks.append(_bullets_to_list(pending_bullets))
+                    pending_bullets = []
+                if pending_lines:
+                    blocks.append(_lines_to_paragraph(pending_lines))
+                    pending_lines = []
+                blocks.append({"type": "rule"})
+            elif m_h:
                 if pending_bullets:
                     blocks.append(_bullets_to_list(pending_bullets))
                     pending_bullets = []
@@ -186,6 +215,12 @@ def adf_to_text(adf: dict) -> str:
         elif node_type == "blockquote":
             lines = extract_children(node).rstrip("\n").split("\n")
             return "\n".join(f"> {line}" for line in lines) + "\n"
+        elif node_type == "expand":
+            title = node.get("attrs", {}).get("title", "")
+            inner = extract_children(node).rstrip("\n")
+            return f"{{expand:{title}}}\n{inner}\n{{expand}}\n"
+        elif node_type == "rule":
+            return "----\n"
         elif node_type == "doc":
             return extract_children(node)
         else:

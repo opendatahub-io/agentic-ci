@@ -168,6 +168,34 @@ class TestAddComment:
         assert client.add_comment("TEST-1", "Nope") is False
 
 
+class TestUpdateComment:
+    @patch("agentic_ci.jira.client.requests")
+    def test_update_success(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        mock_requests.put.return_value = resp
+
+        assert client.update_comment("TEST-1", "10001", "Updated text") is True
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_update_with_visibility(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        mock_requests.put.return_value = resp
+
+        client.update_comment("TEST-1", "10001", "Internal", visibility_group="Red Hat Employee")
+        call_json = mock_requests.put.call_args.kwargs["json"]
+        assert call_json["visibility"]["value"] == "Red Hat Employee"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_update_failure(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 403
+        mock_requests.put.return_value = resp
+
+        assert client.update_comment("TEST-1", "10001", "Nope") is False
+
+
 class TestTransition:
     @patch("agentic_ci.jira.client.requests")
     def test_transition_success(self, mock_requests, client):
