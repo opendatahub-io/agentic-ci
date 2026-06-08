@@ -6,6 +6,7 @@ All operations use subprocess calls to git.
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import os
 import re
@@ -458,6 +459,55 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
         raise GitDiffError(
             f"git diff failed for base_ref={base_ref}: {exc.stderr.strip()}"
         ) from exc
+
+
+def strip_committed_files(
+    repo_dir: Path,
+    patterns: list[str],
+    base_ref: str = "origin/HEAD",
+) -> list[str]:
+    """Remove files matching *patterns* from the latest commit.
+
+    Agents can bypass ``.git/info/exclude`` by explicitly naming files in
+    ``git add``.  This function detects any committed files that match the
+    given fnmatch *patterns* and amends the commit to remove them, keeping
+    the working-tree copies intact.
+
+    Returns the list of file paths that were stripped (empty if none matched).
+    """
+    try:
+        changed = get_changed_files(repo_dir, base_ref=base_ref)
+    except GitDiffError:
+        return []
+
+    to_remove = []
+    for filepath in changed:
+        name = Path(filepath).name
+        for pattern in patterns:
+            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(filepath, pattern):
+                to_remove.append(filepath)
+                break
+
+    if not to_remove:
+        return []
+
+    log.warning(
+        "Stripping %d artifact file(s) from commit: %s",
+        len(to_remove),
+        ", ".join(to_remove),
+    )
+    for filepath in to_remove:
+        subprocess.run(
+            ["git", "rm", "--cached", "--quiet", filepath],
+            cwd=str(repo_dir),
+            capture_output=True,
+        )
+    subprocess.run(
+        ["git", "commit", "--amend", "--no-edit", "--allow-empty"],
+        cwd=str(repo_dir),
+        capture_output=True,
+    )
+    return to_remove
 
 
 # -- Git credential setup ----------------------------------------------------
