@@ -333,8 +333,12 @@ When `extra_skills` is non-empty, `run_skill()` writes
 }
 ```
 
-The agent skill reads this file and invokes each extension at the
-appropriate hook point. `context_dir` is validated to stay within
+**Important:** `run_skill()` only writes the config file — it does not
+execute the extra skills directly. The orchestrator skill (the one
+launched by `run_skill()`) must include instructions in its SKILL.md
+to read `{context_dir}/config.json` and invoke each extension at the
+appropriate hook point. The extra skills themselves don't need any
+awareness of this file. `context_dir` is validated to stay within
 `work_dir` (rejects path traversal and symlinks).
 
 ### Pipeline Flow
