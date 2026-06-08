@@ -284,6 +284,7 @@ class JiraClient:
             body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
             comments.append(
                 {
+                    "id": c.get("id", ""),
                     "author": c.get("author", {}).get("displayName", "Unknown"),
                     "author_email": c.get("author", {}).get("emailAddress", ""),
                     "body": body,
@@ -332,6 +333,7 @@ class JiraClient:
                     body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
                     comments.append(
                         {
+                            "id": c.get("id", ""),
                             "author": c.get("author", {}).get("displayName", "Unknown"),
                             "author_email": c.get("author", {}).get("emailAddress", ""),
                             "body": body,
@@ -564,6 +566,63 @@ class JiraClient:
             log.info("Commented on %s", key)
             return True
         log.warning("Failed to comment on %s: HTTP %d", key, resp.status_code)
+        return False
+
+    def update_comment(
+        self,
+        key: str,
+        comment_id: str,
+        body: str,
+        *,
+        visibility_group: str | None = None,
+    ) -> bool:
+        """Update an existing comment by ID.
+
+        Same ADF conversion and visibility semantics as ``add_comment``.
+        Returns True on success, False on failure.
+        """
+        if self._acli_available and not visibility_group:
+            import tempfile
+
+            adf_json = json.dumps(text_to_adf(body))
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                    tmp.write(adf_json)
+                    tmp_path = tmp.name
+                try:
+                    acli_mod.run_acli(
+                        "jira",
+                        "workitem",
+                        "comment",
+                        "update",
+                        "--key",
+                        key,
+                        "--id",
+                        comment_id,
+                        "--body-adf",
+                        tmp_path,
+                    )
+                finally:
+                    os.unlink(tmp_path)
+                log.info("Updated comment %s on %s (via acli)", comment_id, key)
+                return True
+            except acli_mod.AcliError as exc:
+                log.warning("acli update_comment failed, falling back to REST: %s", exc)
+
+        payload: dict = {"body": text_to_adf(body)}
+        if visibility_group:
+            payload["visibility"] = {"type": "group", "value": visibility_group}
+
+        resp = self._request(
+            "put",
+            self._api_url(f"issue/{key}/comment/{comment_id}"),
+            headers=self._headers(),
+            json=payload,
+        )
+        if resp.status_code == 200:
+            log.info("Updated comment %s on %s", comment_id, key)
+            return True
+        log.warning("Failed to update comment %s on %s: HTTP %d", comment_id, key, resp.status_code)
         return False
 
     def edit_labels(

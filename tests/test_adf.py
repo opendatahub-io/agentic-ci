@@ -145,6 +145,87 @@ def test_adf_to_text_empty():
     assert adf_to_text(None) == ""
 
 
+def test_expand_block():
+    result = text_to_adf("{expand:Details}\nSome content\n{expand}")
+    expand = result["content"][0]
+    assert expand["type"] == "expand"
+    assert expand["attrs"]["title"] == "Details"
+    assert len(expand["content"]) == 1
+    assert expand["content"][0]["type"] == "paragraph"
+
+
+def test_expand_with_code_block():
+    text = "{expand:Code}\n```python\nx = 1\n```\n{expand}"
+    result = text_to_adf(text)
+    expand = result["content"][0]
+    assert expand["type"] == "expand"
+    code = expand["content"][0]
+    assert code["type"] == "codeBlock"
+    assert code["attrs"]["language"] == "python"
+    assert code["content"][0]["text"] == "x = 1"
+
+
+def test_expand_empty():
+    result = text_to_adf("{expand:Empty}\n{expand}")
+    expand = result["content"][0]
+    assert expand["type"] == "expand"
+    assert "content" not in expand
+
+
+def test_rule():
+    result = text_to_adf("----")
+    assert result["content"][0] == {"type": "rule"}
+
+
+def test_rule_three_dashes():
+    result = text_to_adf("---")
+    assert result["content"][0] == {"type": "rule"}
+
+
+def test_adf_to_text_expand():
+    adf = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "expand",
+                "attrs": {"title": "Details"},
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "inner"}],
+                    }
+                ],
+            }
+        ],
+    }
+    result = adf_to_text(adf)
+    assert result == "{expand:Details}\ninner\n{expand}"
+
+
+def test_adf_to_text_rule():
+    adf = {
+        "type": "doc",
+        "version": 1,
+        "content": [{"type": "rule"}],
+    }
+    assert adf_to_text(adf) == "----"
+
+
+def test_roundtrip_expand():
+    text = "{expand:My Section}\nHello world\n{expand}"
+    adf = text_to_adf(text)
+    recovered = adf_to_text(adf)
+    assert recovered == text
+
+
+def test_roundtrip_rule():
+    text = "----"
+    adf = text_to_adf(text)
+    recovered = adf_to_text(adf)
+    assert recovered == text
+
+
 def test_roundtrip_plain():
     text = "Simple paragraph"
     adf = text_to_adf(text)
