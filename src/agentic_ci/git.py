@@ -151,6 +151,55 @@ def _validate_ref(name: str) -> bool:
     return bool(_SAFE_REF_RE.match(name))
 
 
+def validate_branch_exists(repo_url: str, branch: str) -> bool:
+    """Check if a branch exists on the remote repository.
+
+    Args:
+        repo_url: HTTPS URL of the git repository
+        branch: Branch name to validate
+
+    Returns:
+        True if the branch exists on the remote, False otherwise
+
+    Note:
+        Returns False for any error condition (network issues, invalid refs, etc.)
+        to allow graceful fallback in the resolution chain.
+    """
+    if not _validate_ref(branch):
+        log.warning("Invalid branch name rejected: %s", branch)
+        return False
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--heads", repo_url, branch],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            stdin=_DEVNULL,
+        )
+
+        if result.returncode != 0:
+            log.debug(
+                "git ls-remote failed for %s branch %s: %s", repo_url, branch, result.stderr.strip()
+            )
+            return False
+
+        output = result.stdout.strip()
+        if not output:
+            log.debug("Branch %s does not exist on remote %s", branch, repo_url)
+            return False
+
+        log.debug("Branch %s exists on remote %s", branch, repo_url)
+        return True
+
+    except subprocess.TimeoutExpired:
+        log.warning("Branch validation timed out for %s branch %s", repo_url, branch)
+        return False
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        log.debug("Branch validation failed for %s branch %s: %s", repo_url, branch, exc)
+        return False
+
+
 def clone_repo(url: str, dest: Path, branch: str | None = None, depth: int | None = None) -> bool:
     """Clone a repository. Returns True on success."""
     if not validate_repo_url(url):
