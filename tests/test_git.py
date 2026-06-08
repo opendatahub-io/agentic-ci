@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_ci.git import checkout_branch, get_default_branch, git_output
+from agentic_ci.git import checkout_branch, get_default_branch, git_output, strip_committed_files
 
 
 class TestCheckoutBranch:
@@ -96,3 +96,90 @@ class TestGitOutput:
             git_output(tmp_path, "log", "--oneline", "-5")
             args = mock_run.call_args
             assert args[0][0] == ["git", "log", "--oneline", "-5"]
+
+
+def _init_repo(path: Path) -> Path:
+    """Create a minimal git repo with one commit and an origin/HEAD ref."""
+    subprocess.run(["git", "init", str(path)], capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=str(path), capture_output=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), capture_output=True)
+    (path / "README.md").write_text("init\n")
+    subprocess.run(["git", "add", "README.md"], cwd=str(path), capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=str(path), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(path)], cwd=str(path), capture_output=True
+    )
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/HEAD", "HEAD"],
+        cwd=str(path),
+        capture_output=True,
+        check=True,
+    )
+    return path
+
+
+class TestStripCommittedFiles:
+    def test_removes_matching_files_from_commit(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "autofix-output").mkdir()
+        (repo / "autofix-output" / "verdict.json").write_text("{}")
+        (repo / "fix.py").write_text("print('fix')\n")
+        subprocess.run(
+            ["git", "add", "-f", "autofix-output/verdict.json", "fix.py"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "fix"], cwd=str(repo), capture_output=True, check=True
+        )
+
+        stripped = strip_committed_files(repo, ["autofix-output/*"])
+
+        assert stripped == ["autofix-output/verdict.json"]
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "origin/HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        changed = [f for f in result.stdout.strip().split("\n") if f]
+        assert "fix.py" in changed
+        assert "autofix-output/verdict.json" not in changed
+
+    def test_noop_when_no_matches(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "fix.py").write_text("print('fix')\n")
+        subprocess.run(["git", "add", "fix.py"], cwd=str(repo), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "fix"], cwd=str(repo), capture_output=True, check=True
+        )
+
+        stripped = strip_committed_files(repo, ["autofix-output/*"])
+
+        assert stripped == []
+
+    def test_preserves_working_tree_copy(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "output").mkdir()
+        verdict = repo / "output" / "result.json"
+        verdict.write_text("{}")
+        subprocess.run(
+            ["git", "add", "-f", "output/result.json"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "with output"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+
+        strip_committed_files(repo, ["output/*"])
+
+        assert verdict.exists()
