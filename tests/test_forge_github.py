@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agentic_ci.forge import ForgeError
-from agentic_ci.forge.github import GitHubForge, _derive_pipeline_status
+from agentic_ci.forge.github import (
+    GitHubForge,
+    _derive_pipeline_status,
+    _is_merge_management_status,
+)
 
 
 @pytest.fixture()
@@ -110,7 +114,8 @@ class TestMrStatus:
                 ]
             },
         )
-        mock_session.get.side_effect = [pr_resp, check_runs_resp]
+        statuses_resp = _make_response(200, [])
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
 
         result = forge.mr_status("https://github.com/owner/repo/pull/10")
         assert result["state"] == "open"
@@ -127,7 +132,8 @@ class TestMrStatus:
             },
         )
         check_runs_resp = _make_response(200, {"check_runs": []})
-        mock_session.get.side_effect = [pr_resp, check_runs_resp]
+        statuses_resp = _make_response(200, [])
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
 
         result = forge.mr_status("https://github.com/owner/repo/pull/10")
         assert result["state"] == "merged"
@@ -250,6 +256,58 @@ class TestGeneralComments:
         assert len(comments) == 1
         assert comments[0]["body"] == "Keep this one"
 
+    def test_since_filters_by_created_at(self, forge, mock_session):
+        """Comments created before ``since`` are excluded even if updated after."""
+        page1 = _make_response(
+            200,
+            [
+                {
+                    "body": "Old comment, recently updated",
+                    "user": {"login": "coderabbitai[bot]"},
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "updated_at": "2025-06-10T00:00:00Z",
+                },
+                {
+                    "body": "New feedback",
+                    "user": {"login": "reviewer"},
+                    "created_at": "2025-06-05T12:00:00Z",
+                    "updated_at": "2025-06-05T12:00:00Z",
+                },
+            ],
+        )
+        mock_session.get.return_value = page1
+
+        comments = forge.general_comments(
+            "https://github.com/owner/repo/pull/5",
+            since="2025-06-01T00:00:00+00:00",
+        )
+        assert len(comments) == 1
+        assert comments[0]["body"] == "New feedback"
+
+    def test_since_none_returns_all(self, forge, mock_session):
+        page1 = _make_response(
+            200,
+            [
+                {
+                    "body": "Old comment",
+                    "user": {"login": "user1"},
+                    "created_at": "2025-01-01T00:00:00Z",
+                },
+                {
+                    "body": "New comment",
+                    "user": {"login": "user2"},
+                    "created_at": "2025-06-05T00:00:00Z",
+                },
+            ],
+        )
+        mock_session.get.return_value = page1
+
+        comments = forge.general_comments(
+            "https://github.com/owner/repo/pull/5",
+            since=None,
+        )
+        assert len(comments) == 2
+
 
 class TestReply:
     def test_calls_graphql_mutation(self, forge, mock_session):
@@ -310,9 +368,10 @@ class TestPipelineFailures:
                 ]
             },
         )
+        statuses_resp = _make_response(200, [])
         log_resp = _make_response(200)
         log_resp.text = "ERROR: test_foo failed"
-        mock_session.get.side_effect = [pr_resp, check_runs_resp, log_resp]
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp, log_resp]
 
         result = forge.pipeline_failures("https://github.com/owner/repo/pull/5")
         assert result["pipeline_status"] == "failed"
@@ -338,7 +397,8 @@ class TestPipelineFailures:
                 ]
             },
         )
-        mock_session.get.side_effect = [pr_resp, check_runs_resp]
+        statuses_resp = _make_response(200, [])
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
 
         result = forge.pipeline_failures("https://github.com/owner/repo/pull/5")
         assert result["pipeline_status"] == "success"
@@ -369,6 +429,59 @@ class TestCheckRuns:
         mock_session.get.return_value = _make_response(500, text="Server error")
         with pytest.raises(ForgeError, match="HTTP 500"):
             forge.check_runs("owner/repo", "sha123")
+
+
+class TestCommitStatuses:
+    def test_returns_filtered_statuses(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(
+            200,
+            [
+                {"id": 1, "context": "Cypress E2E Tests", "state": "failure"},
+                {"id": 2, "context": "tide", "state": "pending"},
+                {"id": 3, "context": "CodeRabbit", "state": "success"},
+            ],
+        )
+        statuses = forge.commit_statuses("owner/repo", "sha123")
+        contexts = [s["context"] for s in statuses]
+        assert "Cypress E2E Tests" in contexts
+        assert "CodeRabbit" in contexts
+        assert "tide" not in contexts
+
+    def test_deduplicates_by_context(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(
+            200,
+            [
+                {"id": 2, "context": "ci/test", "state": "success"},
+                {"id": 1, "context": "ci/test", "state": "failure"},
+            ],
+        )
+        statuses = forge.commit_statuses("owner/repo", "sha123")
+        assert len(statuses) == 1
+        assert statuses[0]["state"] == "success"
+
+    def test_handles_403(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(403, text="Forbidden")
+        statuses = forge.commit_statuses("owner/repo", "sha123")
+        assert statuses == []
+
+    def test_handles_error(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(500, text="Error")
+        statuses = forge.commit_statuses("owner/repo", "sha123")
+        assert statuses == []
+
+
+class TestMergeManagementStatus:
+    def test_tide_is_merge_management(self):
+        assert _is_merge_management_status("tide") is True
+
+    def test_mergify_is_merge_management(self):
+        assert _is_merge_management_status("Mergify Merge Protections") is True
+        assert _is_merge_management_status("Mergify — Summary") is True
+
+    def test_ci_is_not_merge_management(self):
+        assert _is_merge_management_status("Cypress E2E Tests") is False
+        assert _is_merge_management_status("CodeRabbit") is False
+        assert _is_merge_management_status("ci/build") is False
 
 
 class TestDerivePipelineStatus:
@@ -419,6 +532,63 @@ class TestDerivePipelineStatus:
     def test_unknown_conclusion(self):
         runs = [{"status": "completed", "conclusion": "some_new_state"}]
         assert _derive_pipeline_status(runs) == "unknown"
+
+    def test_commit_status_failure(self):
+        runs = [{"status": "completed", "conclusion": "success"}]
+        statuses = [{"context": "Cypress E2E", "state": "failure"}]
+        assert _derive_pipeline_status(runs, commit_statuses=statuses) == "failed"
+
+    def test_commit_status_pending_is_running(self):
+        runs = [{"status": "completed", "conclusion": "success"}]
+        statuses = [{"context": "ci/test", "state": "pending"}]
+        assert _derive_pipeline_status(runs, commit_statuses=statuses) == "running"
+
+    def test_commit_status_error_is_failed(self):
+        runs = [{"status": "completed", "conclusion": "success"}]
+        statuses = [{"context": "ci/test", "state": "error"}]
+        assert _derive_pipeline_status(runs, commit_statuses=statuses) == "failed"
+
+    def test_all_success_with_statuses(self):
+        runs = [{"status": "completed", "conclusion": "success"}]
+        statuses = [{"context": "ci/test", "state": "success"}]
+        assert _derive_pipeline_status(runs, commit_statuses=statuses) == "success"
+
+    def test_no_check_runs_with_failing_status(self):
+        statuses = [{"context": "Cypress E2E", "state": "failure"}]
+        assert _derive_pipeline_status([], commit_statuses=statuses) == "failed"
+
+    def test_no_check_runs_with_passing_status(self):
+        statuses = [{"context": "ci/test", "state": "success"}]
+        assert _derive_pipeline_status([], commit_statuses=statuses) == "success"
+
+
+class TestPipelineFailuresWithStatuses:
+    def test_includes_failed_commit_statuses(self, forge, mock_session):
+        pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
+        check_runs_resp = _make_response(
+            200,
+            {"check_runs": [{"status": "completed", "conclusion": "success"}]},
+        )
+        statuses_resp = _make_response(
+            200,
+            [
+                {
+                    "id": 10,
+                    "context": "Cypress E2E Tests",
+                    "state": "failure",
+                    "description": "4 tests failed",
+                    "target_url": "https://example.com/run/1",
+                },
+                {"id": 11, "context": "tide", "state": "pending"},
+            ],
+        )
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
+
+        result = forge.pipeline_failures("https://github.com/owner/repo/pull/5")
+        assert result["pipeline_status"] == "failed"
+        assert len(result["failed_jobs"]) == 1
+        assert result["failed_jobs"][0]["name"] == "Cypress E2E Tests"
+        assert "4 tests failed" in result["failed_jobs"][0]["log"]
 
 
 class TestFindPrivateKey:

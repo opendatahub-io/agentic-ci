@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -77,7 +78,12 @@ class GitHubForge(Forge):
         pipeline_status = "unknown"
         if head_sha:
             check_runs, accessible = self.check_runs(repo_path, head_sha)
-            pipeline_status = _derive_pipeline_status(check_runs, accessible)
+            statuses = self.commit_statuses(repo_path, head_sha)
+            pipeline_status = _derive_pipeline_status(
+                check_runs,
+                accessible,
+                commit_statuses=statuses,
+            )
         return {
             "state": state,
             "source_branch": pr.get("head", {}).get("ref", ""),
@@ -174,6 +180,12 @@ class GitHubForge(Forge):
         params: dict = {"per_page": 100}
         if since:
             params["since"] = since
+        since_dt = None
+        if since:
+            try:
+                since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
         comments = []
         page = 1
         while True:
@@ -191,6 +203,15 @@ class GitHubForge(Forge):
                 body = c.get("body", "")
                 if any(pat in body for pat in skip_patterns):
                     continue
+                if since_dt:
+                    created = c.get("created_at", "")
+                    if created:
+                        try:
+                            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                            if created_dt < since_dt:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
                 comments.append(
                     {
                         "author": c.get("user", {}).get("login", "Unknown"),
@@ -237,10 +258,26 @@ class GitHubForge(Forge):
         if not head_sha:
             return {"pipeline_status": "none", "failed_jobs": []}
         check_runs, accessible = self.check_runs(repo_path, head_sha)
-        pipeline_status = _derive_pipeline_status(check_runs, accessible)
+        statuses = self.commit_statuses(repo_path, head_sha)
+        pipeline_status = _derive_pipeline_status(
+            check_runs,
+            accessible,
+            commit_statuses=statuses,
+        )
         if pipeline_status in ("success", "none", "running", "unknown"):
             return {"pipeline_status": pipeline_status, "failed_jobs": []}
         failed_jobs = []
+        for s in statuses:
+            if _STATUS_STATE_MAP.get(s.get("state", "")) == "failure":
+                context = s.get("context", "unknown")
+                target_url = s.get("target_url", "")
+                description = s.get("description", "")
+                log_text = f"Status: {s.get('state')}\nContext: {context}"
+                if description:
+                    log_text += f"\nDescription: {description}"
+                if target_url:
+                    log_text += f"\nDetails: {target_url}"
+                failed_jobs.append({"name": context, "id": s.get("id", 0), "log": log_text})
         for cr in check_runs:
             if cr.get("status") != "completed":
                 continue
@@ -306,6 +343,47 @@ class GitHubForge(Forge):
             page += 1
         return all_runs, True
 
+    def commit_statuses(self, repo_path: str, sha: str) -> list[dict]:
+        """Fetch commit statuses for a SHA.
+
+        GitHub has two parallel CI reporting mechanisms: Check Runs
+        (used by GitHub Actions) and Commit Statuses (the older API
+        used by external CI like Prow, Jenkins, and other integrations).
+        ``check_runs()`` only covers the first; this method covers the
+        second so ``_derive_pipeline_status()`` sees the full picture.
+
+        Merge-management contexts (``tide``, ``Mergify``) are excluded
+        since they reflect merge policy, not CI results.
+
+        See https://docs.github.com/en/rest/commits/statuses
+        """
+        all_statuses: list[dict] = []
+        page = 1
+        while True:
+            resp = self._session.get(
+                f"https://api.github.com/repos/{repo_path}/commits/{sha}/statuses",
+                params={"per_page": 100, "page": page},
+            )
+            if resp.status_code == 403:
+                log.debug("statuses not accessible for %s: %s", sha, resp.text)
+                return []
+            if resp.status_code != 200:
+                log.warning("HTTP %d fetching commit statuses: %s", resp.status_code, resp.text)
+                return []
+            batch = resp.json()
+            if not batch:
+                break
+            all_statuses.extend(batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        seen: dict[str, dict] = {}
+        for s in all_statuses:
+            ctx = s.get("context", "")
+            if ctx not in seen:
+                seen[ctx] = s
+        return [s for s in seen.values() if not _is_merge_management_status(s.get("context", ""))]
+
 
 _FAILED_CONCLUSIONS = frozenset(
     {
@@ -318,20 +396,53 @@ _FAILED_CONCLUSIONS = frozenset(
 )
 _PASSED_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
 
+_MERGE_MGMT_PATTERNS = re.compile(
+    r"^(tide$|Mergify)",
+    re.IGNORECASE,
+)
 
-def _derive_pipeline_status(check_runs: list[dict], accessible: bool = True) -> str:
-    """Derive overall pipeline status from GitHub check runs."""
+
+def _is_merge_management_status(context: str) -> bool:
+    """Return True for merge-management contexts (tide, Mergify)."""
+    return bool(_MERGE_MGMT_PATTERNS.search(context))
+
+
+_STATUS_STATE_MAP = {"success": "success", "failure": "failure", "error": "failure"}
+
+
+def _derive_pipeline_status(
+    check_runs: list[dict],
+    accessible: bool = True,
+    commit_statuses: list[dict] | None = None,
+) -> str:
+    """Derive overall pipeline status from check runs and commit statuses."""
     if not accessible:
         return "unknown"
-    if not check_runs:
+    if not check_runs and not commit_statuses:
         return "none"
     for cr in check_runs:
         if cr.get("status") != "completed":
             return "running"
+    for s in commit_statuses or []:
+        if s.get("state") == "pending":
+            return "running"
     for cr in check_runs:
         if cr.get("conclusion") in _FAILED_CONCLUSIONS:
             return "failed"
-    if all(cr.get("conclusion") in _PASSED_CONCLUSIONS for cr in check_runs):
+    for s in commit_statuses or []:
+        if _STATUS_STATE_MAP.get(s.get("state", "")) == "failure":
+            return "failed"
+    all_passed = (
+        all(cr.get("conclusion") in _PASSED_CONCLUSIONS for cr in check_runs)
+        if check_runs
+        else True
+    )
+    statuses_passed = (
+        all(s.get("state") == "success" for s in (commit_statuses or []))
+        if commit_statuses
+        else True
+    )
+    if all_passed and statuses_passed:
         return "success"
     return "unknown"
 
