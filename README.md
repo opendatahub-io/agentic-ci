@@ -304,6 +304,39 @@ All domain-specific behavior is injected via hooks on `SkillConfig`:
 | `cost_formatter` | `(cost_data) -> str \| None` | Format OTEL cost data for display |
 | `extension_config_writer` | `(ticket_key, ticket, config, work_dir, **kw) -> None` | Write extra config (e.g. Claude extensions) |
 
+### Extra Skills (Extension Hooks)
+
+`extra_skills` lets you configure additional skills that the agent should
+run at specific hook points during the pipeline (e.g., run a preflight
+review after implementing a fix).
+
+```python
+config = SkillConfig(
+    skill_name="autofix-resolve",
+    extra_skills=[
+        {"name": "preflight", "args": "--local --fix", "hooks": ["post_implement"]},
+        "lint-check",  # plain string = all hooks, no args
+    ],
+    context_dir=".autofix-context",  # where config.json is written (default: ".context")
+)
+```
+
+When `extra_skills` is non-empty, `run_skill()` writes
+`{context_dir}/config.json` before launching the container:
+
+```json
+{
+  "extra_skills": [
+    {"name": "preflight", "args": "--local --fix", "hooks": ["post_implement"]},
+    "lint-check"
+  ]
+}
+```
+
+The agent skill reads this file and invokes each extension at the
+appropriate hook point. `context_dir` is validated to stay within
+`work_dir` (rejects path traversal and symlinks).
+
 ### Pipeline Flow
 
 `run_skill()` executes this sequence:
