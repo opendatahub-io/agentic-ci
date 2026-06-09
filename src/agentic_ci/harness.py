@@ -71,6 +71,11 @@ class Harness(ABC):
         """Whether the agent CLI supports OTEL telemetry export."""
         return False
 
+    @property
+    def autoupdater_env_var(self) -> str:
+        """Env var name to disable auto-updates."""
+        return "DISABLE_AUTOUPDATER"
+
 
 class ClaudeCodeHarness(Harness):
     """Claude Code CLI harness."""
@@ -135,8 +140,6 @@ class ClaudeCodeHarness(Harness):
                 f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
                 f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
                 "export DISABLE_AUTOUPDATER=1",
-                "export GOOGLE_APPLICATION_CREDENTIALS="
-                '"$HOME/.config/gcloud/application_default_credentials.json"',
             ]
         if otel_port:
             lines.extend(
@@ -261,8 +264,6 @@ class OpenCodeHarness(Harness):
             f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
             f"export VERTEX_LOCATION={shlex.quote(location)}",
             "export OPENCODE_DISABLE_AUTOUPDATE=1",
-            "export GOOGLE_APPLICATION_CREDENTIALS="
-            '"$HOME/.config/gcloud/application_default_credentials.json"',
         ]
 
     def build_otel_exec_env(self, otel_port=None):
@@ -284,6 +285,10 @@ class OpenCodeHarness(Harness):
 
     def default_model(self):
         return "google-vertex/claude-opus-4-6@default"
+
+    @property
+    def autoupdater_env_var(self):
+        return "OPENCODE_DISABLE_AUTOUPDATE"
 
 
 def create_harness(name: str) -> Harness:

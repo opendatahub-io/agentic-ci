@@ -42,6 +42,16 @@ def test_create_podman_with_timeout(harness):
     assert backend.timeout == 600
 
 
+def test_create_podman_with_extra_env(harness):
+    backend = create_backend("podman", harness=harness, extra_env={"FOO": "bar"})
+    assert backend._extra_env == {"FOO": "bar"}
+
+
+def test_create_openshell_with_extra_env(harness):
+    backend = create_backend("openshell", harness=harness, extra_env={"FOO": "bar"})
+    assert backend._extra_env == {"FOO": "bar"}
+
+
 def test_unknown_backend_raises(harness):
     with pytest.raises(ValueError, match="Unknown backend"):
         create_backend("docker", harness=harness)

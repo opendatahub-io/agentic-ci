@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+from importlib.metadata import version
 
 from agentic_ci import log, otel
 from agentic_ci.backends import create_backend
@@ -137,6 +138,12 @@ def main():
     parser = argparse.ArgumentParser(
         prog="agentic-ci",
         description="Run AI coding agents in a sandboxed CI environment",
+    )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('agentic-ci')}",
     )
     sub = parser.add_subparsers(dest="command")
 

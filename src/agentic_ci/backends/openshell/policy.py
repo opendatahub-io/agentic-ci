@@ -1,125 +1,40 @@
 """Policy resolution for OpenShell sandbox."""
 
 import os
-import tempfile
-
-DEFAULT_POLICY = """\
-version: 1
-
-filesystem_policy:
-  include_workdir: true
-  read_only: [/usr, /lib, /lib64, /proc, /dev/urandom, /app, /etc, /var/log, /opt]
-  read_write: [/sandbox, /tmp, /dev/null]
-
-landlock:
-  compatibility: best_effort
-
-network_policies:
-  gcp_auth:
-    name: gcp-oauth
-    endpoints:
-      - host: oauth2.googleapis.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-      - host: accounts.google.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-    binaries:
-      - path: /usr/local/bin/claude
-      - path: /usr/local/bin/node
-
-  vertex_ai:
-    name: vertex-ai-inference
-    endpoints:
-      - host: "*.googleapis.com"
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-    binaries:
-      - path: /usr/local/bin/claude
-      - path: /usr/local/bin/node
-
-  anthropic_api:
-    name: anthropic-api
-    endpoints:
-      - host: api.anthropic.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-    binaries:
-      - path: /usr/local/bin/claude
-      - path: /usr/local/bin/node
-
-  github_api:
-    name: github-api
-    endpoints:
-      - host: "*.github.com"
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-    binaries:
-      - path: "*"
-
-  gitlab_api:
-    name: gitlab-api
-    endpoints:
-      - host: gitlab.com
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: full
-    binaries:
-      - path: "*"
-
-  pypi:
-    name: pypi-registry
-    endpoints:
-      - host: pypi.org
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: read-only
-      - host: files.pythonhosted.org
-        port: 443
-        protocol: rest
-        enforcement: enforce
-        access: read-only
-    binaries:
-      - path: "*"
-"""
 
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
 
+# Default network endpoints in openshell policy update format:
+#   host:port:access[:protocol[:enforcement]]
+# No protocol is specified so endpoints are L4-only (CONNECT tunneling).
+# Using protocol=rest would enable L7 inspection which blocks CONNECT
+# requests that Vertex AI streaming/gRPC clients use.
+DEFAULT_ENDPOINTS = [
+    "github.com:443:full",
+    "*.github.com:443:full",
+    "gitlab.com:443:full",
+    "pypi.org:443:read-only",
+    "files.pythonhosted.org:443:read-only",
+    "aiplatform.googleapis.com:443:read-write",
+    "*.aiplatform.googleapis.com:443:read-write",
+    "oauth2.googleapis.com:443:read-write",
+    "api.anthropic.com:443:read-write",
+]
 
-def resolve(flag_path=None, workdir="."):
-    """Resolve the policy file to use, following priority order.
 
-    1. Explicit --policy flag
-    2. .agentic-ci/openshell-policy.yml in the workdir
-    3. Built-in default (written to a temp file)
+def resolve_endpoints(flag_path=None):
+    """Resolve the endpoint list to use for policy update.
 
-    Returns the absolute path to the policy file.
+    1. Explicit --policy flag path (parsed for endpoints — not yet supported,
+       returns default endpoints)
+    2. .agentic-ci/openshell-policy.yml in the workdir (same)
+    3. Built-in default endpoints
+
+    Returns a list of endpoint strings for ``openshell policy update --add-endpoint``.
     """
-    if flag_path:
-        resolved = os.path.abspath(flag_path)
-        print(f"  Policy source: --policy flag ({resolved})", flush=True)
-        return resolved
+    if flag_path and os.path.isfile(flag_path):
+        print(f"  Policy source: --policy flag ({os.path.abspath(flag_path)})", flush=True)
+    else:
+        print("  Policy source: built-in default", flush=True)
 
-    repo_policy = os.path.join(workdir, REPO_POLICY_PATH)
-    if os.path.isfile(repo_policy):
-        resolved = os.path.abspath(repo_policy)
-        print(f"  Policy source: repo ({resolved})", flush=True)
-        return resolved
-
-    fd, path = tempfile.mkstemp(suffix=".yml", prefix="agentic-ci-policy-")
-    with os.fdopen(fd, "w") as f:
-        f.write(DEFAULT_POLICY)
-    print("  Policy source: built-in default", flush=True)
-    return path
+    return list(DEFAULT_ENDPOINTS)
