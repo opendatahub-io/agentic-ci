@@ -72,6 +72,7 @@ class SkillConfig:
     retryable_modes: frozenset[str] = frozenset({"resolve"})
 
     container_image: str | None = None
+    container_env: dict[str, str] = field(default_factory=dict)
     container_runner: Callable[..., int] | None = None
 
 
@@ -106,11 +107,18 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
 
 
-def _default_run_container(work_dir, prompt, output_file, *, image=None, verdict_path=None):
+def _default_run_container(
+    work_dir, prompt, output_file, *, image=None, verdict_path=None, container_env=None
+):
     """Default container runner using PodmanBackend."""
     harness = ClaudeCodeHarness()
     model = os.environ.get(harness.model_env_var()) or harness.default_model()
-    backend = PodmanBackend(workdir=str(work_dir), image=image, harness=harness)
+    backend = PodmanBackend(
+        workdir=str(work_dir),
+        image=image,
+        harness=harness,
+        extra_env=container_env or {},
+    )
     if verdict_path is not None:
         backend.verdict_path = verdict_path
     try:
@@ -209,6 +217,8 @@ def run_skill(
     # verdict_path is only passed to the default runner so _process_stream
     # can verify the verdict file exists before promoting SIGKILL to success.
     runner_kwargs: dict = {"image": config.container_image}
+    if config.container_env:
+        runner_kwargs["container_env"] = config.container_env
     if config.container_runner is None:
         runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
 
