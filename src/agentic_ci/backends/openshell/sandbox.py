@@ -84,6 +84,14 @@ def upload(local_path):
     )
 
 
+def download(sandbox_path, local_dest):
+    """Download a path from the sandbox to a local destination."""
+    _run(
+        ["openshell", "sandbox", "download", SANDBOX_NAME, sandbox_path, local_dest],
+        check=True,
+    )
+
+
 def exec_cmd(cmd):
     """Run a command inside the sandbox. Returns the CompletedProcess."""
     return _run(
