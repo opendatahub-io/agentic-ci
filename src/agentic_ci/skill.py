@@ -30,7 +30,7 @@ from typing import Callable
 
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness
-from agentic_ci.otel import parse_metrics
+from agentic_ci.otel import parse_metrics, start_collector, stop_collector
 
 log = logging.getLogger(__name__)
 
@@ -121,10 +121,23 @@ def _default_run_container(
     )
     if verdict_path is not None:
         backend.verdict_path = verdict_path
+
+    otel_proc = None
+    otel_port = None
+    if harness.supports_otel:
+        run_dir = Path(work_dir) / "_run"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            otel_proc, otel_port, _, _ = start_collector(str(run_dir))
+        except Exception:
+            log.warning("Failed to start OTEL collector, continuing without telemetry")
+
     try:
         backend.setup()
-        return backend.run(prompt, model=model)
+        return backend.run(prompt, model=model, otel_port=otel_port)
     finally:
+        if otel_proc:
+            stop_collector(otel_proc)
         backend.stop()
 
 
