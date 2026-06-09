@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
@@ -26,6 +27,7 @@ class Backend(ABC):
         self.workdir = os.path.abspath(workdir)
         self.image = image
         self.harness = harness
+        self.verdict_path: Path | None = None
 
     @abstractmethod
     def setup(self):
@@ -94,8 +96,14 @@ class Backend(ABC):
             processor.flush_errors()
 
         if stream_complete and rc != 0:
-            log.info(f"stream processor detected run complete (rc={rc}), treating as success")
-            rc = 0
+            if self.verdict_path is not None and not self.verdict_path.exists():
+                log.info(
+                    f"stream completed (rc={rc}) but verdict file "
+                    f"{self.verdict_path} missing; keeping original exit code"
+                )
+            else:
+                log.info(f"stream processor detected run complete (rc={rc}), treating as success")
+                rc = 0
 
         if rc != 0 and stderr_buf:
             filtered = self._filter_stderr_noise(stderr_buf)

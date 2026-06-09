@@ -77,6 +77,7 @@ Fix any failures before moving on. Do not skip any of these checks.
 
 - Python 3.10+, uv for local dev. Minimal runtime dependencies (`requests`, `tenacity`).
 - `ruff` for lint and format. Config in `pyproject.toml`. `tox` orchestrates all checks.
+- Always place imports at the top of the file. No function-level or inline imports.
 - Fix lint errors at the source. Don't suppress with `# noqa` or exclude files from linting.
 - All tests live under `tests/`.
 - `pytest` for tests.

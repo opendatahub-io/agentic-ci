@@ -28,6 +28,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from agentic_ci.backends.podman import PodmanBackend
+from agentic_ci.harness import ClaudeCodeHarness
+from agentic_ci.otel import parse_metrics
+
 log = logging.getLogger(__name__)
 
 TRANSIENT_EXIT_CODES = frozenset({124, 137, 143})
@@ -82,8 +86,6 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
     if not otel_log.exists():
         return None
     try:
-        from agentic_ci.otel import parse_metrics
-
         records = []
         with open(otel_log, encoding="utf-8") as f:
             for line in f:
@@ -104,14 +106,13 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
 
 
-def _default_run_container(work_dir, prompt, output_file, *, image=None):
+def _default_run_container(work_dir, prompt, output_file, *, image=None, verdict_path=None):
     """Default container runner using PodmanBackend."""
-    from agentic_ci.backends.podman import PodmanBackend
-    from agentic_ci.harness import ClaudeCodeHarness
-
     harness = ClaudeCodeHarness()
     model = os.environ.get(harness.model_env_var()) or harness.default_model()
     backend = PodmanBackend(workdir=str(work_dir), image=image, harness=harness)
+    if verdict_path is not None:
+        backend.verdict_path = verdict_path
     try:
         backend.setup()
         return backend.run(prompt, model=model)
@@ -205,6 +206,11 @@ def run_skill(
     output_file = work_dir / "agent-output.txt"
 
     runner = config.container_runner or _default_run_container
+    # verdict_path is only passed to the default runner so _process_stream
+    # can verify the verdict file exists before promoting SIGKILL to success.
+    runner_kwargs: dict = {"image": config.container_image}
+    if config.container_runner is None:
+        runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
 
     if dry_run:
         if dry_run_verdict_path:
@@ -213,7 +219,7 @@ def run_skill(
             shutil.copy2(dry_run_verdict_path, verdict_dest)
         rc = 0
     else:
-        rc = runner(work_dir, prompt, output_file, image=config.container_image)
+        rc = runner(work_dir, prompt, output_file, **runner_kwargs)
 
         attempt = 0
         while (
@@ -230,7 +236,7 @@ def run_skill(
                 attempt,
                 config.max_retries,
             )
-            rc = runner(work_dir, prompt, output_file, image=config.container_image)
+            rc = runner(work_dir, prompt, output_file, **runner_kwargs)
 
     if rc != 0:
         log.error("[%s] Container exited with code %d", ticket_key, rc)
@@ -274,12 +280,7 @@ def run_skill(
             verdict_error = exc
             if not dry_run and mode in config.retryable_modes and config.max_retries > 0:
                 log.warning("[%s] Verdict missing (%s), retrying once", ticket_key, exc)
-                rc = runner(
-                    work_dir,
-                    prompt,
-                    output_file,
-                    image=config.container_image,
-                )
+                rc = runner(work_dir, prompt, output_file, **runner_kwargs)
                 if rc != 0:
                     log.error("[%s] Retry container also failed (exit %d)", ticket_key, rc)
                     config.label_applier(
