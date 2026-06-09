@@ -252,3 +252,39 @@ def test_build_env_args_api_key(monkeypatch, tmp_path, claude_harness):
     assert "ANTHROPIC_API_KEY" in args
     assert "ANTHROPIC_API_KEY=sk-test-key" not in args
     assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+
+
+def test_setup_does_not_override_entrypoint(monkeypatch, tmp_path, claude_harness):
+    """setup() passes sleep as the command, not --entrypoint, so the image entrypoint runs."""
+    import subprocess as _subprocess
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    calls = []
+    original_run = _subprocess.run
+
+    def mock_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ["podman", "rm"]:
+            return _subprocess.CompletedProcess(cmd, 0)
+        if cmd[:2] == ["podman", "run"]:
+            return _subprocess.CompletedProcess(cmd, 0)
+        if cmd[:3] == ["podman", "container", "inspect"]:
+            return _subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return original_run(cmd, **kwargs)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    backend.setup()
+
+    run_calls = [c for c in calls if c[:2] == ["podman", "run"]]
+    assert len(run_calls) == 1
+    run_cmd = run_calls[0]
+    assert "--entrypoint" not in run_cmd
+    image_idx = run_cmd.index("localhost/test:latest")
+    assert run_cmd[image_idx + 1] == "sleep"

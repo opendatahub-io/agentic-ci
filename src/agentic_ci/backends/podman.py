@@ -98,9 +98,8 @@ class PodmanBackend(Backend):
             *vol_args,
             "--workdir",
             "/workspace",
-            "--entrypoint",
-            "sleep",
             self.image,
+            "sleep",
             str(self.timeout),
         ]
 
