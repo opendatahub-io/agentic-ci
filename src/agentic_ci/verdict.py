@@ -9,7 +9,12 @@ handles file I/O, JSON parsing, and schema validation.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_LIST_FIELDS = ("files_changed", "risks", "blockers", "observations")
 
 
 class VerdictError(Exception):
@@ -71,11 +76,19 @@ def load_verdict(
                 f"{name} verdict field {bool_field} must be bool or null, got {type(val)}"
             )
 
-    for list_field in ("files_changed", "risks", "blockers", "observations"):
+    for list_field in _LIST_FIELDS:
         val = data.get(list_field)
         if val is not None and not isinstance(val, list):
-            raise VerdictError(
-                f"{name} verdict field {list_field} must be an array or null, got {type(val)}"
-            )
+            if isinstance(val, str):
+                log.warning(
+                    "%s verdict field %s is a string, coercing to array",
+                    name,
+                    list_field,
+                )
+                data[list_field] = [val]
+            else:
+                raise VerdictError(
+                    f"{name} verdict field {list_field} must be an array or null, got {type(val)}"
+                )
 
     return data
