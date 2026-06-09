@@ -4,6 +4,7 @@ import re
 
 from agentic_ci.gates import (
     check_commit_identity,
+    check_description_editors,
     check_external_reporter,
     check_label_author_email,
     check_sensitive_files,
@@ -82,6 +83,50 @@ class TestCheckExternalReporter:
     def test_already_labeled(self):
         ticket = {"reporter_email": "user@gmail.com", "labels": ["triage-external"]}
         assert check_external_reporter(ticket, REDHAT_RE, external_label="triage-external") is None
+
+
+class TestCheckDescriptionEditors:
+    def test_all_internal(self):
+        result = check_description_editors(["dev2@redhat.com"], "dev1@redhat.com", REDHAT_RE)
+        assert result == []
+
+    def test_external_editor(self):
+        result = check_description_editors(["attacker@gmail.com"], "dev@redhat.com", REDHAT_RE)
+        assert result == ["attacker@gmail.com"]
+
+    def test_external_reporter(self):
+        result = check_description_editors([], "user@external.com", REDHAT_RE)
+        assert result == ["user@external.com"]
+
+    def test_empty_reporter_email(self):
+        result = check_description_editors([], "", REDHAT_RE)
+        assert result == ["missing-email:reporter"]
+
+    def test_missing_editor_email(self):
+        result = check_description_editors(["missing-email:abc123"], "dev@redhat.com", REDHAT_RE)
+        assert result == ["missing-email:abc123"]
+
+    def test_mixed_editors(self):
+        result = check_description_editors(
+            ["dev2@redhat.com", "attacker@evil.com", "dev3@redhat.com"],
+            "dev1@redhat.com",
+            REDHAT_RE,
+        )
+        assert result == ["attacker@evil.com"]
+
+    def test_no_editors_internal_reporter(self):
+        result = check_description_editors([], "dev@redhat.com", REDHAT_RE)
+        assert result == []
+
+    def test_deduplicates(self):
+        result = check_description_editors(
+            ["bad@evil.com", "bad@evil.com"], "bad@evil.com", REDHAT_RE
+        )
+        assert result == ["bad@evil.com"]
+
+    def test_empty_email_normalized_and_deduplicated(self):
+        result = check_description_editors(["", ""], "dev@redhat.com", REDHAT_RE)
+        assert result == ["missing-email:unknown"]
 
 
 class TestLogChangedFiles:
