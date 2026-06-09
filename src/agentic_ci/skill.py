@@ -329,3 +329,48 @@ def run_skill(
         verdict.get("verdict", "unknown"),
     )
     return 0
+
+
+def save_job_artifacts(
+    work_dir: Path,
+    repo_dir: Path | None = None,
+    prompt: str = "",
+) -> None:
+    """Collect debugging artifacts into work_dir for CI artifact upload."""
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        if prompt:
+            (work_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+        for candidate in [repo_dir, work_dir]:
+            if candidate is None:
+                continue
+            output_file = candidate / "claude-output.txt"
+            if output_file.exists():
+                dest = work_dir / "claude_output.txt"
+                if output_file.resolve() != dest.resolve():
+                    shutil.copy2(str(output_file), str(dest))
+                content = output_file.read_text(encoding="utf-8", errors="replace")
+                lines = content.splitlines()
+                if len(lines) > 500:
+                    (work_dir / "claude_output_tail.txt").write_text(
+                        "\n".join(lines[-500:]), encoding="utf-8"
+                    )
+                break
+        if repo_dir and (repo_dir / ".git").is_dir():
+            _collect_git_artifacts(work_dir, repo_dir)
+    except Exception as exc:
+        log.debug("Artifact collection failed (non-fatal): %s", exc)
+
+
+def _collect_git_artifacts(work_dir: Path, repo_dir: Path) -> None:
+    """Capture git diff and log from repo_dir into work_dir."""
+    from agentic_ci.git import get_default_branch, git_output
+
+    default_branch = get_default_branch(repo_dir)
+    base_ref = f"origin/{default_branch}"
+    diff = git_output(repo_dir, "diff", f"{base_ref}...HEAD")
+    if diff:
+        (work_dir / "diff.patch").write_text(diff, encoding="utf-8")
+    log_text = git_output(repo_dir, "log", "--oneline", f"{base_ref}..HEAD")
+    if log_text:
+        (work_dir / "git-log.txt").write_text(log_text, encoding="utf-8")
