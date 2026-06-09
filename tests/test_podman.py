@@ -287,4 +287,4 @@ def test_setup_does_not_override_entrypoint(monkeypatch, tmp_path, claude_harnes
     run_cmd = run_calls[0]
     assert "--entrypoint" not in run_cmd
     image_idx = run_cmd.index("localhost/test:latest")
-    assert run_cmd[image_idx + 1] == "sleep"
+    assert run_cmd[image_idx + 1 : image_idx + 4] == ["bash", "-c", "sleep 1200"]

@@ -99,8 +99,9 @@ class PodmanBackend(Backend):
             "--workdir",
             "/workspace",
             self.image,
-            "sleep",
-            str(self.timeout),
+            "bash",
+            "-c",
+            f"sleep {self.timeout}",
         ]
 
         subprocess.run(cmd, check=True, capture_output=True)
