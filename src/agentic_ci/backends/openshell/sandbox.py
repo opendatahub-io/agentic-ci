@@ -38,6 +38,7 @@ def create(image=None, policy_path=None):
         "--name",
         SANDBOX_NAME,
         "--no-tty",
+        "--no-auto-providers",
         "--provider",
         PROVIDER_NAME,
     ]
