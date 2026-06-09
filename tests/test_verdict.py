@@ -86,8 +86,17 @@ class TestLoadVerdict:
                 allowed_verdicts=frozenset({"ok"}),
             )
 
-    def test_list_field_validation(self, verdict_file):
-        path = verdict_file({"verdict": "ok", "files_changed": "not-a-list"})
+    def test_list_field_string_coerced(self, verdict_file):
+        path = verdict_file({"verdict": "ok", "risks": "some risk"})
+        result = load_verdict(
+            path,
+            required_fields={"verdict"},
+            allowed_verdicts=frozenset({"ok"}),
+        )
+        assert result["risks"] == ["some risk"]
+
+    def test_list_field_non_string_rejected(self, verdict_file):
+        path = verdict_file({"verdict": "ok", "files_changed": 42})
         with pytest.raises(VerdictError, match="must be an array"):
             load_verdict(
                 path,
