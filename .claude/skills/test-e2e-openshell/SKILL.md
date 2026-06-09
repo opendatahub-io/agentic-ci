@@ -21,7 +21,7 @@ Ask the user for three things:
 3. **API key file** — path to a local file containing an Anthropic API key (one line, no whitespace). Needed for Sections B and D. Store as `$API_KEY_FILE`.
 
 Per-section requirements:
-- **Vertex AI auth** (Sections A, C): GCP ADC credentials at `~/.config/gcloud/application_default_credentials.json` and `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` set in the environment.
+- **Vertex AI auth** (Sections A, C, E): GCP ADC credentials at `~/.config/gcloud/application_default_credentials.json` and `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` set in the environment. Also requires `OPENSHELL_SUPERVISOR_IMAGE` pointing to a supervisor with the GCE metadata emulator (e.g. `quay.io/mprpic/openshell-supervisor:pr1763`); see `docs/backends/openshell.md` for details.
 - **API key auth** (Sections B, D): The API key file above.
 
 ## Container setup
@@ -238,6 +238,79 @@ Verify:
 
 ---
 
+## Section E: Workdir round-trip
+
+Verifies that the OpenShell backend uploads the workdir into the sandbox,
+the agent can modify files inside it, and changes are downloaded back to
+the host after the run completes. Uses Vertex AI auth and Claude Code.
+
+Requires `OPENSHELL_SUPERVISOR_IMAGE` set to a supervisor with the GCE
+metadata emulator (see "Before you start").
+
+Run cleanup first.
+
+### E1. Prepare workdir
+
+Create a temporary directory with a seed file:
+
+```bash
+podman exec openshell-e2e bash -c '
+  mkdir -p /tmp/workdir-test
+  echo red > /tmp/workdir-test/color.txt
+'
+```
+
+Verify:
+
+```bash
+podman exec openshell-e2e cat /tmp/workdir-test/color.txt
+```
+
+Should print `red`.
+
+### E2. Run agent to modify the file
+
+```bash
+podman exec \
+  -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
+  -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE=quay.io/mprpic/openshell-supervisor:pr1763 \
+  -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
+  openshell-e2e bash -c '
+    agentic-ci run \
+      --backend openshell \
+      --harness claude-code \
+      --image "$SANDBOX_IMAGE" \
+      --model claude-haiku-4-5 \
+      --workdir /tmp/workdir-test \
+      --no-otel \
+      "Overwrite the file color.txt with exactly the word blue (no newline, no quotes). Do not create any other files."
+  '
+```
+
+Verify:
+- Output shows `Uploading workdir`
+- Output shows `Downloading workdir`
+- `Agent exit code: 0`
+
+### E3. Verify workdir was updated on the host
+
+```bash
+podman exec openshell-e2e cat /tmp/workdir-test/color.txt
+```
+
+The file should now contain `blue`, not `red`. This confirms the full
+round-trip: the workdir was uploaded into the sandbox, the agent modified
+it, and the changes were downloaded back to the host.
+
+### E4. Clean up workdir
+
+```bash
+podman exec openshell-e2e rm -rf /tmp/workdir-test
+```
+
+---
+
 ## Final cleanup
 
 ```bash
@@ -246,7 +319,7 @@ podman rm -f openshell-e2e
 
 ## Running the full suite
 
-Execute sections in order (A through D), running the cleanup step before each
+Execute sections in order (A through E), running the cleanup step before each
 section. Skip sections whose prerequisites are not met. If any step fails,
 check the gateway log inside the container:
 

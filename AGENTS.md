@@ -35,9 +35,9 @@ src/agentic_ci/
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`.
 
-- **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Mounts workdir and gcloud credentials as volumes. Uses `--network host` when OTEL is enabled.
+- **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
-- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Manages gateway lifecycle, sandbox creation with network policy, and credential upload. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, and credential injection. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. Both produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 

@@ -23,6 +23,12 @@ class OpenShellBackend(Backend):
     Authentication is handled through the OpenShell google-cloud provider,
     which injects GCP credentials via the supervisor proxy. The agent
     uses its native Vertex AI integration directly.
+
+    Unlike PodmanBackend, which bind-mounts the workdir so changes are
+    visible immediately on the host, OpenShellBackend copies the workdir
+    into the sandbox on setup() and copies it back after run() completes.
+    Only changes inside the workdir are reflected back to the host; files
+    written elsewhere in the sandbox (e.g. /tmp) are not retrieved.
     """
 
     _ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
@@ -51,6 +57,9 @@ class OpenShellBackend(Backend):
 
         sandbox.create(image=self.image, policy_path=self.policy_path)
 
+        log.section("Uploading workdir")
+        sandbox.upload(self.workdir)
+
     def stop(self):
         try:
             if sandbox.exists():
@@ -74,11 +83,23 @@ class OpenShellBackend(Backend):
         self._write_env_script(model, otel_port, otel_rate_file)
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
-        cmd = ["bash", "-c", f'. {self._ENV_SCRIPT} && exec "$@"', "--", *agent_args]
+        workdir_name = os.path.basename(self.workdir)
+        sandbox_workdir = f"/sandbox/{workdir_name}"
+        cmd = [
+            "bash",
+            "-c",
+            f'cd {shlex.quote(sandbox_workdir)} && . {self._ENV_SCRIPT} && exec "$@"',
+            "--",
+            *agent_args,
+        ]
         proc = sandbox.exec_cmd_streaming(cmd)
 
         rc = self._process_stream(proc, streaming)
         self._wait_for_otel_flush(otel_port)
+
+        log.section("Downloading workdir")
+        sandbox.download(sandbox_workdir, self.workdir)
+
         return rc
 
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
