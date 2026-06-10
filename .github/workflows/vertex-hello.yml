@@ -1,0 +1,25 @@
+name: Vertex AI Hello World
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  hello:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write GCP key file
+        run: |
+          KEY_FILE=$(mktemp)
+          echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > "$KEY_FILE"
+          echo "AIPCC_CICD_GCP_SERVICE_ACCOUNT_KEY=$KEY_FILE" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pip install google-auth requests
+
+      - name: Test Vertex AI auth
+        env:
+          AIPCC_CICD_GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: python3 test_vertex_auth.py
