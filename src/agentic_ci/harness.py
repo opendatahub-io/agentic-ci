@@ -10,6 +10,8 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
+_OPENSHELL_GATEWAY_HOST = "10.200.0.1"
+
 
 class Harness(ABC):
     """Base class for agent CLI harnesses."""
@@ -148,12 +150,10 @@ class ClaudeCodeHarness(Harness):
                     "export OTEL_METRICS_EXPORTER=otlp",
                     "export OTEL_LOGS_EXPORTER=otlp",
                     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-                    f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://10.200.0.1:{otel_port}",
+                    f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_GATEWAY_HOST}:{otel_port}",
                     "export OTEL_METRIC_EXPORT_INTERVAL=10000",
                 ]
             )
-            if otel_rate_file:
-                lines.append(f"export OTEL_RATE_FILE={shlex.quote(otel_rate_file)}")
         return lines
 
     def build_otel_exec_env(self, otel_port=None):

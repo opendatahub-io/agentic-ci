@@ -90,7 +90,7 @@ def _update_token_rate(payload):
     os.replace(tmp, rate_file)
 
 
-def start_collector(run_dir):
+def start_collector(run_dir, bind_addr="127.0.0.1"):
     """Start the OTEL collector as a subprocess. Returns (proc, port)."""
     otel_log = os.path.join(run_dir, "claude-otel.jsonl")
     otel_rate = os.path.join(run_dir, "claude-otel-rate.json")
@@ -108,6 +108,7 @@ def start_collector(run_dir):
         "OTEL_RATE_FILE": otel_rate,
         "OTEL_COLLECTOR_PORT": "0",
         "OTEL_PORT_FILE": port_file,
+        "OTEL_BIND_ADDR": bind_addr,
     }
     proc = subprocess.Popen(
         [sys.executable, "-m", "agentic_ci.otel"],
@@ -258,7 +259,8 @@ def print_summary(log_file):
 def main():
     """Run the OTEL collector server."""
     port = int(os.environ.get("OTEL_COLLECTOR_PORT", "4318"))
-    server = HTTPServer(("127.0.0.1", port), OTLPHandler)
+    bind_addr = os.environ.get("OTEL_BIND_ADDR", "127.0.0.1")
+    server = HTTPServer((bind_addr, port), OTLPHandler)
     actual_port = server.server_address[1]
     port_file = os.environ.get("OTEL_PORT_FILE")
     if port_file:
@@ -267,7 +269,7 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log_file = os.environ.get("OTEL_LOG_FILE", "/tmp/claude-otel.jsonl")
     print(
-        f"OTLP collector listening on 127.0.0.1:{actual_port}, writing to {log_file}",
+        f"OTLP collector listening on {bind_addr}:{actual_port}, writing to {log_file}",
         file=sys.stderr,
     )
     try:

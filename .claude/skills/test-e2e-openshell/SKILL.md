@@ -143,7 +143,7 @@ Verify:
 - Output shows `Created sandbox: ci`
 - Output shows `Running Claude Code (claude-haiku-4-5) via openshell backend`
 - Claude's response contains `A1_OK`
-- Token metrics show non-zero counts, cost around `$0.04`
+- Token metrics show non-zero counts and cost is non-zero (e.g. `$0.04`)
 - `Agent exit code: 0`
 - `Sandbox deleted` and `Gateway stopped` at the end
 
@@ -174,7 +174,7 @@ Verify:
 - Output shows `Auth: API key`
 - Output shows `Creating Anthropic API key provider`
 - Claude's response contains `B1_OK`
-- Token metrics show non-zero counts and cost
+- Token metrics show non-zero counts and cost is non-zero
 - `Agent exit code: 0`
 
 ---
@@ -311,6 +311,53 @@ podman exec openshell-e2e rm -rf /tmp/workdir-test
 
 ---
 
+## Section F: OTEL telemetry collection
+
+Verifies that the sandbox-local OTEL collector receives metrics from the
+agent and prints a token/cost summary. Uses Vertex AI auth and Claude Code
+(the only harness that supports OTEL).
+
+The OpenShell sandbox network isolation prevents reaching an external OTEL
+collector, so agentic-ci embeds a lightweight OTLP receiver inside the
+sandbox on localhost. After the run, the OTEL log is downloaded from the
+sandbox and the summary is printed on the host.
+
+Requires `OPENSHELL_SUPERVISOR_IMAGE` (see "Before you start").
+
+Run cleanup first.
+
+### F1. Run with OTEL enabled
+
+```bash
+podman exec \
+  -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
+  -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE=quay.io/mprpic/openshell-supervisor:pr1763 \
+  -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
+  openshell-e2e bash -c '
+    cd /tmp/e2e-workdir && \
+    agentic-ci run \
+      --backend openshell \
+      --harness claude-code \
+      --image "$SANDBOX_IMAGE" \
+      --model claude-haiku-4-5 \
+      "Respond with exactly: F1_OK"
+  '
+```
+
+Note: no `--no-otel` flag.
+
+Verify:
+- Output shows `Running Claude Code (claude-haiku-4-5) via openshell backend`
+- Agent runs and completes with `F1_OK` in the response
+- Output shows `Token/Cost Summary (OpenTelemetry)` section
+- Token counts are non-zero (input tokens, output tokens, cache)
+- Cost is non-zero (e.g. `$0.04`)
+- `Agent exit code: 0`
+- `Sandbox deleted` and `Gateway stopped` at the end
+
+---
+
 ## Final cleanup
 
 ```bash
@@ -319,7 +366,7 @@ podman rm -f openshell-e2e
 
 ## Running the full suite
 
-Execute sections in order (A through E), running the cleanup step before each
+Execute sections in order (A through F), running the cleanup step before each
 section. Skip sections whose prerequisites are not met. If any step fails,
 check the gateway log inside the container:
 
