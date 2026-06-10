@@ -127,13 +127,13 @@ class TestClaudeCodeHarness:
         assert not any("CLAUDE_CODE_USE_VERTEX" in line for line in lines)
         assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
-    def test_build_env_script_lines_with_otel(self, monkeypatch, tmp_path):
+    def test_build_env_script_lines_with_otel(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
         harness = ClaudeCodeHarness()
-        rate_file = str(tmp_path / "rate.json")
-        lines = harness.build_env_script_lines(otel_port=4318, otel_rate_file=rate_file)
+        lines = harness.build_env_script_lines(otel_port=4318)
         assert any("CLAUDE_CODE_ENABLE_TELEMETRY=1" in line for line in lines)
-        assert any(f"OTEL_RATE_FILE={rate_file}" in line for line in lines)
+        assert any("OTEL_EXPORTER_OTLP_ENDPOINT=http://10.200.0.1:4318" in line for line in lines)
+        assert not any("OTEL_RATE_FILE" in line for line in lines)
 
     def test_credential_mount_target(self):
         assert ClaudeCodeHarness().credential_mount_target() == "/home/agent-ci"

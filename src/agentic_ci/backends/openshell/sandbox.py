@@ -24,7 +24,7 @@ def exists():
     return result.returncode == 0
 
 
-def create(image=None, policy_path=None):
+def create(image=None, policy_path=None, otel_port=None):
     """Create a persistent sandbox with the CI provider attached.
 
     The sandbox is created first, then the network policy is applied
@@ -47,16 +47,18 @@ def create(image=None, policy_path=None):
     args.extend(["--", "true"])
     _run(args, check=True)
 
-    _apply_policy(policy_path)
+    _apply_policy(policy_path, otel_port=otel_port)
 
 
-def _apply_policy(policy_path):
+def _apply_policy(policy_path, otel_port=None):
     """Apply network policy endpoints and wait for activation.
 
     Uses ``openshell policy update --wait`` which blocks until the
     supervisor has compiled and loaded the new policy revision.
     """
     endpoints = resolve_endpoints(policy_path)
+    if otel_port:
+        endpoints.append(f"host.openshell.internal:{otel_port}:read-write")
     if not endpoints:
         return
 

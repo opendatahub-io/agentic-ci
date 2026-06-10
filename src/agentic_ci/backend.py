@@ -30,7 +30,7 @@ class Backend(ABC):
         self.verdict_path: Path | None = None
 
     @abstractmethod
-    def setup(self):
+    def setup(self, otel_port: int | None = None):
         """Prepare the backend. Idempotent."""
 
     @abstractmethod

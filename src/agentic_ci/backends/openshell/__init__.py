@@ -14,6 +14,8 @@ from agentic_ci.backends.openshell import gateway, provider, sandbox
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
 
+_OPENSHELL_HOST = "host.openshell.internal"
+
 
 class OpenShellBackend(Backend):
     """Runs an AI agent inside an OpenShell sandbox.
@@ -38,7 +40,7 @@ class OpenShellBackend(Backend):
         self.policy_path = policy
         self._extra_env = extra_env or {}
 
-    def setup(self):
+    def setup(self, otel_port=None):
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
             gateway.start()
@@ -55,7 +57,7 @@ class OpenShellBackend(Backend):
         image_info = f", image: {self.image}" if self.image else ""
         log.section(f"Creating sandbox ({image_info.lstrip(', ') or 'default image'})")
 
-        sandbox.create(image=self.image, policy_path=self.policy_path)
+        sandbox.create(image=self.image, policy_path=self.policy_path, otel_port=otel_port)
 
         log.section("Uploading workdir")
         sandbox.upload(self.workdir)
@@ -107,9 +109,25 @@ class OpenShellBackend(Backend):
 
         Uses the harness's native env script (Vertex AI vars or API key)
         since the google-cloud provider injects GCP credentials directly.
+
+        For OTEL, uses ``host.openshell.internal`` to reach the host-side
+        collector through the gateway proxy instead of the harness default
+        (which uses an IP unreachable from the sandbox).
         """
-        lines = self.harness.build_env_script_lines(otel_port, otel_rate_file)
-        lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+        lines = self.harness.build_env_script_lines()
+        if otel_port:
+            lines.extend(
+                [
+                    "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
+                    "export OTEL_METRICS_EXPORTER=otlp",
+                    "export OTEL_LOGS_EXPORTER=otlp",
+                    "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+                    f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_HOST}:{otel_port}",
+                    "export OTEL_METRIC_EXPORT_INTERVAL=5000",
+                ]
+            )
+        else:
+            lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 
         for key, val in self._extra_env.items():
             lines.append(f"export {key}={shlex.quote(val)}")

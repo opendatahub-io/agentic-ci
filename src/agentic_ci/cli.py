@@ -52,8 +52,6 @@ def cmd_run(args, backend, harness):
                 sys.exit(0)
             log.info(f"{gate.name}: passed")
 
-    backend.setup()
-
     model_env = harness.model_env_var()
     if args.model:
         model = args.model
@@ -73,9 +71,15 @@ def cmd_run(args, backend, harness):
     try:
         if not args.no_otel and harness.supports_otel:
             log.section("Starting OTEL collector")
-            otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(run_dir)
+            bind_addr = "0.0.0.0" if args.backend == "openshell" else "127.0.0.1"
+            otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(
+                run_dir, bind_addr=bind_addr
+            )
+            os.environ["OTEL_RATE_FILE"] = otel_rate
             log.detail("pid", str(otel_proc.pid))
             log.detail("port", str(otel_port))
+
+        backend.setup(otel_port=otel_port)
 
         log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
         rc = backend.run(
@@ -128,6 +132,7 @@ def cmd_run(args, backend, harness):
     finally:
         if otel_proc:
             otel.stop_collector(otel_proc)
+            os.environ.pop("OTEL_RATE_FILE", None)
         if not args.keep:
             backend.stop()
 
