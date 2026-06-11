@@ -163,9 +163,14 @@ class ClaudeCodeHarness(Harness):
                     "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
                     "export OTEL_METRICS_EXPORTER=otlp",
                     "export OTEL_LOGS_EXPORTER=otlp",
+                    "export OTEL_TRACES_EXPORTER=otlp",
                     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
                     f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_GATEWAY_HOST}:{otel_port}",
                     "export OTEL_METRIC_EXPORT_INTERVAL=10000",
+                    "export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+                    "export OTEL_LOG_USER_PROMPTS=1",
+                    "export OTEL_LOG_TOOL_DETAILS=1",
+                    "export OTEL_LOG_TOOL_CONTENT=1",
                 ]
             )
         return lines
@@ -181,11 +186,21 @@ class ClaudeCodeHarness(Harness):
             "--env",
             "OTEL_LOGS_EXPORTER=otlp",
             "--env",
+            "OTEL_TRACES_EXPORTER=otlp",
+            "--env",
             "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
             "--env",
             f"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:{otel_port}",
             "--env",
             "OTEL_METRIC_EXPORT_INTERVAL=10000",
+            "--env",
+            "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
+            "--env",
+            "OTEL_LOG_USER_PROMPTS=1",
+            "--env",
+            "OTEL_LOG_TOOL_DETAILS=1",
+            "--env",
+            "OTEL_LOG_TOOL_CONTENT=1",
         ]
 
     def credential_mount_target(self):
