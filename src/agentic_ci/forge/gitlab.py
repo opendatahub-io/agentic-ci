@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
+from datetime import datetime
 
 from agentic_ci.forge import (
     DEFAULT_SKIP_PATTERNS,
@@ -183,8 +184,6 @@ class GitLabForge(Forge):
                 continue
             created = note.get("created_at", "")
             if since and created:
-                from datetime import datetime
-
                 created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
                 since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
                 if created_dt < since_dt:

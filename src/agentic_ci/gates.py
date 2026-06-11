@@ -19,6 +19,7 @@ import fnmatch
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -154,8 +155,6 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
     Requires ``gitleaks`` to be installed on PATH.  Fails closed:
     returns an error if gitleaks is missing or times out.
     """
-    import shutil
-
     if not shutil.which("gitleaks"):
         log.error("gitleaks not found on PATH — failing closed")
         return ["gitleaks is not installed; secret scan cannot run"]

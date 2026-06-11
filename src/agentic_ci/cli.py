@@ -7,8 +7,9 @@ import sys
 import tempfile
 from importlib.metadata import version
 
-from agentic_ci import log, otel
+from agentic_ci import log, mlflow, otel
 from agentic_ci.backends import create_backend
+from agentic_ci.forge.cli import register_subcommands
 from agentic_ci.gates import resolve_gates, validate_gate_env
 from agentic_ci.harness import create_harness
 
@@ -30,8 +31,6 @@ def cmd_stop(args, backend):
 
 
 def cmd_mlflow_push(args):
-    from agentic_ci import mlflow
-
     log.section("Pushing traces to MLflow")
     log.detail("JSONL", args.jsonl)
     log.detail("Endpoint", args.endpoint)
@@ -204,8 +203,6 @@ def main():
     sub.add_parser("stop", parents=[common], help="Tear down the sandbox environment")
 
     p_forge = sub.add_parser("forge", help="Git forge (GitLab/GitHub) MR/PR operations")
-    from agentic_ci.forge.cli import register_subcommands
-
     register_subcommands(p_forge)
 
     p_run = sub.add_parser(
