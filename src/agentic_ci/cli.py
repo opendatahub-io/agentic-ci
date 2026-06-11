@@ -29,6 +29,24 @@ def cmd_stop(args, backend):
     backend.stop()
 
 
+def cmd_mlflow_push(args):
+    from agentic_ci import mlflow
+
+    log.section("Pushing traces to MLflow")
+    log.detail("JSONL", args.jsonl)
+    log.detail("Endpoint", args.endpoint)
+    log.detail("Experiment", args.experiment)
+
+    ok, err = mlflow.push_traces(args.jsonl, args.endpoint, args.experiment, args.token)
+    if ok:
+        log.info(f"Pushed {ok} trace(s) to MLflow ({err} failed)")
+    elif err:
+        log.info(f"Failed to push traces to MLflow ({err} errors)")
+        sys.exit(1)
+    else:
+        log.info("No /v1/traces records found in JSONL")
+
+
 def cmd_run(args, backend, harness):
     pre_gate_names = _parse_gate_list(getattr(args, "pre_gates", None))
     post_gate_names = _parse_gate_list(getattr(args, "post_gates", None))
@@ -221,6 +239,31 @@ def main():
         metavar="GATES",
         help="Comma-separated list of post-agent gates to run after the agent",
     )
+    p_push = sub.add_parser(
+        "mlflow-push",
+        help="Push OTel traces from a JSONL log to an MLflow OTLP endpoint",
+    )
+    p_push.add_argument("jsonl", help="Path to claude-otel.jsonl file")
+    p_push.add_argument(
+        "--endpoint",
+        default=os.environ.get("MLFLOW_TRACKING_URI"),
+        required=not os.environ.get("MLFLOW_TRACKING_URI"),
+        metavar="URL",
+        help="MLflow tracking URI (env: MLFLOW_TRACKING_URI)",
+    )
+    p_push.add_argument(
+        "--experiment",
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME"),
+        required=not os.environ.get("MLFLOW_EXPERIMENT_NAME"),
+        metavar="NAME",
+        help="MLflow experiment name (env: MLFLOW_EXPERIMENT_NAME)",
+    )
+    p_push.add_argument(
+        "--token",
+        default=os.environ.get("MLFLOW_TRACKING_TOKEN"),
+        metavar="TOKEN",
+        help="MLflow Bearer token (env: MLFLOW_TRACKING_TOKEN)",
+    )
 
     args, extra = parser.parse_known_args()
     if hasattr(args, "prompt"):
@@ -230,6 +273,10 @@ def main():
 
     if args.command == "forge":
         args.func(args)
+        return
+
+    if args.command == "mlflow-push":
+        cmd_mlflow_push(args)
         return
 
     if args.command not in ("setup", "run", "stop"):
