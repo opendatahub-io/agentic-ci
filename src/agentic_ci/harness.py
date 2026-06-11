@@ -105,12 +105,21 @@ class ClaudeCodeHarness(Harness):
         return args
 
     def build_env_args(self):
+        common = [
+            "--env",
+            "AGENT_TOOL=claude",
+            "--env",
+            "CLAUDE_CONFIG_DIR=/sandbox/.claude",
+            "--env",
+            "CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1",
+            "--env",
+            "DISABLE_AUTOUPDATER=1",
+        ]
         if self.auth_mode == "api-key":
             return [
                 "--env",
                 "ANTHROPIC_API_KEY",
-                "--env",
-                "DISABLE_AUTOUPDATER=1",
+                *common,
             ]
         vertex_project = os.environ.get(
             "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
@@ -122,15 +131,20 @@ class ClaudeCodeHarness(Harness):
             f"CLOUD_ML_REGION={os.environ.get('CLOUD_ML_REGION', 'global')}",
             "--env",
             f"ANTHROPIC_VERTEX_PROJECT_ID={vertex_project}",
-            "--env",
-            "DISABLE_AUTOUPDATER=1",
+            *common,
         ]
 
     def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
+        common = [
+            "export AGENT_TOOL=claude",
+            "export CLAUDE_CONFIG_DIR=/sandbox/.claude",
+            "export CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1",
+            "export DISABLE_AUTOUPDATER=1",
+        ]
         if self.auth_mode == "api-key":
             lines = [
                 f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
-                "export DISABLE_AUTOUPDATER=1",
+                *common,
             ]
         else:
             vertex_project = os.environ.get(
@@ -141,7 +155,7 @@ class ClaudeCodeHarness(Harness):
                 "export CLAUDE_CODE_USE_VERTEX=1",
                 f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
                 f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
-                "export DISABLE_AUTOUPDATER=1",
+                *common,
             ]
         if otel_port:
             lines.extend(
@@ -219,12 +233,19 @@ class OpenCodeHarness(Harness):
         return args
 
     def build_env_args(self):
+        common = [
+            "--env",
+            "AGENT_TOOL=opencode",
+            "--env",
+            "OPENCODE_CONFIG_DIR=/sandbox/.config/opencode",
+            "--env",
+            "OPENCODE_DISABLE_AUTOUPDATE=1",
+        ]
         if self.auth_mode == "api-key":
             return [
                 "--env",
                 "ANTHROPIC_API_KEY",
-                "--env",
-                "OPENCODE_DISABLE_AUTOUPDATE=1",
+                *common,
             ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
@@ -241,16 +262,20 @@ class OpenCodeHarness(Harness):
             "--env",
             f"VERTEX_LOCATION={location}",
             "--env",
-            "OPENCODE_DISABLE_AUTOUPDATE=1",
-            "--env",
             f"GOOGLE_APPLICATION_CREDENTIALS={mount_target}/.config/gcloud/application_default_credentials.json",
+            *common,
         ]
 
     def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
+        common = [
+            "export AGENT_TOOL=opencode",
+            "export OPENCODE_CONFIG_DIR=/sandbox/.config/opencode",
+            "export OPENCODE_DISABLE_AUTOUPDATE=1",
+        ]
         if self.auth_mode == "api-key":
             return [
                 f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
-                "export OPENCODE_DISABLE_AUTOUPDATE=1",
+                *common,
             ]
         project = os.environ.get(
             "GOOGLE_CLOUD_PROJECT",
@@ -263,7 +288,7 @@ class OpenCodeHarness(Harness):
         return [
             f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
             f"export VERTEX_LOCATION={shlex.quote(location)}",
-            "export OPENCODE_DISABLE_AUTOUPDATE=1",
+            *common,
         ]
 
     def build_otel_exec_env(self, otel_port=None):
