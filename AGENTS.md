@@ -48,6 +48,57 @@ src/agentic_ci/
 - **Authentication** is auto-detected: if `ANTHROPIC_API_KEY` is set, direct API auth is used (no gcloud credentials needed); otherwise Vertex AI with gcloud ADC files.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Currently only Claude Code emits OTEL metrics; OpenCode provides token/cost data via its JSON output.
 
+## Container images
+
+Pre-built container images for running AI coding agents in CI. Published
+to `quay.io/aipcc/agentic-ci/`.
+
+```text
+images/
+  runner/
+    shared/
+      Containerfile.base            — Runner base image (UBI10 + common tools)
+      Containerfile.openshell-base  — OpenShell sandbox base image
+      entrypoint.sh                 — Container entrypoint (credential setup + exec)
+    claude-code/
+      Containerfile                 — Claude Code runner image
+      Containerfile.openshell       — Claude Code sandbox image (OpenShell)
+      install-plugin.py             — Non-interactive Claude Code plugin installer
+      claude-settings.json          — Seed settings with skills-registry marketplace
+    opencode/
+      Containerfile                 — OpenCode runner image
+      Containerfile.openshell       — OpenCode sandbox image (OpenShell)
+      install-skills.py             — Non-interactive OpenCode skill installer
+      opencode.json                 — Seed config for CI headless mode
+  ci/
+    Containerfile.podman            — CI environment image (podman + tools)
+    Containerfile.openshell         — CI environment image (OpenShell + podman)
+  openshell-supervisor/
+    Containerfile                   — Custom OpenShell supervisor (temporary)
+scripts/
+  bump-versions.py                  — Bump pinned dependency versions in Containerfiles
+```
+
+The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
+is pre-built as `localhost/base:latest` before building the Claude and
+OpenCode runner images. It is NOT published to any registry as a
+standalone image. Do not add a CI job to push runner-base separately.
+
+### Building locally
+
+```bash
+make base-build              # build runner base image locally
+make claude-build            # build Claude Code runner image (includes base)
+make opencode-build          # build OpenCode runner image (includes base)
+make ci-build                # build CI podman image
+make openshell-base-build    # build OpenShell sandbox base image
+make openshell-claude-build  # build Claude sandbox (includes openshell-base)
+make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
+make openshell-ci-build      # build OpenShell CI image
+make image-lint              # shellcheck + ruff on image scripts
+make image-test              # run image unit tests
+```
+
 ## Commands
 
 ```bash

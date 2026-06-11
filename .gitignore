@@ -208,3 +208,7 @@ __marimo__/
 
 # Agentic files
 .claude/settings.local.json
+
+# Renovate JSON output
+public/
+__pycache__/

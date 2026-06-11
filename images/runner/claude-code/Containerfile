@@ -1,0 +1,36 @@
+FROM localhost/base:latest
+
+ARG CLAUDE_VERSION=2.1.169
+ARG CLAUDE_SHA256=cf066bf360cbf7b51abeb8cb230012fc0f2fed4253b2ce305de48ccd6d49a39c
+
+USER root
+
+# nodejs is needed by Claude Code
+RUN microdnf install -y --nodocs nodejs npm && microdnf clean all
+
+RUN curl -fsSL -o /usr/bin/claude \
+        "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude" \
+    && echo "${CLAUDE_SHA256}  /usr/bin/claude" | sha256sum -c - \
+    && chmod +x /usr/bin/claude
+
+COPY claude-code/install-plugin.py /usr/local/bin/install-plugin
+RUN chmod +x /usr/local/bin/install-plugin
+
+COPY claude-code/claude-settings.json /home/agent-ci/.claude/settings.json
+RUN chown -R agent-ci:agent-ci /home/agent-ci/.claude
+
+USER agent-ci
+RUN install-plugin --marketplace-repo opendatahub-io/skills-registry \
+    && install-plugin --all
+
+USER root
+COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER agent-ci
+ENV AGENT_TOOL=claude
+ENV CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1
+ENV CLAUDE_CONFIG_DIR=/home/agent-ci/.claude
+WORKDIR /home/agent-ci
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["claude"]

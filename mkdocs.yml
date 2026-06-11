@@ -55,6 +55,11 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Container Images:
+      - Overview: image/index.md
+      - Build Pipeline: image/build.md
+      - Extending: image/extending.md
+      - Skill Loading: image/skills.md
   - Sandbox Backends:
       - Podman: backends/podman.md
       - OpenShell: backends/openshell.md

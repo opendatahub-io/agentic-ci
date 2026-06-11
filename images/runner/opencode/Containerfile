@@ -1,0 +1,34 @@
+FROM localhost/base:latest
+
+ARG OPENCODE_VERSION=1.15.13
+ARG OPENCODE_SHA256=51785a07c009f27c5125a5235c5a0ff78433dace07f73fbc44eb672ead4b3d79
+
+USER root
+
+RUN curl -fsSL -o /tmp/opencode.tar.gz \
+        "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+    && echo "${OPENCODE_SHA256}  /tmp/opencode.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
+    && chmod +x /usr/local/bin/opencode \
+    && rm -f /tmp/opencode.tar.gz
+
+COPY opencode/install-skills.py /usr/local/bin/install-skills
+RUN chmod +x /usr/local/bin/install-skills
+
+COPY opencode/opencode.json /home/agent-ci/.config/opencode/opencode.json
+RUN chown -R agent-ci:agent-ci /home/agent-ci/.config
+
+USER agent-ci
+RUN install-skills --marketplace-repo opendatahub-io/skills-registry \
+    && install-skills --all
+
+USER root
+COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER agent-ci
+ENV AGENT_TOOL=opencode
+ENV OPENCODE_CONFIG_DIR=/home/agent-ci/.config/opencode
+WORKDIR /home/agent-ci
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["opencode"]

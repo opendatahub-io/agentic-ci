@@ -1,0 +1,160 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "minimumReleaseAge": "7 days",
+  "postUpgradeTasks": {
+    "commands": ["python3 scripts/bump-versions.py --sync"],
+    "fileFilters": [
+      "images/runner/shared/Containerfile.base",
+      "images/runner/shared/Containerfile.openshell-base",
+      "images/runner/claude-code/Containerfile",
+      "images/runner/claude-code/Containerfile.openshell",
+      "images/runner/opencode/Containerfile",
+      "images/runner/opencode/Containerfile.openshell",
+      "images/ci/Containerfile.podman",
+      "images/ci/Containerfile.openshell"
+    ],
+    "executionMode": "update"
+  },
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "agentic-ci",
+        "claude-code"
+      ],
+      "minimumReleaseAge": "0 days"
+    }
+  ],
+  "customDatasources": {
+    "claude-code": {
+      "defaultRegistryUrlTemplate": "https://downloads.claude.ai/claude-code-releases/latest",
+      "format": "plain"
+    }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$",
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG UV_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$"
+      ],
+      "matchStrings": ["ARG SHELLCHECK_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "koalaman/shellcheck",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$",
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG GH_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "cli/cli",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$",
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG GLAB_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "gitlab-org/cli",
+      "datasourceTemplate": "gitlab-releases",
+      "registryUrlTemplate": "https://gitlab.com",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG GITLEAKS_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "gitleaks/gitleaks",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/claude-code/Containerfile$",
+        "^images/runner/claude-code/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG CLAUDE_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "claude-code",
+      "datasourceTemplate": "custom.claude-code",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/opencode/Containerfile$",
+        "^images/runner/opencode/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG OPENCODE_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "anomalyco/opencode",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG ACLI_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "acli",
+      "datasourceTemplate": "rpm",
+      "registryUrlTemplate": "https://acli.atlassian.com/linux/rpm/repodata/",
+      "versioningTemplate": "rpm"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$"
+      ],
+      "matchStrings": ["ruff==(?<currentValue>[^\\s]+)"],
+      "depNameTemplate": "ruff",
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/shared/Containerfile\\.openshell-base$",
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["agentic-ci==(?<currentValue>[^\\s]+)"],
+      "depNameTemplate": "agentic-ci",
+      "datasourceTemplate": "pypi"
+    }
+  ]
+}
