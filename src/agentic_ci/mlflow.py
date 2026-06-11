@@ -15,6 +15,7 @@ def _resolve_experiment_id(endpoint, name, headers):
             url,
             json={"filter": f"name = '{escaped_name}'"},
             headers=headers,
+            timeout=30,
         )
         resp.raise_for_status()
         experiments = resp.json().get("experiments", [])
@@ -77,6 +78,7 @@ def push_traces(log_file, endpoint, experiment, token=None):
                     **headers,
                     "x-mlflow-experiment-id": experiment_id,
                 },
+                timeout=30,
             )
             resp.raise_for_status()
             ok += 1
