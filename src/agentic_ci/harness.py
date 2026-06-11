@@ -34,7 +34,11 @@ class Harness(ABC):
 
     @abstractmethod
     def build_env_args(self) -> list[str]:
-        """Return ['--env', 'K=V', ...] pairs for podman run."""
+        """Return ['--env', 'K=V', ...] pairs for ``podman run`` (PodmanBackend only).
+
+        Container-image ENV vars (config dirs, AGENT_TOOL) are already
+        set in the Containerfile, so this method should not override them.
+        """
 
     @abstractmethod
     def build_env_script_lines(
@@ -42,7 +46,12 @@ class Harness(ABC):
         otel_port: int | None = None,
         otel_rate_file: str | None = None,
     ) -> list[str]:
-        """Return 'export K=V' lines for the OpenShell env script."""
+        """Return ``export K=V`` lines for the env script (OpenShellBackend only).
+
+        OpenShell extracts the container filesystem but drops OCI ENV
+        metadata, so every required env var must be re-injected here.
+        Config dirs use ``/sandbox/...`` paths per OpenShell convention.
+        """
 
     @abstractmethod
     def build_otel_exec_env(self, otel_port: int | None = None) -> list[str]:
@@ -108,8 +117,6 @@ class ClaudeCodeHarness(Harness):
         common = [
             "--env",
             "AGENT_TOOL=claude",
-            "--env",
-            "CLAUDE_CONFIG_DIR=/sandbox/.claude",
             "--env",
             "CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1",
             "--env",
@@ -251,8 +258,6 @@ class OpenCodeHarness(Harness):
         common = [
             "--env",
             "AGENT_TOOL=opencode",
-            "--env",
-            "OPENCODE_CONFIG_DIR=/sandbox/.config/opencode",
             "--env",
             "OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
