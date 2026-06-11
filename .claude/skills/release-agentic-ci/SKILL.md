@@ -52,55 +52,63 @@ gh pr create --title "Bump agentic-ci to <VERSION>" --body ""
 
 Print the PR URL.
 
-### 4. Wait for approval and checks
+### 4. Wait for approval and merge
 
-Use `ScheduleWakeup` to set a 300-second (5 min) recurring check. On each wake-up:
+Use `CronCreate` to schedule a recurring job that checks PR status every 5 minutes and completes the release automatically when ready.
 
-```bash
-# Check review approval (need at least 1 APPROVED)
-gh pr view <PR_NUMBER> --json reviewDecision --jq '.reviewDecision'
+The cron prompt must be **fully self-contained**.
+Each run is an independent Claude invocation with no memory of prior turns.
+Inline all necessary context: the version, PR number, and the exact commands to run.
 
-# Check CI status
-gh pr checks <PR_NUMBER>
+```text
+CronCreate:
+  cron: "*/5 * * * *"
+  recurring: true
+  prompt: |
+    You are completing a release of agentic-ci version <VERSION>.
+    PR #<PR_NUMBER> is open at https://github.com/opendatahub-io/agentic-ci/pull/<PR_NUMBER>.
+    The working directory is already the repo root.
+
+    Step 1: Check if the PR is ready.
+
+    Run:
+      gh pr view <PR_NUMBER> --repo opendatahub-io/agentic-ci --json reviewDecision,mergedAt --jq '{reviewDecision, mergedAt}'
+
+    - If mergedAt is non-empty, the PR was already merged. Skip to step 3.
+    - If reviewDecision is not "APPROVED", print "PR #<PR_NUMBER>: waiting for approval" and stop.
+    - If reviewDecision is "APPROVED", check CI:
+        gh pr checks <PR_NUMBER> --repo opendatahub-io/agentic-ci
+      If any required check is failing or pending, print the status and stop.
+      If all checks pass, proceed to step 2.
+
+    Step 2: Merge the PR.
+
+    Run:
+      gh pr merge <PR_NUMBER> --repo opendatahub-io/agentic-ci --merge --delete-branch
+
+    Step 3: Tag and push.
+
+    Run:
+      git checkout main
+      git pull origin main
+      git log --oneline -1
+
+    Verify the HEAD commit message contains "Merge pull request #<PR_NUMBER>".
+
+    Then tag and push:
+      git tag <VERSION>
+      git push origin <VERSION>
+
+    Step 4: Print a summary and clean up.
+
+    Print:
+      - Version: <VERSION>
+      - PR: https://github.com/opendatahub-io/agentic-ci/pull/<PR_NUMBER>
+      - Tag: <VERSION>
+      - Merge commit: (short SHA from git log)
+
+    Then delete this cron job using CronDelete with the job ID from CronList.
 ```
 
-The PR is ready to merge when:
-- `reviewDecision` is `APPROVED`
-- All required checks pass (no failing checks)
-
-If not ready, log the current state and schedule the next wake-up.
-If ready, proceed to step 5.
-
-### 5. Merge the PR
-
-```bash
-gh pr merge <PR_NUMBER> --merge --delete-branch
-```
-
-### 6. Tag and push
-
-```bash
-git checkout main
-git pull origin main
-```
-
-Verify that `HEAD` is the merge commit for this PR:
-```bash
-git log --oneline -1
-```
-
-The commit message should contain `Merge pull request #<PR_NUMBER>`.
-
-Tag and push:
-```bash
-git tag <VERSION>
-git push origin <VERSION>
-```
-
-### 7. Done
-
-Print a summary:
-- Version: `<VERSION>`
-- PR: link
-- Tag: `<VERSION>`
-- Merge commit: short SHA
+After creating the cron job, print the PR URL and tell the user the release will complete automatically once the PR is approved and CI passes.
+Print the cron job ID so the user can cancel it manually if needed.
