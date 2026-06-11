@@ -12,16 +12,26 @@ Each section below is independent. Run whichever sections match your environment
 
 ## Before you start
 
-Ask the user for three things:
+Present the following default container images to the user and ask them
+to confirm or override each one before proceeding:
 
-1. **CI image** — a local container image with openshell, openshell-gateway, podman, and uv installed. This is the outer container that runs the gateway and manages sandboxes. Store as `$CI_IMAGE`.
+| Role               | Default image                                          | Variable                    |
+|--------------------|--------------------------------------------------------|-----------------------------|
+| CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
+| Supervisor         | `quay.io/mprpic/openshell-supervisor:pr1763`           | `$SUPERVISOR_IMAGE`         |
+| Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
+| OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
 
-2. **Sandbox images** — container images for the agent sandbox (one for Claude Code, one for OpenCode). These must have a `sandbox` user and `iproute` installed per OpenShell conventions. Can be registry references (e.g. `quay.io/...`) or locally-built images. Store as `$CLAUDE_SANDBOX_IMAGE` and `$OPENCODE_SANDBOX_IMAGE`.
+Also ask for:
 
-3. **API key file** — path to a local file containing an Anthropic API key (one line, no whitespace). Needed for Sections B and D. Store as `$API_KEY_FILE`.
+- **API key file** — path to a local file containing an Anthropic API key
+  (one line, no whitespace). Needed for Sections B and D. Store as
+  `$API_KEY_FILE`.
 
 Per-section requirements:
-- **Vertex AI auth** (Sections A, C, E): GCP ADC credentials at `~/.config/gcloud/application_default_credentials.json` and `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` set in the environment. Also requires `OPENSHELL_SUPERVISOR_IMAGE` pointing to a supervisor with the GCE metadata emulator (e.g. `quay.io/mprpic/openshell-supervisor:pr1763`); see `docs/backends/openshell.md` for details.
+- **Vertex AI auth** (Sections A, C, E, F): GCP ADC credentials at
+  `~/.config/gcloud/application_default_credentials.json` and
+  `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` set in the environment.
 - **API key auth** (Sections B, D): The API key file above.
 
 ## Container setup
@@ -244,9 +254,6 @@ Verifies that the OpenShell backend uploads the workdir into the sandbox,
 the agent can modify files inside it, and changes are downloaded back to
 the host after the run completes. Uses Vertex AI auth and Claude Code.
 
-Requires `OPENSHELL_SUPERVISOR_IMAGE` set to a supervisor with the GCE
-metadata emulator (see "Before you start").
-
 Run cleanup first.
 
 ### E1. Prepare workdir
@@ -274,7 +281,7 @@ Should print `red`.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
-  -e OPENSHELL_SUPERVISOR_IMAGE=quay.io/mprpic/openshell-supervisor:pr1763 \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -322,8 +329,6 @@ collector, so agentic-ci embeds a lightweight OTLP receiver inside the
 sandbox on localhost. After the run, the OTEL log is downloaded from the
 sandbox and the summary is printed on the host.
 
-Requires `OPENSHELL_SUPERVISOR_IMAGE` (see "Before you start").
-
 Run cleanup first.
 
 ### F1. Run with OTEL enabled
@@ -332,7 +337,7 @@ Run cleanup first.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
-  -e OPENSHELL_SUPERVISOR_IMAGE=quay.io/mprpic/openshell-supervisor:pr1763 \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     cd /tmp/e2e-workdir && \
@@ -355,6 +360,33 @@ Verify:
 - Cost is non-zero (e.g. `$0.04`)
 - `Agent exit code: 0`
 - `Sandbox deleted` and `Gateway stopped` at the end
+
+### F2. Verify trace records for mlflow-push
+
+Check that the OTEL JSONL log contains `/v1/traces` records — these are
+what `agentic-ci mlflow-push` needs. The JSONL file is copied to the
+CI artifact directory or stays in the run directory:
+
+```bash
+podman exec openshell-e2e bash -c '
+  JSONL=$(ls -t /tmp/agentic-ci-run.*/claude-otel.jsonl 2>/dev/null | head -1)
+  echo "JSONL file: $JSONL"
+  grep -c "/v1/traces" "$JSONL"
+'
+```
+
+Verify:
+- The JSONL file exists
+- The trace count is at least 1
+- Optionally inspect a trace record:
+  ```bash
+  podman exec openshell-e2e bash -c '
+    JSONL=$(ls -t /tmp/agentic-ci-run.*/claude-otel.jsonl 2>/dev/null | head -1)
+    grep "/v1/traces" "$JSONL" | head -1 | python3 -m json.tool
+  '
+  ```
+  - Record has `"path"` containing `/v1/traces`
+  - Record has `"payload"` with `"resourceSpans"` array
 
 ---
 
