@@ -52,6 +52,11 @@ def test_create_openshell_with_extra_env(harness):
     assert backend._extra_env == {"FOO": "bar"}
 
 
+def test_create_openshell_with_approval_mode(harness):
+    backend = create_backend("openshell", harness=harness, approval_mode="auto")
+    assert backend.approval_mode == "auto"
+
+
 def test_unknown_backend_raises(harness):
     with pytest.raises(ValueError, match="Unknown backend"):
         create_backend("docker", harness=harness)

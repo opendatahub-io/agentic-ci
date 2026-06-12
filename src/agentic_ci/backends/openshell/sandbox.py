@@ -24,7 +24,7 @@ def exists():
     return result.returncode == 0
 
 
-def create(image=None, policy_path=None, otel_port=None, workdir="."):
+def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_mode=None):
     """Create a persistent sandbox with the CI provider attached.
 
     The sandbox is created first, then the network policy is applied
@@ -42,10 +42,27 @@ def create(image=None, policy_path=None, otel_port=None, workdir="."):
         "--provider",
         PROVIDER_NAME,
     ]
+    if approval_mode:
+        args.extend(["--approval-mode", approval_mode])
     if image:
         args.extend(["--from", image])
     args.extend(["--", "true"])
     _run(args, check=True)
+
+    if approval_mode:
+        _run(
+            [
+                "openshell",
+                "settings",
+                "set",
+                SANDBOX_NAME,
+                "--key",
+                "agent_policy_proposals_enabled",
+                "--value",
+                "true",
+            ],
+            check=True,
+        )
 
     _apply_policy(policy_path, otel_port=otel_port, workdir=workdir)
 
