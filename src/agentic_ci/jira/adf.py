@@ -134,9 +134,12 @@ def _markdown_text_to_adf_blocks(text: str) -> list[dict]:
 
 
 def _parse_inline_markup(text: str) -> list[dict]:
-    """Parse **bold**, *italic*, and URLs into ADF inline nodes."""
+    """Parse **bold**, *italic*, `code`, and URLs into ADF inline nodes."""
     pattern = re.compile(
-        r"(https?://\S+)" r"|(?<!\w)\*\*([^*\n]+)\*\*(?!\w)" r"|(?<!\w)\*([^*\n]+)\*(?!\w)"
+        r"(https?://\S+)"
+        r"|(?<!\w)\*\*([^*\n]+)\*\*(?!\w)"
+        r"|(?<!\w)\*([^*\n]+)\*(?!\w)"
+        r"|`([^`\n]+)`"
     )
     nodes: list[dict] = []
     last_end = 0
@@ -148,8 +151,10 @@ def _parse_inline_markup(text: str) -> list[dict]:
             nodes.append({"type": "inlineCard", "attrs": {"url": match.group(1)}})
         elif match.group(2) is not None:
             nodes.append({"type": "text", "text": match.group(2), "marks": [{"type": "strong"}]})
-        else:
+        elif match.group(3) is not None:
             nodes.append({"type": "text", "text": match.group(3), "marks": [{"type": "em"}]})
+        else:
+            nodes.append({"type": "text", "text": match.group(4), "marks": [{"type": "code"}]})
         last_end = match.end()
     remaining = text[last_end:]
     if remaining:
@@ -192,35 +197,47 @@ def adf_to_text(adf: dict) -> str:
         node_type = node.get("type", "")
         if node_type == "text":
             text = node.get("text", "")
-            for mark in node.get("marks", []):
-                if mark.get("type") == "link":
+            marks = node.get("marks", [])
+            for mark in marks:
+                mark_type = mark.get("type")
+                if mark_type == "link":
                     href = mark.get("attrs", {}).get("href", "")
                     if href and href != text:
                         text = f"{text} {href}"
+                elif mark_type == "strong":
+                    text = f"**{text}**"
+                elif mark_type == "em":
+                    text = f"*{text}*"
+                elif mark_type == "code":
+                    text = f"`{text}`"
             return text
         elif node_type == "hardBreak":
             return "\n"
         elif node_type == "paragraph":
-            return extract_children(node) + "\n"
+            return extract_children(node) + "\n\n"
         elif node_type == "heading":
-            return extract_children(node) + "\n"
+            level = node.get("attrs", {}).get("level", 1)
+            prefix = "#" * level + " "
+            return prefix + extract_children(node) + "\n\n"
         elif node_type == "codeBlock":
-            return extract_children(node) + "\n"
+            lang = node.get("attrs", {}).get("language", "")
+            code = extract_children(node)
+            return f"```{lang}\n{code}\n```\n\n"
         elif node_type in ("bulletList", "orderedList"):
-            return extract_children(node)
+            return extract_children(node) + "\n"
         elif node_type == "listItem":
             return "- " + extract_children(node)
         elif node_type in ("inlineCard", "blockCard"):
             return node.get("attrs", {}).get("url", "")
         elif node_type == "blockquote":
             lines = extract_children(node).rstrip("\n").split("\n")
-            return "\n".join(f"> {line}" for line in lines) + "\n"
+            return "\n".join(f"> {line}" for line in lines) + "\n\n"
         elif node_type == "expand":
             title = node.get("attrs", {}).get("title", "")
             inner = extract_children(node).rstrip("\n")
-            return f"{{expand:{title}}}\n{inner}\n{{expand}}\n"
+            return f"{{expand:{title}}}\n{inner}\n{{expand}}\n\n"
         elif node_type == "rule":
-            return "----\n"
+            return "----\n\n"
         elif node_type == "doc":
             return extract_children(node)
         else:
