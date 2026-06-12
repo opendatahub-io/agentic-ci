@@ -220,7 +220,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/ci/Containerfile.podman \
-            images/ci/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
@@ -406,7 +406,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/ci/Containerfile.openshell \
-            images/ci/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 

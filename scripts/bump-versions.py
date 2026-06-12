@@ -263,7 +263,8 @@ def bump_agentic_ci(check_only):
 
     result = {"tool": "agentic-ci", "version": version}
     if not check_only:
-        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+        # CI images install from local source; only bump runner base images.
+        for cf in [BASE_CF, OPENSHELL_BASE_CF]:
             if not cf.exists():
                 continue
             text = cf.read_text()

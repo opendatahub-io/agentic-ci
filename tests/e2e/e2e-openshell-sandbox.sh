@@ -246,6 +246,39 @@ else
 
     assert_ok "opencode exited successfully" test "$RC" -eq 0
     dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness opencode 2>/dev/null || true
+
+    # --- Repo-level network policy test ---
+    # Verifies that .agentic-ci/openshell-policy.yml in the workdir adds
+    # extra endpoints to the sandbox policy.  packages.redhat.com is NOT in the
+    # default endpoint list, so the agent can only reach it if the repo
+    # policy file is picked up correctly.
+    print_header "=== agentic-ci run: repo-level network policy ==="
+
+    WORKDIR="$TMPDIR_E2E/repo-policy"
+    mkdir -p "$WORKDIR/.agentic-ci"
+    cat > "$WORKDIR/.agentic-ci/openshell-policy.yml" <<'POLICY'
+endpoints:
+  - "packages.redhat.com:443:read-write"
+POLICY
+
+    print_step "Running Claude Code with repo-level policy (packages.redhat.com allowed)..."
+    POLICY_LOG="$TMPDIR_E2E/repo-policy.log"
+    RC=0
+    agentic-ci run \
+        "Use curl to fetch https://packages.redhat.com. If you get a response, reply with only the word pong. If you cannot reach it, reply with only the word fail." \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$POLICY_LOG" || RC=$?
+
+    OUTPUT="$(cat "$POLICY_LOG")"
+    assert_ok "repo-policy run exited successfully" test "$RC" -eq 0
+    assert_contains "repo policy: agent reached packages.redhat.com" "$OUTPUT" "pong"
+    assert_contains "repo policy: source logged" "$OUTPUT" "Policy source: repo"
+    dump_gateway_log
 fi
 
 echo ""
