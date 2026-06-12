@@ -150,6 +150,9 @@ class ClaudeCodeHarness(Harness):
             "export CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1",
             "export DISABLE_AUTOUPDATER=1",
         ]
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            common.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
         if self.auth_mode == "api-key":
             lines = [
                 f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",

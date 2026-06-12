@@ -127,6 +127,21 @@ class TestClaudeCodeHarness:
         assert not any("CLAUDE_CODE_USE_VERTEX" in line for line in lines)
         assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
+    def test_build_env_script_lines_forwards_enabled_plugins(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha,beta")
+        harness = ClaudeCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert any("AGENT_ENABLED_PLUGINS" in line for line in lines)
+        assert any("alpha,beta" in line for line in lines)
+
+    def test_build_env_script_lines_no_enabled_plugins_when_unset(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        harness = ClaudeCodeHarness()
+        lines = harness.build_env_script_lines()
+        assert not any("AGENT_ENABLED_PLUGINS" in line for line in lines)
+
     def test_build_env_script_lines_with_otel(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
         harness = ClaudeCodeHarness()
