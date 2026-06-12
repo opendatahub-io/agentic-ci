@@ -45,6 +45,7 @@ class PodmanBackend(Backend):
         self._resolve_image()
         if self.harness.auth_mode == "vertex":
             self._resolve_credentials()
+        self._resolve_sandbox_config(otel_enabled=otel_port is not None)
 
         if self.is_running():
             log.section("Podman container already running")
@@ -270,6 +271,11 @@ class PodmanBackend(Backend):
             args.extend(["--env", f"{key}={val}"])
         return args
 
+    def _resolve_sandbox_config(self, otel_enabled=False):
+        if self._config_dir is None:
+            self._config_dir = tempfile.mkdtemp(prefix="agentic-ci-podman-")
+        self.harness.write_sandbox_config(self._config_dir, otel_enabled=otel_enabled)
+
     def _build_vol_args(self):
         vols = ["-v", f"{self.workdir}:/workspace:z"]
         if self._config_dir is not None:
@@ -287,14 +293,23 @@ class PodmanBackend(Backend):
                 "configurations",
                 "config_default",
             )
-            vols.extend(
-                [
-                    "-v",
-                    f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z",
-                    "-v",
-                    f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z",
-                ]
-            )
+            if os.path.exists(adc):
+                vols.extend(
+                    [
+                        "-v",
+                        f"{adc}:{mount_target}/.config/gcloud/application_default_credentials.json:ro,z",
+                        "-v",
+                        f"{config}:{mount_target}/.config/gcloud/configurations/config_default:ro,z",
+                    ]
+                )
+            opencode_config = os.path.join(self._config_dir, ".config", "opencode", "opencode.json")
+            if os.path.exists(opencode_config):
+                vols.extend(
+                    [
+                        "-v",
+                        f"{opencode_config}:/sandbox/.config/opencode/opencode.json:ro,z",
+                    ]
+                )
         return vols
 
     @staticmethod

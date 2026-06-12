@@ -107,26 +107,13 @@ class OpenShellBackend(Backend):
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
-        Uses the harness's native env script (Vertex AI vars or API key)
-        since the google-cloud provider injects GCP credentials directly.
-
-        For OTEL, uses ``host.openshell.internal`` to reach the host-side
-        collector through the gateway proxy instead of the harness default
-        (which uses an IP unreachable from the sandbox).
+        Uses the harness's native env script (Vertex AI vars, API key, and
+        OTEL vars) since the google-cloud provider injects GCP credentials
+        directly. The harness handles OTEL endpoint configuration using the
+        gateway host address.
         """
-        lines = self.harness.build_env_script_lines()
-        if otel_port:
-            lines.extend(
-                [
-                    "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
-                    "export OTEL_METRICS_EXPORTER=otlp",
-                    "export OTEL_LOGS_EXPORTER=otlp",
-                    "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-                    f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_HOST}:{otel_port}",
-                    "export OTEL_METRIC_EXPORT_INTERVAL=5000",
-                ]
-            )
-        else:
+        lines = self.harness.build_env_script_lines(otel_port=otel_port)
+        if not otel_port:
             lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 
         for key, val in self._extra_env.items():
