@@ -1,0 +1,64 @@
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.1
+
+ARG UV_VERSION=0.11.18
+ARG UV_SHA256=a095a969fc8357f42e35652e0554525a47a29010ddb814bd82650c2ffa7d6d62
+
+ARG SHELLCHECK_VERSION=0.11.0
+ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+
+ARG GH_VERSION=2.93.0
+ARG GH_SHA256=02d1290eba130e0b896f3709ffff22e1c75a51475ddb70476a85abc6b5807af0
+
+ARG GLAB_VERSION=1.101.0
+ARG GLAB_SHA256=f8f40309a622416b769a455a85509bae7800070cd023466f2d33d8ee82f3fc61
+
+RUN microdnf install -y --nodocs \
+        python3 \
+        python3-pip \
+        git \
+        curl \
+        jq \
+        make \
+        which \
+        tar \
+        xz \
+        shadow-utils \
+    && microdnf clean all
+
+RUN useradd -u 1000 -m agent-ci
+
+RUN curl -fsSL -o /tmp/uv.tar.gz \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
+    && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/uv.tar.gz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
+    && chmod +x /usr/local/bin/uv \
+    && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
+
+RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
+        "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+    && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/shellcheck.tar.xz -C /tmp \
+    && mv /tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck /usr/local/bin/shellcheck \
+    && chmod +x /usr/local/bin/shellcheck \
+    && rm -rf /tmp/shellcheck.tar.xz /tmp/shellcheck-v${SHELLCHECK_VERSION}
+
+RUN curl -fsSL -o /tmp/gh.tar.gz \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+    && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh_${GH_VERSION}_linux_amd64
+
+RUN curl -fsSL -o /tmp/glab.tar.gz \
+        "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.tar.gz" \
+    && echo "${GLAB_SHA256}  /tmp/glab.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/glab.tar.gz -C /tmp \
+    && mv /tmp/bin/glab /usr/local/bin/glab \
+    && chmod +x /usr/local/bin/glab \
+    && rm -rf /tmp/glab.tar.gz /tmp/bin
+
+RUN uv pip install --system --no-cache \
+        agentic-ci==0.2.22 \
+        ruff==0.15.15

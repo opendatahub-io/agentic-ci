@@ -374,6 +374,33 @@ config = SkillConfig(
 )
 ```
 
+## Container Images
+
+Pre-built container images for running AI coding agents in CI are
+published to `quay.io/aipcc/agentic-ci/`:
+
+| Image | Description |
+|-------|-------------|
+| `claude-runner` | Claude Code CLI with pre-installed skills |
+| `opencode-runner` | OpenCode CLI with pre-installed skills |
+| `claude-sandbox` | Claude Code sandbox for OpenShell |
+| `opencode-sandbox` | OpenCode sandbox for OpenShell |
+| `podman` | CI environment with podman, gh, glab, gitleaks, acli |
+| `openshell` | CI environment with OpenShell gateway + podman |
+
+Images are rebuilt daily via GitHub Actions and version-managed by
+Renovate. See [Container Image docs](https://opendatahub-io.github.io/agentic-ci/image/)
+for usage details.
+
+```bash
+make claude-build              # build Claude Code runner image locally
+make opencode-build            # build OpenCode runner image locally
+make ci-build                  # build CI podman image locally
+make openshell-claude-build    # build Claude sandbox locally
+make openshell-opencode-build  # build OpenCode sandbox locally
+make openshell-ci-build        # build OpenShell CI image locally
+```
+
 ## Documentation
 
 API reference documentation is auto-generated from docstrings and

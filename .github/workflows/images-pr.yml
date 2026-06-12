@@ -1,0 +1,71 @@
+# PR validation for container images: lint, build, and test.
+name: Image PR Checks
+
+on:
+  pull_request:
+    paths:
+      - 'images/**'
+      - 'scripts/bump-versions.py'
+      - 'tests/images/**'
+      - 'tests/e2e/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Lint shell scripts and Python files related to images
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+
+      - name: Run shellcheck
+        run: |
+          shellcheck --severity=warning \
+            images/runner/shared/*.sh \
+            tests/images/*.sh \
+            tests/e2e/*.sh
+
+      - name: Run ruff
+        run: |
+          uv run --with ruff ruff check --select=E,F,W \
+            images/runner/claude-code/*.py \
+            images/runner/opencode/*.py \
+            scripts/bump-versions.py
+
+  # --------------------------------------------------------------------------
+  # Run image unit tests
+  # --------------------------------------------------------------------------
+  test:
+    name: Image tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run entrypoint tests
+        run: bash tests/images/test_entrypoint.sh
+
+      - name: Run install plugin tests
+        run: bash tests/images/test_install_plugin.sh
+
+      - name: Run install skills tests
+        run: bash tests/images/test_install_skills.sh

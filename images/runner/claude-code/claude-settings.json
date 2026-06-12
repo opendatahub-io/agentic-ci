@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "opendatahub-skills": {
+      "source": {
+        "source": "github",
+        "repo": "opendatahub-io/skills-registry"
+      }
+    }
+  }
+}

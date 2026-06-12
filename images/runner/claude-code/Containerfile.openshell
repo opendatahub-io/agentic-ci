@@ -1,0 +1,39 @@
+# Claude Code sandbox image for OpenShell.
+#
+# Use with: agentic-ci run --backend openshell --image <this-image> ...
+# Or:       openshell sandbox create --from <this-image> --provider ...
+#
+# Build:
+#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base images/runner/
+#   podman build -t openshell-claude -f images/runner/claude-code/Containerfile.openshell images/runner/
+
+FROM localhost/openshell-base:latest
+
+ARG CLAUDE_VERSION=2.1.162
+ARG CLAUDE_SHA256=947a49b0de8688f6a74a6e753c24771ff3ddd17b2a6dae85f36304ec514e61d1
+
+USER root
+
+# nodejs is needed by Claude Code
+RUN microdnf install -y --nodocs nodejs npm && microdnf clean all
+
+RUN curl -fsSL -o /usr/local/bin/claude \
+        "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude" \
+    && echo "${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c - \
+    && chmod +x /usr/local/bin/claude
+
+COPY claude-code/install-plugin.py /usr/local/bin/install-plugin
+RUN chmod +x /usr/local/bin/install-plugin
+
+COPY claude-code/claude-settings.json /sandbox/.claude/settings.json
+RUN chown -R sandbox:sandbox /sandbox/.claude
+
+COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER sandbox
+RUN install-plugin --marketplace-repo opendatahub-io/skills-registry \
+    && install-plugin --all
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["claude"]

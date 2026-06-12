@@ -1,0 +1,38 @@
+# OpenCode sandbox image for OpenShell.
+#
+# Use with: agentic-ci run --backend openshell --image <this-image> ...
+# Or:       openshell sandbox create --from <this-image> --provider ...
+#
+# Build:
+#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base images/runner/
+#   podman build -t openshell-opencode -f images/runner/opencode/Containerfile.openshell images/runner/
+
+FROM localhost/openshell-base:latest
+
+ARG OPENCODE_VERSION=1.15.11
+ARG OPENCODE_SHA256=49317253722c698394980e1921ff28e919d79bb29d5c3f4cf314a4adaf7037cd
+
+USER root
+
+RUN curl -fsSL -o /tmp/opencode.tar.gz \
+        "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
+    && echo "${OPENCODE_SHA256}  /tmp/opencode.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
+    && chmod +x /usr/local/bin/opencode \
+    && rm -f /tmp/opencode.tar.gz
+
+COPY opencode/install-skills.py /usr/local/bin/install-skills
+RUN chmod +x /usr/local/bin/install-skills
+
+COPY opencode/opencode.json /sandbox/.config/opencode/opencode.json
+RUN chown -R sandbox:sandbox /sandbox/.config
+
+COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER sandbox
+RUN install-skills --marketplace-repo opendatahub-io/skills-registry \
+    && install-skills --all
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["opencode"]
