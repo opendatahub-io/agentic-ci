@@ -35,10 +35,20 @@ class OpenShellBackend(Backend):
 
     _ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
 
-    def __init__(self, workdir=".", image=None, policy=None, extra_env=None, *, harness: Harness):
+    def __init__(
+        self,
+        workdir=".",
+        image=None,
+        policy=None,
+        extra_env=None,
+        approval_mode=None,
+        *,
+        harness: Harness,
+    ):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.policy_path = policy
         self._extra_env = extra_env or {}
+        self.approval_mode = approval_mode
 
     def setup(self, otel_port=None):
         if not gateway.is_running():
@@ -62,6 +72,7 @@ class OpenShellBackend(Backend):
             policy_path=self.policy_path,
             otel_port=otel_port,
             workdir=self.workdir,
+            approval_mode=self.approval_mode,
         )
 
         log.section("Uploading workdir")

@@ -37,6 +37,7 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             image=kwargs.get("image"),
             policy=kwargs.get("policy"),
             extra_env=kwargs.get("extra_env"),
+            approval_mode=kwargs.get("approval_mode"),
             harness=harness,
         )
     else:
