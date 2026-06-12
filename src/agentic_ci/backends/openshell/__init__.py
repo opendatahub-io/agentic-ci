@@ -57,7 +57,12 @@ class OpenShellBackend(Backend):
         image_info = f", image: {self.image}" if self.image else ""
         log.section(f"Creating sandbox ({image_info.lstrip(', ') or 'default image'})")
 
-        sandbox.create(image=self.image, policy_path=self.policy_path, otel_port=otel_port)
+        sandbox.create(
+            image=self.image,
+            policy_path=self.policy_path,
+            otel_port=otel_port,
+            workdir=self.workdir,
+        )
 
         log.section("Uploading workdir")
         sandbox.upload(self.workdir)

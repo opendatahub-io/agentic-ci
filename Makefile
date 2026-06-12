@@ -18,7 +18,7 @@ opencode-build: base-build ## Build the OpenCode runner image locally
 
 .PHONY: ci-build
 ci-build: ## Build the CI podman image locally
-	podman build -t ci-podman:latest -f images/ci/Containerfile.podman images/ci/
+	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
 
 .PHONY: openshell-base-build
 openshell-base-build: ## Build the OpenShell sandbox base image locally
@@ -34,7 +34,7 @@ openshell-opencode-build: openshell-base-build ## Build the OpenShell OpenCode s
 
 .PHONY: openshell-ci-build
 openshell-ci-build: ## Build the OpenShell CI image locally
-	podman build -t openshell:latest -f images/ci/Containerfile.openshell images/ci/
+	podman build -t openshell:latest -f images/ci/Containerfile.openshell .
 
 .PHONY: bump-versions
 bump-versions: ## Bump pinned dependency versions in Containerfiles

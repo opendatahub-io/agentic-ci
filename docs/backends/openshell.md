@@ -139,7 +139,9 @@ openshell sandbox create \
   --from <SANDBOX_IMAGE> \
   -- true
 
-# Apply network policy and wait for the supervisor to compile and load it
+# Apply network policy and wait for the supervisor to compile and load it.
+# Built-in defaults are always included. If .agentic-ci/openshell-policy.yml
+# exists in the workdir, its endpoints are merged in automatically.
 openshell policy update --wait \
   --binary /usr/local/bin/claude \
   --binary /usr/bin/opencode \
@@ -200,6 +202,22 @@ The default endpoints cover:
 | `*.aiplatform.googleapis.com:443` | read-write | Vertex AI (regional endpoints) |
 | `oauth2.googleapis.com:443` | read-write | GCP token exchange |
 | `api.anthropic.com:443` | read-write | Anthropic API (API key auth) |
+
+### Project-specific endpoints
+
+Projects can declare additional endpoints in
+`.agentic-ci/openshell-policy.yml` at the repository root. These are
+merged with the built-in defaults (duplicates are ignored).
+
+```yaml
+# .agentic-ci/openshell-policy.yml
+endpoints:
+  - "redhat.atlassian.net:443:read-only"
+  - "*.example.com:443:full"
+```
+
+The `--policy` CLI flag takes precedence: if a flag path is provided
+and the file exists, the repo-level file is ignored.
 
 ## Supervisor Image
 

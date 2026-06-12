@@ -1,0 +1,13 @@
+.git/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.claude/
+__pycache__/
+*.egg-info/
+dist/
+build/
+public/
+docs/_build/
+htmlcov/

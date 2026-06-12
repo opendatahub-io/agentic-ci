@@ -2,6 +2,8 @@
 
 import os
 
+import yaml
+
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
 
 # Default network endpoints in openshell policy update format:
@@ -22,19 +24,47 @@ DEFAULT_ENDPOINTS = [
 ]
 
 
-def resolve_endpoints(flag_path=None):
+def _load_endpoints_from_file(path):
+    """Parse endpoint list from a YAML policy file."""
+    with open(path) as fh:
+        data = yaml.safe_load(fh)
+    if not isinstance(data, dict):
+        return []
+    endpoints = data.get("endpoints", [])
+    if not isinstance(endpoints, list):
+        return []
+    return [str(ep) for ep in endpoints]
+
+
+def resolve_endpoints(flag_path=None, workdir="."):
     """Resolve the endpoint list to use for policy update.
 
-    1. Explicit --policy flag path (parsed for endpoints — not yet supported,
-       returns default endpoints)
-    2. .agentic-ci/openshell-policy.yml in the workdir (same)
-    3. Built-in default endpoints
+    Merges the built-in defaults with extra endpoints from, in priority
+    order:
+
+    1. Explicit ``--policy`` flag path
+    2. ``.agentic-ci/openshell-policy.yml`` in *workdir*
 
     Returns a list of endpoint strings for ``openshell policy update --add-endpoint``.
     """
-    if flag_path and os.path.isfile(flag_path):
-        print(f"  Policy source: --policy flag ({os.path.abspath(flag_path)})", flush=True)
-    else:
-        print("  Policy source: built-in default", flush=True)
+    extra = []
+    source = "built-in default"
 
-    return list(DEFAULT_ENDPOINTS)
+    if flag_path and os.path.isfile(flag_path):
+        extra = _load_endpoints_from_file(flag_path)
+        source = f"--policy flag ({os.path.abspath(flag_path)})"
+    else:
+        repo_path = os.path.join(workdir, REPO_POLICY_PATH)
+        if os.path.isfile(repo_path):
+            extra = _load_endpoints_from_file(repo_path)
+            source = f"repo ({os.path.abspath(repo_path)})"
+
+    print(f"  Policy source: {source}", flush=True)
+
+    endpoints = list(DEFAULT_ENDPOINTS)
+    seen = set(endpoints)
+    for ep in extra:
+        if ep not in seen:
+            endpoints.append(ep)
+            seen.add(ep)
+    return endpoints
