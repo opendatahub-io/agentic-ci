@@ -57,6 +57,8 @@ def start():
 
     subprocess.Popen(
         ["podman", "system", "service", "--time=0", f"unix://{sock}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     try:

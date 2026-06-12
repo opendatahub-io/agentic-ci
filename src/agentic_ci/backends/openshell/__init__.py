@@ -69,7 +69,7 @@ class OpenShellBackend(Backend):
 
     def stop(self):
         try:
-            if sandbox.exists():
+            if gateway.is_running() and sandbox.exists():
                 sandbox.delete()
                 log.section("Sandbox deleted")
             else:
