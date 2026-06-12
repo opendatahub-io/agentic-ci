@@ -22,6 +22,8 @@ import os
 import sys
 
 from agentic_ci.forge import Forge
+from agentic_ci.forge.github import generate_github_jwt, get_installation_token
+from agentic_ci.forge.gitlab import GitLabForge
 
 
 def cmd_mr_status(args: argparse.Namespace) -> None:
@@ -79,8 +81,6 @@ def cmd_mr_update(args: argparse.Namespace) -> None:
 
 def cmd_mr_diff_position(args: argparse.Namespace) -> None:
     """Get the first changed line position and diff refs (GitLab only)."""
-    from agentic_ci.forge.gitlab import GitLabForge
-
     forge = Forge.detect(args.url, github_token=args.token)
     if not isinstance(forge, GitLabForge):
         print("Error: mr-diff-position is only supported for GitLab", file=sys.stderr)
@@ -92,8 +92,6 @@ def cmd_mr_diff_position(args: argparse.Namespace) -> None:
 
 def cmd_github_token(args: argparse.Namespace) -> None:
     """Generate a short-lived GitHub App installation token."""
-    from agentic_ci.forge.github import generate_github_jwt, get_installation_token
-
     private_key = args.private_key
     if os.path.isfile(private_key):
         try:

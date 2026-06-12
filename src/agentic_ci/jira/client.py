@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import random
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -582,8 +583,6 @@ class JiraClient:
         Returns True on success, False on failure.
         """
         if self._acli_available and not visibility_group:
-            import tempfile
-
             adf_json = json.dumps(text_to_adf(body))
             try:
                 with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:

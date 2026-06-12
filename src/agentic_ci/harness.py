@@ -10,6 +10,8 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
+from agentic_ci.stream import ClaudeCodeStreamProcessor, OpenCodeStreamProcessor
+
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
 
@@ -214,8 +216,6 @@ class ClaudeCodeHarness(Harness):
         return os.environ.get("CLAUDE_CONTAINER_HOME", "/home/agent-ci")
 
     def create_stream_processor(self, pid=0):
-        from agentic_ci.stream import ClaudeCodeStreamProcessor
-
         return ClaudeCodeStreamProcessor(claude_pid=pid)
 
     def image_env_var(self):
@@ -318,8 +318,6 @@ class OpenCodeHarness(Harness):
         return os.environ.get("OPENCODE_CONTAINER_HOME", "/home/agent-ci")
 
     def create_stream_processor(self, pid=0):
-        from agentic_ci.stream import OpenCodeStreamProcessor
-
         return OpenCodeStreamProcessor(agent_pid=pid)
 
     def image_env_var(self):

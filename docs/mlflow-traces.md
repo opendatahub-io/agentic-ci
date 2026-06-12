@@ -9,7 +9,7 @@ Push OTel traces from agent runs to an MLflow instance for observability, cost t
 
 The trace push is intentionally decoupled from the agent run — it runs as a follow-up job with `allow_failure: true` so trace push failures never block the pipeline.
 
-**Security note:** Traces include user prompts and tool content (`OTEL_LOG_USER_PROMPTS=1`, `OTEL_LOG_TOOL_CONTENT=1`). Avoid including API keys, passwords, or PII in prompts when trace export is enabled — they will be logged to the JSONL file and forwarded to MLflow.
+**Security note:** Traces include user prompts, tool inputs, and tool outputs (`OTEL_LOG_USER_PROMPTS=1`, `OTEL_LOG_TOOL_DETAILS=1`, `OTEL_LOG_TOOL_CONTENT=1`). Avoid including API keys, passwords, or PII in prompts when trace export is enabled — they will be logged to the JSONL file and forwarded to MLflow.
 
 ## Prerequisites
 

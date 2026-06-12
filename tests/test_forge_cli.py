@@ -131,11 +131,9 @@ class TestGithubTokenCommand:
 
     def test_dispatches_with_all_args(self, capsys):
         with (
+            patch("agentic_ci.forge.cli.generate_github_jwt", return_value="jwt-tok") as mock_jwt,
             patch(
-                "agentic_ci.forge.github.generate_github_jwt", return_value="jwt-tok"
-            ) as mock_jwt,
-            patch(
-                "agentic_ci.forge.github.get_installation_token", return_value="inst-tok"
+                "agentic_ci.forge.cli.get_installation_token", return_value="inst-tok"
             ) as mock_inst,
         ):
             _run_forge_cli(
@@ -159,8 +157,8 @@ class TestGithubTokenCommand:
         pem_file = tmp_path / "key.pem"
         pem_file.write_text("-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----")
         with (
-            patch("agentic_ci.forge.github.generate_github_jwt", return_value="jwt-tok"),
-            patch("agentic_ci.forge.github.get_installation_token", return_value="inst-tok"),
+            patch("agentic_ci.forge.cli.generate_github_jwt", return_value="jwt-tok"),
+            patch("agentic_ci.forge.cli.get_installation_token", return_value="inst-tok"),
         ):
             _run_forge_cli(
                 [
