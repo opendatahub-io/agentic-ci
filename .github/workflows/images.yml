@@ -188,11 +188,17 @@ jobs:
   build-ci-podman:
     name: Build ci-podman
     runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+
+      - name: Image metadata
+        id: meta
+        run: echo "image=${IMAGE_PREFIX}/podman:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
@@ -462,19 +468,27 @@ jobs:
   # --------------------------------------------------------------------------
   e2e-claude-runner:
     name: E2E claude-runner
-    needs: build-claude-runner
+    needs: [build-claude-runner, build-ci-podman]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-ci-podman.outputs.image }}
+      options: --privileged
+      credentials:
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Configure podman for container environment
+        run: |
+          printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+            > /etc/containers/storage.conf
 
-      - name: Install agentic-ci
+      - name: Install agentic-ci from repo
         run: uv tool install .
 
       - name: Run e2e tests
@@ -486,19 +500,27 @@ jobs:
 
   e2e-opencode-runner:
     name: E2E opencode-runner
-    needs: build-opencode-runner
+    needs: [build-opencode-runner, build-ci-podman]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-ci-podman.outputs.image }}
+      options: --privileged
+      credentials:
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Configure podman for container environment
+        run: |
+          printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+            > /etc/containers/storage.conf
 
-      - name: Install agentic-ci
+      - name: Install agentic-ci from repo
         run: uv tool install .
 
       - name: Run e2e tests
