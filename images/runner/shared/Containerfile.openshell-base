@@ -89,6 +89,9 @@ RUN uv pip install --system --no-cache \
 # Sandbox home directories
 USER sandbox
 RUN mkdir -p /sandbox/.local/bin /sandbox/.config /sandbox/.claude /sandbox/.agents
+COPY --chown=sandbox:sandbox shared/AGENTS.openshell.md /sandbox/AGENTS.md
+RUN ln -s AGENTS.md /sandbox/CLAUDE.md \
+    && ln -s ../AGENTS.md /sandbox/.claude/CLAUDE.md
 ENV PATH="/sandbox/.local/bin:${PATH}"
 
 WORKDIR /sandbox

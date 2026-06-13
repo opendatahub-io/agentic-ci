@@ -62,3 +62,6 @@ RUN curl -fsSL -o /tmp/glab.tar.gz \
 RUN uv pip install --system --no-cache \
         agentic-ci==0.2.25 \
         ruff==0.15.15
+
+COPY shared/AGENTS.podman.md /home/agent-ci/AGENTS.md
+RUN ln -s AGENTS.md /home/agent-ci/CLAUDE.md

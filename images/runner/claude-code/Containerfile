@@ -17,7 +17,8 @@ COPY claude-code/install-plugin.py /usr/local/bin/install-plugin
 RUN chmod +x /usr/local/bin/install-plugin
 
 COPY claude-code/claude-settings.json /home/agent-ci/.claude/settings.json
-RUN chown -R agent-ci:agent-ci /home/agent-ci/.claude
+RUN ln -s ../AGENTS.md /home/agent-ci/.claude/CLAUDE.md \
+    && chown -R agent-ci:agent-ci /home/agent-ci/.claude
 
 USER agent-ci
 RUN install-plugin --marketplace-repo opendatahub-io/skills-registry \
