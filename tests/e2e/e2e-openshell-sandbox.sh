@@ -156,6 +156,29 @@ print_header "=== claude-sandbox: entrypoint ==="
 assert_ok "entrypoint.sh is installed" \
     run_in "$CLAUDE_SANDBOX" test -x /usr/local/bin/entrypoint.sh
 
+print_header "=== claude-sandbox: AGENT_ENABLED_PLUGINS ==="
+
+# Verify _enable_plugins filters settings.json inside the image.
+# Pick the first installed plugin and check that only it is enabled.
+PLUGIN_FILTER_COUNT="$(run_in "$CLAUDE_SANDBOX" bash -c '
+    export CLAUDE_CONFIG_DIR=/sandbox/.claude
+    PLUGIN=$(python3 -c "
+import json, pathlib
+d = json.loads(pathlib.Path(\"$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json\").read_text())
+print(list(d.get(\"plugins\", {}).keys())[0].split(\"@\")[0])
+")
+    export AGENT_ENABLED_PLUGINS="$PLUGIN"
+    source /usr/local/bin/entrypoint.sh --source-only
+    _enable_plugins
+    python3 -c "
+import json, pathlib
+d = json.loads(pathlib.Path(\"$CLAUDE_CONFIG_DIR/settings.json\").read_text())
+print(len(d.get(\"enabledPlugins\", {})))
+"
+')"
+assert_ok "_enable_plugins filters to single plugin (got $PLUGIN_FILTER_COUNT)" \
+    test "$PLUGIN_FILTER_COUNT" -eq 1
+
 # --- opencode-sandbox checks ---
 print_header "=== opencode-sandbox: binaries ==="
 assert_ok "opencode is installed" run_in "$OPENCODE_SANDBOX" opencode --version
@@ -278,6 +301,50 @@ POLICY
     assert_ok "repo-policy run exited successfully" test "$RC" -eq 0
     assert_contains "repo policy: agent reached packages.redhat.com" "$OUTPUT" "pong"
     assert_contains "repo policy: source logged" "$OUTPUT" "Policy source: repo"
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
+    # --- AGENT_ENABLED_PLUGINS via OpenShell ---
+    # Verifies that the env script sources entrypoint.sh and calls
+    # _enable_plugins so only the requested plugins are loaded.
+    print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS via OpenShell ==="
+
+    WORKDIR="$TMPDIR_E2E/plugins"
+    mkdir -p "$WORKDIR"
+
+    # Pick the first installed plugin from the image
+    FIRST_PLUGIN="$(run_in "$CLAUDE_SANDBOX" python3 -c "
+import json, pathlib
+d = json.loads(pathlib.Path('/sandbox/.claude/plugins/installed_plugins.json').read_text())
+print(list(d.get('plugins', {}).keys())[0].split('@')[0])
+")"
+    print_step "Testing with AGENT_ENABLED_PLUGINS=$FIRST_PLUGIN"
+
+    PLUGINS_LOG="$TMPDIR_E2E/plugins.log"
+    RC=0
+    AGENT_ENABLED_PLUGINS="$FIRST_PLUGIN" \
+    agentic-ci run "Reply with only the word pong" \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$PLUGINS_LOG" || RC=$?
+
+    OUTPUT="$(cat "$PLUGINS_LOG")"
+    assert_ok "plugin-filter run exited successfully" test "$RC" -eq 0
+
+    # The "Plugins:" line should list only the single requested plugin
+    PLUGINS_LINE="$(grep -i '^\s*Plugins:' "$PLUGINS_LOG" || true)"
+    if [[ -n "$PLUGINS_LINE" ]]; then
+        PLUGIN_COUNT="$(echo "$PLUGINS_LINE" | tr ',' '\n' | grep -c '[a-z]')"
+        assert_ok "plugin-filter: only 1 plugin loaded (got $PLUGIN_COUNT)" \
+            test "$PLUGIN_COUNT" -eq 1
+        assert_contains "plugin-filter: correct plugin loaded" "$PLUGINS_LINE" "$FIRST_PLUGIN"
+    else
+        print_error "FAIL: plugin-filter: no Plugins line found in output"
+        FAIL=$((FAIL + 1))
+    fi
     dump_gateway_log
 fi
 
