@@ -2,7 +2,7 @@
 """Install Claude Code plugins from a marketplace non-interactively.
 
 Populates ~/.claude/plugins/ cache and metadata files so the container
-image ships with pre-cached skills, agents, commands, and gems.
+image ships with pre-cached skills, agents, commands, and hooks.
 
 Usage:
     install-plugin.py --marketplace-repo opendatahub-io/skills-registry
@@ -127,7 +127,7 @@ def _clone_source(repo, ref, dest):
 
 
 def _copy_content(src, dest, plugin_entry):
-    """Copy skills, agents, commands, gems from cloned source into cache.
+    """Copy skills, agents, commands, hooks from cloned source into cache.
 
     When explicit paths are declared in the marketplace entry, preserve
     the original relative path so Claude Code finds them where it expects.
@@ -170,8 +170,8 @@ def _copy_content(src, dest, plugin_entry):
                 shutil.copytree(candidate, dest / "agents", dirs_exist_ok=True)
                 break
 
-    # commands, gems — fallback only
-    for name in ["commands", "gems"]:
+    # commands, hooks — fallback only
+    for name in ["commands", "hooks"]:
         for fallback in [f".claude/{name}", name]:
             candidate = src / fallback
             if candidate.is_dir():
