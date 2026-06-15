@@ -4,6 +4,11 @@
 # Push to main / schedule / dispatch: also push latest + epoch tags.
 # PRs: ci-<sha> images auto-expire after 3 days.
 # E2E tests run after builds complete, pulling the ci-<sha> images.
+#
+# Fork PRs: jobs that need secrets use the "e2e" GitHub Environment with
+# required reviewers. A maintainer clicks "Approve and deploy" in the
+# GitHub UI, and all gated jobs proceed with environment secrets.
+# Same-repo PRs and other events skip the environment (no approval needed).
 name: Container Images
 
 on:
@@ -44,8 +49,6 @@ env:
   IMAGE_PREFIX: quay.io/aipcc/agentic-ci
   # ci-<sha> tag used across build and e2e jobs
   CI_TAG: ci-${{ github.sha }}
-  # Secrets are not available for fork PRs. Guard login/push/e2e on this.
-  HAS_SECRETS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
   # Only push latest+epoch on non-PR events (main push, schedule, dispatch).
   PUSH_RELEASE_TAGS: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push_images) }}
 
@@ -55,6 +58,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-claude-runner:
     name: Build claude-runner
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -69,7 +73,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/claude-runner:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -105,7 +108,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/claude-runner:${CI_TAG}"
 
       - name: Push release tags
@@ -121,6 +123,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-opencode-runner:
     name: Build opencode-runner
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -135,7 +138,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/opencode-runner:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -171,7 +173,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/opencode-runner:${CI_TAG}"
 
       - name: Push release tags
@@ -187,6 +188,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-ci-podman:
     name: Build ci-podman
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -201,7 +203,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/podman:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -231,7 +232,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/podman:${CI_TAG}"
 
       - name: Push release tags
@@ -247,6 +247,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-claude-sandbox:
     name: Build claude-sandbox
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -261,7 +262,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/claude-sandbox:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -294,7 +294,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/claude-sandbox:${CI_TAG}"
 
       - name: Push release tags
@@ -310,6 +309,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-opencode-sandbox:
     name: Build opencode-sandbox
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -324,7 +324,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/opencode-sandbox:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -357,7 +356,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/opencode-sandbox:${CI_TAG}"
 
       - name: Push release tags
@@ -373,6 +371,7 @@ jobs:
   # --------------------------------------------------------------------------
   build-ci-openshell:
     name: Build ci-openshell
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
@@ -387,7 +386,6 @@ jobs:
         run: echo "image=${IMAGE_PREFIX}/openshell:${CI_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
         uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1.7
         with:
           registry: ${{ env.REGISTRY }}
@@ -417,7 +415,6 @@ jobs:
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
       - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
         run: podman push "${IMAGE_PREFIX}/openshell:${CI_TAG}"
 
       - name: Push release tags
@@ -464,12 +461,13 @@ jobs:
   # E2E tests: pull pre-built ci-<sha> images and run agent prompts
   #
   # These tests consume LLM API credits and require GCP credentials.
-  # Skipped for fork PRs (no access to secrets).
+  # Gated by the "e2e" GitHub Environment with required reviewers so
+  # maintainers can approve runs on fork PRs via the GitHub UI.
   # --------------------------------------------------------------------------
   e2e-claude-runner:
     name: E2E claude-runner
     needs: [build-claude-runner, build-ci-podman]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.build-ci-podman.outputs.image }}
@@ -501,7 +499,7 @@ jobs:
   e2e-opencode-runner:
     name: E2E opencode-runner
     needs: [build-opencode-runner, build-ci-podman]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.build-ci-podman.outputs.image }}
@@ -533,7 +531,7 @@ jobs:
   e2e-openshell-sandbox:
     name: E2E openshell-sandbox
     needs: [build-claude-sandbox, build-opencode-sandbox, build-ci-openshell]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'e2e' || '' }}
     runs-on: ubuntu-latest
     container:
       image: ${{ needs.build-ci-openshell.outputs.image }}
