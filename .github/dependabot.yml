@@ -1,0 +1,20 @@
+# Dependabot configuration for GitHub Actions version updates.
+#
+# Renovate handles Containerfile dependency bumps (uv, glab, gh, ruff, etc.)
+# via renovate.json. Dependabot only manages pinned action versions in
+# .github/workflows/*.yml.
+#
+# Mergify auto-merges Dependabot PRs once CI passes (see .mergify.yml,
+# "dependabot" rule). No human review is required.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Wait 3 days after a new action version is published before opening a PR.
+    # Gives time for supply chain compromises to be caught. Security updates
+    # are exempt and arrive immediately.
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 10
