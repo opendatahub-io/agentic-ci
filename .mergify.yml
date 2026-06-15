@@ -1,0 +1,384 @@
+# Mergify merge protection rules for opendatahub-io/agentic-ci.
+#
+# MAINTENANCE: when adding, removing, or renaming jobs in .github/workflows/,
+# update the check-success lines below to match. The file-path regexes in each
+# rule must stay aligned with the `paths:` filters in the corresponding workflow.
+#
+# CI workflows and the checks they produce on PRs:
+#
+#   ci.yml (always runs on every PR):
+#     - Run Tox (py310)
+#     - Run Tox (py311)
+#     - Run Tox (py312)
+#     - Run Tox (py313)
+#     - Run Tox (lint)
+#     - Run Tox (check-format)
+#     - Run Tox (typecheck)
+#
+#   docs.yml (always runs on every PR):
+#     - Build docs
+#
+#   images-pr.yml (paths: images/, scripts/bump-versions.py, tests/images/, tests/e2e/):
+#     - Lint
+#     - Image tests
+#
+#   images.yml (paths: images/, tests/images/, tests/e2e/, src/agentic_ci/, Makefile):
+#     - Build claude-runner
+#     - Build opencode-runner
+#     - Build ci-podman
+#     - Build claude-sandbox
+#     - Build opencode-sandbox
+#     - Build ci-openshell
+#     - Lint image scripts
+#     - Test image scripts
+#     - E2E claude-runner        (skipped on fork PRs, no secrets)
+#     - E2E opencode-runner      (skipped on fork PRs, no secrets)
+#     - E2E openshell-sandbox    (skipped on fork PRs, no secrets)
+#
+# Path overlap between the two image workflows:
+#   Both fire:          images/, tests/images/, tests/e2e/
+#   images-pr.yml only: scripts/bump-versions.py
+#   images.yml only:    src/agentic_ci/, Makefile
+
+merge_protections:
+  # ---------------------------------------------------------------------------
+  # Bot auto-merge rules (no human review required).
+  # Bots merge automatically once all CI checks pass.
+  # ---------------------------------------------------------------------------
+
+  # Renovate bumps dependency versions in Containerfiles, so its PRs always
+  # touch images/ and trigger both image workflows.
+  - name: renovate
+    if:
+      - "author=aipcc-renovate-bot[bot]"
+    success_conditions:
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images-pr.yml
+      - check-success = Lint
+      - check-success = Image tests
+      # images.yml (builds)
+      - check-success = Build claude-runner
+      - check-success = Build opencode-runner
+      - check-success = Build ci-podman
+      - check-success = Build claude-sandbox
+      - check-success = Build opencode-sandbox
+      - check-success = Build ci-openshell
+      # images.yml (lint + unit tests)
+      - check-success = Lint image scripts
+      - check-success = Test image scripts
+      # images.yml (e2e)
+      - check-success = E2E claude-runner
+      - check-success = E2E opencode-runner
+      - check-success = E2E openshell-sandbox
+      - -draft
+      - -conflict
+
+  # Dependabot updates GitHub Actions workflow pins (.github/workflows/).
+  # Those paths don't trigger any image workflow, so only base CI is required.
+  - name: dependabot
+    if:
+      - "author=dependabot[bot]"
+    success_conditions:
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      - -draft
+      - -conflict
+
+  # ---------------------------------------------------------------------------
+  # Human PR rules.
+  #
+  # Maintainers (@opendatahub-io/agentic-ci-maintainers) need 1 approval.
+  # Everyone else needs 2 approvals.
+  #
+  # Rules are split by which image-related paths the PR touches, so we only
+  # require checks from workflows that will actually run. A PR that doesn't
+  # touch any image paths gets only base CI checks. Mergify evaluates all
+  # rules and applies every one whose `if` matches (they are not exclusive).
+  # ---------------------------------------------------------------------------
+
+  # -- Maintainer rules -------------------------------------------------------
+
+  # PRs touching paths shared by both image workflows (images/, tests/images/,
+  # tests/e2e/). Both images-pr.yml and images.yml fire, so require everything.
+  - name: maintainer-images-all
+    if:
+      - "author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "files~=^(images/|tests/images/|tests/e2e/)"
+    success_conditions:
+      - "#approved-reviews-by>=1"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images-pr.yml
+      - check-success = Lint
+      - check-success = Image tests
+      # images.yml (builds)
+      - check-success = Build claude-runner
+      - check-success = Build opencode-runner
+      - check-success = Build ci-podman
+      - check-success = Build claude-sandbox
+      - check-success = Build opencode-sandbox
+      - check-success = Build ci-openshell
+      # images.yml (lint + unit tests)
+      - check-success = Lint image scripts
+      - check-success = Test image scripts
+      # images.yml (e2e)
+      - check-success = E2E claude-runner
+      - check-success = E2E opencode-runner
+      - check-success = E2E openshell-sandbox
+      - -draft
+      - -conflict
+
+  # PRs touching only scripts/bump-versions.py (triggers images-pr.yml only,
+  # NOT images.yml). Don't require build or e2e checks that won't run.
+  - name: maintainer-images-pr-only
+    if:
+      - "author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/)"
+      - "files~=^scripts/bump-versions\\.py$"
+    success_conditions:
+      - "#approved-reviews-by>=1"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images-pr.yml
+      - check-success = Lint
+      - check-success = Image tests
+      - -draft
+      - -conflict
+
+  # PRs touching only src/agentic_ci/ or Makefile (triggers images.yml only,
+  # NOT images-pr.yml). Don't require Lint or Image tests that won't run.
+  - name: maintainer-images-build-only
+    if:
+      - "author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$)"
+      - "files~=^(src/agentic_ci/|Makefile$)"
+    success_conditions:
+      - "#approved-reviews-by>=1"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images.yml (builds)
+      - check-success = Build claude-runner
+      - check-success = Build opencode-runner
+      - check-success = Build ci-podman
+      - check-success = Build claude-sandbox
+      - check-success = Build opencode-sandbox
+      - check-success = Build ci-openshell
+      # images.yml (lint + unit tests)
+      - check-success = Lint image scripts
+      - check-success = Test image scripts
+      # images.yml (e2e)
+      - check-success = E2E claude-runner
+      - check-success = E2E opencode-runner
+      - check-success = E2E openshell-sandbox
+      - -draft
+      - -conflict
+
+  # Maintainer PRs not touching any image-related paths. Base CI only.
+  - name: maintainer
+    if:
+      - "author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$)"
+    success_conditions:
+      - "#approved-reviews-by>=1"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      - -draft
+      - -conflict
+
+  # -- Non-maintainer (default) rules -----------------------------------------
+
+  # PRs touching paths shared by both image workflows. Requires 2 reviews.
+  - name: default-images-all
+    if:
+      - "-author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "files~=^(images/|tests/images/|tests/e2e/)"
+    success_conditions:
+      - "#approved-reviews-by>=2"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images-pr.yml
+      - check-success = Lint
+      - check-success = Image tests
+      # images.yml (builds)
+      - check-success = Build claude-runner
+      - check-success = Build opencode-runner
+      - check-success = Build ci-podman
+      - check-success = Build claude-sandbox
+      - check-success = Build opencode-sandbox
+      - check-success = Build ci-openshell
+      # images.yml (lint + unit tests)
+      - check-success = Lint image scripts
+      - check-success = Test image scripts
+      # images.yml (e2e)
+      - check-success = E2E claude-runner
+      - check-success = E2E opencode-runner
+      - check-success = E2E openshell-sandbox
+      - -draft
+      - -conflict
+
+  # Non-maintainer PRs touching only scripts/bump-versions.py.
+  - name: default-images-pr-only
+    if:
+      - "-author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/)"
+      - "files~=^scripts/bump-versions\\.py$"
+    success_conditions:
+      - "#approved-reviews-by>=2"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images-pr.yml
+      - check-success = Lint
+      - check-success = Image tests
+      - -draft
+      - -conflict
+
+  # Non-maintainer PRs touching only src/agentic_ci/ or Makefile.
+  - name: default-images-build-only
+    if:
+      - "-author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$)"
+      - "files~=^(src/agentic_ci/|Makefile$)"
+    success_conditions:
+      - "#approved-reviews-by>=2"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      # images.yml (builds)
+      - check-success = Build claude-runner
+      - check-success = Build opencode-runner
+      - check-success = Build ci-podman
+      - check-success = Build claude-sandbox
+      - check-success = Build opencode-sandbox
+      - check-success = Build ci-openshell
+      # images.yml (lint + unit tests)
+      - check-success = Lint image scripts
+      - check-success = Test image scripts
+      # images.yml (e2e)
+      - check-success = E2E claude-runner
+      - check-success = E2E opencode-runner
+      - check-success = E2E openshell-sandbox
+      - -draft
+      - -conflict
+
+  # Non-maintainer PRs not touching any image-related paths. Base CI only.
+  - name: default
+    if:
+      - "-author=@opendatahub-io/agentic-ci-maintainers"
+      - "-author=aipcc-renovate-bot[bot]"
+      - "-author=dependabot[bot]"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$)"
+    success_conditions:
+      - "#approved-reviews-by>=2"
+      # ci.yml
+      - check-success = Run Tox (py310)
+      - check-success = Run Tox (py311)
+      - check-success = Run Tox (py312)
+      - check-success = Run Tox (py313)
+      - check-success = Run Tox (lint)
+      - check-success = Run Tox (check-format)
+      - check-success = Run Tox (typecheck)
+      # docs.yml
+      - check-success = Build docs
+      - -draft
+      - -conflict
+
+# Enable auto-merge: PRs enter the merge queue automatically once their
+# matching merge_protection conditions are met.
+merge_protections_settings:
+  auto_merge_conditions: true
+  reporting_method: check-runs
+
+# Merge queue: process one PR at a time to avoid conflicts.
+merge_queue:
+  max_parallel_checks: 1
+
+# Squash merge to keep a clean linear history on main.
+queue_rules:
+  - name: default
+    merge_method: squash

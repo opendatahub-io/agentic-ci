@@ -124,6 +124,10 @@ tox -e typecheck                 # mypy type check
 
 Fix any failures before moving on. Do not skip any of these checks.
 
+## Mergify
+
+`.mergify.yml` defines merge protection rules with required CI checks. When adding, removing, or renaming jobs in `.github/workflows/`, update `.mergify.yml` to match. The file patterns in Mergify rules must stay aligned with the `paths:` filters in each workflow.
+
 ## Conventions
 
 - Python 3.10+, uv for local dev. Minimal runtime dependencies (`requests`, `tenacity`).
