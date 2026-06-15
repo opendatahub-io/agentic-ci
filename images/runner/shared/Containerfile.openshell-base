@@ -84,7 +84,7 @@ RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
 # Python packages (agentic-ci for skill use inside the sandbox)
 RUN uv pip install --system --no-cache \
         agentic-ci==0.2.25 \
-        ruff==0.15.14
+        ruff==0.15.16
 
 # Sandbox home directories
 USER sandbox
