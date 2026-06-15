@@ -57,75 +57,6 @@ EOF
     _VERTEX_CONFIGURED=1
 }
 
-_enable_plugins() {
-    local plugins_var="${AGENT_ENABLED_PLUGINS:-}"
-
-    local claude_home="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    local settings_path="$claude_home/settings.json"
-    local installed_path="$claude_home/plugins/installed_plugins.json"
-
-    if [[ ! -f "$installed_path" ]]; then
-        if [[ -n "$plugins_var" ]]; then
-            echo "WARNING: AGENT_ENABLED_PLUGINS is set but $installed_path not found" >&2
-        fi
-        return 0
-    fi
-    [[ ! -f "$settings_path" ]] && printf '{}\n' > "$settings_path"
-
-    # Matching uses the name prefix before '@' (e.g. 'foo' from 'foo@mkt'),
-    # so AGENT_ENABLED_PLUGINS=foo enables foo from all marketplaces.
-    python3 -c "
-import json, sys
-
-plugins_csv = sys.argv[1]
-settings_path = sys.argv[2]
-installed_path = sys.argv[3]
-
-with open(installed_path) as f:
-    installed = json.load(f)
-installed_keys = list(installed.get('plugins', {}).keys())
-
-try:
-    with open(settings_path) as f:
-        settings = json.load(f)
-except (json.JSONDecodeError, ValueError):
-    print(f'WARNING: {settings_path} contains invalid JSON, resetting to empty', file=sys.stderr)
-    settings = {}
-enabled = settings.setdefault('enabledPlugins', {})
-
-requested = set(p.strip() for p in plugins_csv.split(',') if p.strip()) if plugins_csv else set()
-
-if not requested:
-    for key in installed_keys:
-        enabled[key] = True
-else:
-    enabled.clear()
-    matched = set()
-    for key in installed_keys:
-        name = key.split('@')[0]
-        if name in requested:
-            enabled[key] = True
-            matched.add(name)
-
-    unmatched = sorted(requested - matched)
-    if unmatched:
-        if matched:
-            safe_matched = ', '.join(sorted(matched))
-            if len(safe_matched) > 200:
-                safe_matched = safe_matched[:200] + '...'
-            print(f'Matched: {safe_matched}', file=sys.stderr)
-        safe_names = ', '.join(unmatched)
-        if len(safe_names) > 200:
-            safe_names = safe_names[:200] + '...'
-        print(f'ERROR: unknown plugin(s) in AGENT_ENABLED_PLUGINS: {safe_names}', file=sys.stderr)
-        sys.exit(1)
-
-with open(settings_path, 'w') as f:
-    json.dump(settings, f, indent=2)
-    f.write('\n')
-" "$plugins_var" "$settings_path" "$installed_path"
-}
-
 _detect_tool() {
     local cmd="${1:-}"
     case "$cmd" in
@@ -170,7 +101,7 @@ if [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]]; then
 fi
 
 _detect_tool "${1:-}"
-_enable_plugins
+agentic-ci enable-plugins
 
 # If the first argument is the tool command itself (e.g. "claude", "opencode"),
 # pass through as-is. Otherwise, the caller passed only flags/args and expects

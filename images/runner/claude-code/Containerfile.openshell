@@ -4,8 +4,8 @@
 # Or:       openshell sandbox create --from <this-image> --provider ...
 #
 # Build:
-#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base images/runner/
-#   podman build -t openshell-claude -f images/runner/claude-code/Containerfile.openshell images/runner/
+#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base .
+#   podman build -t openshell-claude -f images/runner/claude-code/Containerfile.openshell .
 
 FROM localhost/openshell-base:latest
 
@@ -22,18 +22,20 @@ RUN curl -fsSL -o /usr/local/bin/claude \
     && echo "${CLAUDE_SHA256}  /usr/local/bin/claude" | sha256sum -c - \
     && chmod +x /usr/local/bin/claude
 
-COPY claude-code/install-plugin.py /usr/local/bin/install-plugin
-RUN chmod +x /usr/local/bin/install-plugin
-
-COPY claude-code/claude-settings.json /sandbox/.claude/settings.json
-RUN chown -R sandbox:sandbox /sandbox/.claude
-
-COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
 USER sandbox
-RUN install-plugin --marketplace-repo opendatahub-io/skills-registry \
-    && install-plugin --all
 
+# Build plugin seed using native Claude Code CLI.
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:" \
+    && export CLAUDE_CODE_PLUGIN_CACHE_DIR=/sandbox/.claude-seed \
+    && export DISABLE_AUTOUPDATER=1 \
+    && claude plugin marketplace add opendatahub-io/skills-registry \
+    && agentic-ci install-plugins \
+    && git config --global --unset-all url."https://github.com/".insteadOf
+
+ENV CLAUDE_CODE_PLUGIN_SEED_DIR=/sandbox/.claude-seed
+ENV CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1
+ENV DISABLE_AUTOUPDATER=1
+ENV AGENT_TOOL=claude
+ENV CLAUDE_CONFIG_DIR=/sandbox/.claude
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["claude"]

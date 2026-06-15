@@ -142,42 +142,47 @@ print_header "=== claude-sandbox: binaries ==="
 assert_ok "claude is installed" run_in "$CLAUDE_SANDBOX" claude --version
 assert_ok "node is installed" run_in "$CLAUDE_SANDBOX" node --version
 
-print_header "=== claude-sandbox: plugins ==="
+print_header "=== claude-sandbox: plugins (seed) ==="
 
 assert_ok "settings.json exists" \
     run_in "$CLAUDE_SANDBOX" test -f /sandbox/.claude/settings.json
-assert_ok "installed_plugins.json exists" \
-    run_in "$CLAUDE_SANDBOX" test -f /sandbox/.claude/plugins/installed_plugins.json
-assert_ok "marketplace registered" \
-    run_in "$CLAUDE_SANDBOX" test -d /sandbox/.claude/plugins/marketplaces
+assert_ok "plugin seed directory exists" \
+    run_in "$CLAUDE_SANDBOX" test -d /sandbox/.claude-seed
+assert_ok "installed_plugins.json in seed" \
+    run_in "$CLAUDE_SANDBOX" test -f /sandbox/.claude-seed/installed_plugins.json
+assert_ok "marketplace registered in seed" \
+    run_in "$CLAUDE_SANDBOX" test -d /sandbox/.claude-seed/marketplaces
 
-print_header "=== claude-sandbox: entrypoint ==="
+print_header "=== claude-sandbox: entrypoint and scripts ==="
 
 assert_ok "entrypoint.sh is installed" \
     run_in "$CLAUDE_SANDBOX" test -x /usr/local/bin/entrypoint.sh
+assert_ok "agentic-ci is installed" \
+    run_in "$CLAUDE_SANDBOX" agentic-ci --version
 
 print_header "=== claude-sandbox: AGENT_ENABLED_PLUGINS ==="
 
-# Verify _enable_plugins filters settings.json inside the image.
-# Pick the first installed plugin and check that only it is enabled.
-PLUGIN_FILTER_COUNT="$(run_in "$CLAUDE_SANDBOX" bash -c '
+# Verify enable-plugins filters settings.json inside the image.
+# Pick the first enabled plugin and check that only it remains enabled.
+PLUGIN_FILTER_RESULT="$(run_in "$CLAUDE_SANDBOX" bash -c '
     export CLAUDE_CONFIG_DIR=/sandbox/.claude
     PLUGIN=$(python3 -c "
 import json, pathlib
-d = json.loads(pathlib.Path(\"$CLAUDE_CONFIG_DIR/plugins/installed_plugins.json\").read_text())
-print(list(d.get(\"plugins\", {}).keys())[0].split(\"@\")[0])
+d = json.loads(pathlib.Path(\"$CLAUDE_CONFIG_DIR/settings.json\").read_text())
+ep = d.get(\"enabledPlugins\", {})
+print(list(ep.keys())[0].split(\"@\")[0])
 ")
     export AGENT_ENABLED_PLUGINS="$PLUGIN"
-    source /usr/local/bin/entrypoint.sh --source-only
-    _enable_plugins
+    agentic-ci enable-plugins
     python3 -c "
 import json, pathlib
 d = json.loads(pathlib.Path(\"$CLAUDE_CONFIG_DIR/settings.json\").read_text())
-print(len(d.get(\"enabledPlugins\", {})))
+enabled = [k for k, v in d.get(\"enabledPlugins\", {}).items() if v]
+print(len(enabled))
 "
 ')"
-assert_ok "_enable_plugins filters to single plugin (got $PLUGIN_FILTER_COUNT)" \
-    test "$PLUGIN_FILTER_COUNT" -eq 1
+assert_ok "agentic-ci enable-plugins filters to single plugin (got $PLUGIN_FILTER_RESULT)" \
+    test "$PLUGIN_FILTER_RESULT" -eq 1
 
 # --- opencode-sandbox checks ---
 print_header "=== opencode-sandbox: binaries ==="
@@ -313,11 +318,12 @@ POLICY
     WORKDIR="$TMPDIR_E2E/plugins"
     mkdir -p "$WORKDIR"
 
-    # Pick the first installed plugin from the image
+    # Pick the first enabled plugin from the image
     FIRST_PLUGIN="$(run_in "$CLAUDE_SANDBOX" python3 -c "
 import json, pathlib
-d = json.loads(pathlib.Path('/sandbox/.claude/plugins/installed_plugins.json').read_text())
-print(list(d.get('plugins', {}).keys())[0].split('@')[0])
+d = json.loads(pathlib.Path('/sandbox/.claude/settings.json').read_text())
+ep = d.get('enabledPlugins', {})
+print(list(ep.keys())[0].split('@')[0])
 ")"
     print_step "Testing with AGENT_ENABLED_PLUGINS=$FIRST_PLUGIN"
 

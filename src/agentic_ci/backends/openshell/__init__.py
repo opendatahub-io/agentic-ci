@@ -150,14 +150,7 @@ class OpenShellBackend(Backend):
 
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
 
-        lines.extend(
-            [
-                "if [ -f /usr/local/bin/entrypoint.sh ]; then",
-                "    . /usr/local/bin/entrypoint.sh --source-only",
-                "    _enable_plugins",
-                "fi",
-            ]
-        )
+        lines.append("agentic-ci enable-plugins")
 
         script = "\n".join(lines) + "\n"
 
