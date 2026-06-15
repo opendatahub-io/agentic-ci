@@ -132,3 +132,16 @@ Fix any failures before moving on. Do not skip any of these checks.
 - Fix lint errors at the source. Don't suppress with `# noqa` or exclude files from linting.
 - All tests live under `tests/`.
 - `pytest` for tests.
+
+## Debugging
+
+Use the `/debug-agentic-ci` skill when investigating infrastructure-level failures. It provides a symptom catalog and structured RCA template.
+
+When fixing a bug or adding a feature that changes failure modes, update `.claude/skills/debug-agentic-ci/references/symptoms.md` with the new pattern so future investigations have it in context.
+
+When investigating this repo specifically, focus on these areas by symptom:
+
+- **Container failed**: Check `backends/podman.py` or `backends/openshell/` for container launch logic. Check `harness.py` for agent CLI argument construction. Check `cli.py` for credential and OTEL setup. Check `stream.py` if output parsing failed.
+- **Skill engine failure**: Check `skill.py` for the `run_skill()` flow: pre-gates, container launch, post-gates, verdict loading. Check which phase returned an error.
+- **MR/PR operations failed**: Check `forge.py` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
+- **Gate framework issues**: Check `gates.py` for the gate registry and execution order. Check if a gate was added or changed that altered behavior. Gates run as pre/post hooks around the agent; the wiring is in the calling repo (autofix), but the gate implementations may be here.
