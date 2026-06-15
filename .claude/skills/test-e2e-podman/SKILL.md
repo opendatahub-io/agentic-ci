@@ -45,7 +45,7 @@ container inside the CI container).
 podman rm -f podman-e2e 2>/dev/null || true
 podman run -d --name podman-e2e \
   --privileged \
-  -v "$(pwd):/workspace:z" \
+  -v "$(pwd):/workspace:ro,z" \
   -v ~/.config/gcloud:/host-gcloud:ro,z \
   -v "$API_KEY_FILE:/host-api-key:ro,z" \
   $CI_IMAGE \
@@ -58,7 +58,7 @@ podman run -d --name podman-e2e \
 podman exec podman-e2e bash -c '
   mkdir -p ~/.config/gcloud
   cp /host-gcloud/application_default_credentials.json ~/.config/gcloud/
-  cd /workspace && uv pip install --system --no-cache -e .
+  cd /workspace && uv pip install --system --no-cache .
 '
 ```
 

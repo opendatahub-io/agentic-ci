@@ -6,15 +6,15 @@ help: ## Show this help message
 
 .PHONY: base-build
 base-build: ## Build the runner base image locally
-	podman build -t localhost/base:latest -f images/runner/shared/Containerfile.base images/runner/shared/
+	podman build -t localhost/base:latest -f images/runner/shared/Containerfile.base .
 
 .PHONY: claude-build
 claude-build: base-build ## Build the Claude Code runner image locally
-	podman build -t localhost/claude-runner:latest -f images/runner/claude-code/Containerfile images/runner/
+	podman build -t localhost/claude-runner:latest -f images/runner/claude-code/Containerfile .
 
 .PHONY: opencode-build
 opencode-build: base-build ## Build the OpenCode runner image locally
-	podman build -t localhost/opencode-runner:latest -f images/runner/opencode/Containerfile images/runner/
+	podman build -t localhost/opencode-runner:latest -f images/runner/opencode/Containerfile .
 
 .PHONY: ci-build
 ci-build: ## Build the CI podman image locally
@@ -22,15 +22,15 @@ ci-build: ## Build the CI podman image locally
 
 .PHONY: openshell-base-build
 openshell-base-build: ## Build the OpenShell sandbox base image locally
-	podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base images/runner/shared/
+	podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
 
 .PHONY: openshell-claude-build
 openshell-claude-build: openshell-base-build ## Build the OpenShell Claude sandbox image locally
-	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell images/runner/
+	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell .
 
 .PHONY: openshell-opencode-build
 openshell-opencode-build: openshell-base-build ## Build the OpenShell OpenCode sandbox image locally
-	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell images/runner/
+	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
 
 .PHONY: openshell-ci-build
 openshell-ci-build: ## Build the OpenShell CI image locally
@@ -47,13 +47,11 @@ check-versions: ## Check for available dependency updates
 .PHONY: image-lint
 image-lint: ## Run linting checks on image scripts
 	shellcheck --severity=warning images/runner/shared/*.sh tests/images/*.sh tests/e2e/*.sh
-	@uv run --with ruff ruff check --select=E,F,W images/runner/claude-code/*.py images/runner/opencode/*.py scripts/bump-versions.py
+	@uv run --with ruff ruff check --select=E,F,W scripts/bump-versions.py
 
 .PHONY: image-test
 image-test: ## Run image unit tests
 	bash tests/images/test_entrypoint.sh
-	bash tests/images/test_install_plugin.sh
-	bash tests/images/test_install_skills.sh
 
 .PHONY: e2e-claude
 e2e-claude: ## Run Claude Code runner e2e tests

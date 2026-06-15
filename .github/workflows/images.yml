@@ -80,7 +80,7 @@ jobs:
         run: |
           podman build -t localhost/base:latest \
             -f images/runner/shared/Containerfile.base \
-            images/runner/shared/
+            .
 
       - name: Build claude-runner
         run: |
@@ -100,7 +100,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/runner/claude-code/Containerfile \
-            images/runner/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
@@ -146,7 +146,7 @@ jobs:
         run: |
           podman build -t localhost/base:latest \
             -f images/runner/shared/Containerfile.base \
-            images/runner/shared/
+            .
 
       - name: Build opencode-runner
         run: |
@@ -166,7 +166,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/runner/opencode/Containerfile \
-            images/runner/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
@@ -269,7 +269,7 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build openshell-base
-        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base images/runner/shared/
+        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
 
       - name: Build claude-sandbox
         run: |
@@ -289,7 +289,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/runner/claude-code/Containerfile.openshell \
-            images/runner/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 
@@ -332,7 +332,7 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build openshell-base
-        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base images/runner/shared/
+        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
 
       - name: Build opencode-sandbox
         run: |
@@ -352,7 +352,7 @@ jobs:
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
             -f images/runner/opencode/Containerfile.openshell \
-            images/runner/
+            .
 
           echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
 

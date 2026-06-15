@@ -4,8 +4,8 @@
 # Or:       openshell sandbox create --from <this-image> --provider ...
 #
 # Build:
-#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base images/runner/
-#   podman build -t openshell-opencode -f images/runner/opencode/Containerfile.openshell images/runner/
+#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base .
+#   podman build -t openshell-opencode -f images/runner/opencode/Containerfile.openshell .
 
 FROM localhost/openshell-base:latest
 
@@ -21,18 +21,16 @@ RUN curl -fsSL -o /tmp/opencode.tar.gz \
     && chmod +x /usr/local/bin/opencode \
     && rm -f /tmp/opencode.tar.gz
 
-COPY opencode/install-skills.py /usr/local/bin/install-skills
-RUN chmod +x /usr/local/bin/install-skills
-
-COPY opencode/opencode.json /sandbox/.config/opencode/opencode.json
+COPY images/runner/opencode/opencode.json /sandbox/.config/opencode/opencode.json
 RUN chown -R sandbox:sandbox /sandbox/.config
 
-COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
 USER sandbox
-RUN install-skills --marketplace-repo opendatahub-io/skills-registry \
-    && install-skills --all
+RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registry.git /tmp/skills-registry \
+    && agentic-ci install-plugins --harness opencode \
+       --marketplace-json /tmp/skills-registry/.claude-plugin/marketplace.json \
+    && rm -rf /tmp/skills-registry
 
+ENV AGENT_TOOL=opencode
+ENV OPENCODE_CONFIG_DIR=/sandbox/.config/opencode
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["opencode"]

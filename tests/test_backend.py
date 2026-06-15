@@ -104,8 +104,11 @@ class TestOpenShellEnvScript:
 
     def test_env_script_calls_enable_plugins(self, monkeypatch, tmp_path):
         script = self._capture_script(monkeypatch, tmp_path)
-        assert "_enable_plugins" in script
-        assert "entrypoint.sh --source-only" in script
+        assert "agentic-ci enable-plugins" in script
+
+    def test_env_script_sets_seed_dir(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "CLAUDE_CODE_PLUGIN_SEED_DIR=/sandbox/.claude-seed" in script
 
     def test_env_script_includes_enabled_plugins_var(self, monkeypatch, tmp_path):
         script = self._capture_script(monkeypatch, tmp_path, AGENT_ENABLED_PLUGINS="alpha,beta")
