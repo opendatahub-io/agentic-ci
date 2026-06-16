@@ -2,6 +2,7 @@
 #
 # All events: build and push ci-<sha> tagged images to quay.io.
 # Push to main / schedule / dispatch: also push latest + epoch tags.
+# Version tags (e.g. 0.3.1): also push version-tagged images.
 # PRs: ci-<sha> images auto-expire after 3 days.
 # E2E tests run after builds complete, pulling the ci-<sha> images.
 name: Container Images
@@ -12,6 +13,8 @@ on:
     paths:
       - 'images/**'
       - 'src/agentic_ci/**'
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     paths:
       - 'images/**'
@@ -48,6 +51,8 @@ env:
   HAS_SECRETS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
   # Only push latest+epoch on non-PR events (main push, schedule, dispatch).
   PUSH_RELEASE_TAGS: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push_images) }}
+  # Version tag (e.g. "0.3.1") when triggered by a version tag push, empty otherwise.
+  VERSION_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
 
 jobs:
   # --------------------------------------------------------------------------
@@ -94,8 +99,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -115,6 +126,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/claude-runner"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/claude-runner:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # opencode-runner: requires the shared base image built first
@@ -160,8 +175,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -181,6 +202,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/opencode-runner"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/opencode-runner:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # ci-podman: standalone, no base image dependency
@@ -220,8 +245,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -241,6 +272,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/podman"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/podman:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # claude-sandbox: OpenShell sandbox, requires openshell-base built first
@@ -283,8 +318,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -304,6 +345,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/claude-sandbox"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/claude-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # opencode-sandbox: OpenShell sandbox, requires openshell-base built first
@@ -346,8 +391,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -367,6 +418,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/opencode-sandbox"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/opencode-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # ci-openshell: standalone CI image with OpenShell gateway
@@ -406,8 +461,14 @@ jobs:
             LABEL_ARGS=(--label "quay.expires-after=3d")
           fi
 
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
           podman build \
             "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
             -t "${IMAGE_NAME}:${CI_TAG}" \
             -t "${IMAGE_NAME}:latest" \
             -t "${IMAGE_NAME}:${EPOCH}" \
@@ -427,6 +488,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/openshell"
           podman push "${IMAGE_NAME}:latest"
           podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/openshell:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
   # Image tests: lint scripts and run unit tests (PRs only)
