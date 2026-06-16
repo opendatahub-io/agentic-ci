@@ -108,7 +108,7 @@ agentic-ci enable-plugins
 # the entrypoint to prepend the tool command (matching the runner image
 # behavior where the entrypoint always prepends the agent command).
 case "${1:-}" in
-    claude|claude-code|opencode|bash|sh)
+    claude|claude-code|opencode|bash|sh|true)
         exec "$@"
         ;;
     *)

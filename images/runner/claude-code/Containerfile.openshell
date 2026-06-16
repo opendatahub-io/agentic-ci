@@ -26,6 +26,7 @@ USER sandbox
 
 # Build plugin seed using native Claude Code CLI.
 RUN git config --global url."https://github.com/".insteadOf "git@github.com:" \
+    && export CLAUDE_CONFIG_DIR=/sandbox/.claude \
     && export CLAUDE_CODE_PLUGIN_CACHE_DIR=/sandbox/.claude-seed \
     && export DISABLE_AUTOUPDATER=1 \
     && claude plugin marketplace add opendatahub-io/skills-registry \

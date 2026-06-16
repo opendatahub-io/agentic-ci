@@ -24,6 +24,7 @@ USER agent-ci
 # is removed at the end of the same RUN so the final layer has clean
 # git config.
 RUN git config --global url."https://github.com/".insteadOf "git@github.com:" \
+    && export CLAUDE_CONFIG_DIR=/home/agent-ci/.claude \
     && export CLAUDE_CODE_PLUGIN_CACHE_DIR=/home/agent-ci/.claude-seed \
     && export DISABLE_AUTOUPDATER=1 \
     && claude plugin marketplace add opendatahub-io/skills-registry \
