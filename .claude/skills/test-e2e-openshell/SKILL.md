@@ -29,10 +29,10 @@ Also ask for:
   `$API_KEY_FILE`.
 
 Per-section requirements:
-- **Vertex AI auth** (Sections A, C, E, F): GCP ADC credentials at
+- **Vertex AI auth** (Sections A, C, E, F, G): GCP ADC credentials at
   `~/.config/gcloud/application_default_credentials.json` and
   `ANTHROPIC_VERTEX_PROJECT_ID` + `CLOUD_ML_REGION` set in the environment.
-- **API key auth** (Sections B, D): The API key file above.
+- **API key auth** (Sections B, D, H): The API key file above.
 
 ## Container setup
 
@@ -390,6 +390,79 @@ Verify:
 
 ---
 
+## Section G: Skill execution — Vertex AI
+
+Verifies that a plugin skill loads and executes correctly inside the
+sandbox. Uses the `git-shallow-clone` skill from the `odh-ai-helpers`
+plugin to clone a repo into `/tmp` and confirm the result.
+
+Requires GCP ADC credentials and `ANTHROPIC_VERTEX_PROJECT_ID`.
+
+Run cleanup first.
+
+### G1. Run
+
+```bash
+podman exec \
+  -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
+  -e CLOUD_ML_REGION=global \
+  -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
+  openshell-e2e bash -c '
+    mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \
+    agentic-ci run \
+      --backend openshell \
+      --harness claude-code \
+      --image "$SANDBOX_IMAGE" \
+      --model claude-haiku-4-5 \
+      --no-otel \
+      "Use the /odh-ai-helpers:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
+  '
+```
+
+Verify:
+- `Plugins:` line includes `odh-ai-helpers`
+- Output shows `Skill` tool invocation for `odh-ai-helpers:git-shallow-clone`
+- Output shows a `Bash` tool call running `git clone`
+- Output shows `ls /tmp/agentic-ci` with repo contents (e.g. `src`, `pyproject.toml`, `Makefile`)
+- Agent response contains `SKILL_OK`
+- `Agent exit code: 0`
+
+---
+
+## Section H: Skill execution — API Key
+
+Same test as Section G but with API key auth.
+
+Run cleanup first.
+
+### H1. Run
+
+```bash
+podman exec \
+  -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
+  -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
+  openshell-e2e bash -c '
+    mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \
+    agentic-ci run \
+      --backend openshell \
+      --harness claude-code \
+      --image "$SANDBOX_IMAGE" \
+      --model claude-haiku-4-5 \
+      --no-otel \
+      "Use the /odh-ai-helpers:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
+  '
+```
+
+Verify:
+- Output shows `Auth: API key`
+- `Plugins:` line includes `odh-ai-helpers`
+- Output shows `Skill` tool invocation for `odh-ai-helpers:git-shallow-clone`
+- Output shows `ls /tmp/agentic-ci` with repo contents (e.g. `src`, `pyproject.toml`, `Makefile`)
+- Agent response contains `SKILL_OK`
+- `Agent exit code: 0`
+
+---
+
 ## Final cleanup
 
 ```bash
@@ -398,7 +471,7 @@ podman rm -f openshell-e2e
 
 ## Running the full suite
 
-Execute sections in order (A through F), running the cleanup step before each
+Execute sections in order (A through H), running the cleanup step before each
 section. Skip sections whose prerequisites are not met. If any step fails,
 check the gateway log inside the container:
 
