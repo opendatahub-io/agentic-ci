@@ -1,7 +1,7 @@
 FROM localhost/base:latest
 
-ARG CLAUDE_VERSION=2.1.177
-ARG CLAUDE_SHA256=ff41753634b20c869ef6a32a20863521b33d4186ac0d6a49379ab48a48395ee7
+ARG CLAUDE_VERSION=2.1.178
+ARG CLAUDE_SHA256=17ed1a983a49404c4673de286419a8fd6617c92440a2e0f789bcc413a3b14de1
 
 USER root
 
@@ -13,24 +13,27 @@ RUN curl -fsSL -o /usr/bin/claude \
     && echo "${CLAUDE_SHA256}  /usr/bin/claude" | sha256sum -c - \
     && chmod +x /usr/bin/claude
 
-COPY claude-code/install-plugin.py /usr/local/bin/install-plugin
-RUN chmod +x /usr/local/bin/install-plugin
-
-COPY claude-code/claude-settings.json /home/agent-ci/.claude/settings.json
-RUN ln -s ../AGENTS.md /home/agent-ci/.claude/CLAUDE.md \
+RUN mkdir -p /home/agent-ci/.claude \
+    && ln -s ../AGENTS.md /home/agent-ci/.claude/CLAUDE.md \
     && chown -R agent-ci:agent-ci /home/agent-ci/.claude
 
 USER agent-ci
-RUN install-plugin --marketplace-repo opendatahub-io/skills-registry \
-    && install-plugin --all
 
-USER root
-COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Build plugin seed using native Claude Code CLI.
+# Force HTTPS for GitHub clones (no SSH keys during build); the override
+# is removed at the end of the same RUN so the final layer has clean
+# git config.
+RUN git config --global url."https://github.com/".insteadOf "git@github.com:" \
+    && export CLAUDE_CODE_PLUGIN_CACHE_DIR=/home/agent-ci/.claude-seed \
+    && export DISABLE_AUTOUPDATER=1 \
+    && claude plugin marketplace add opendatahub-io/skills-registry \
+    && agentic-ci install-plugins \
+    && git config --global --unset-all url."https://github.com/".insteadOf
 
-USER agent-ci
-ENV AGENT_TOOL=claude
+ENV CLAUDE_CODE_PLUGIN_SEED_DIR=/home/agent-ci/.claude-seed
 ENV CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1
+ENV DISABLE_AUTOUPDATER=1
+ENV AGENT_TOOL=claude
 ENV CLAUDE_CONFIG_DIR=/home/agent-ci/.claude
 WORKDIR /home/agent-ci
 ENTRYPOINT ["entrypoint.sh"]

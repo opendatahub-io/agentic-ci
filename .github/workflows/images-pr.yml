@@ -45,8 +45,6 @@ jobs:
       - name: Run ruff
         run: |
           uv run --with ruff ruff check --select=E,F,W \
-            images/runner/claude-code/*.py \
-            images/runner/opencode/*.py \
             scripts/bump-versions.py
 
   # --------------------------------------------------------------------------
@@ -63,9 +61,3 @@ jobs:
 
       - name: Run entrypoint tests
         run: bash tests/images/test_entrypoint.sh
-
-      - name: Run install plugin tests
-        run: bash tests/images/test_install_plugin.sh
-
-      - name: Run install skills tests
-        run: bash tests/images/test_install_skills.sh

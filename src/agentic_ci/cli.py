@@ -6,8 +6,9 @@ import shutil
 import sys
 import tempfile
 from importlib.metadata import version
+from pathlib import Path
 
-from agentic_ci import log, mlflow, otel
+from agentic_ci import log, mlflow, otel, plugins
 from agentic_ci.backends import create_backend
 from agentic_ci.forge.cli import register_subcommands
 from agentic_ci.gates import resolve_gates, validate_gate_env
@@ -44,6 +45,26 @@ def cmd_mlflow_push(args):
         sys.exit(1)
     else:
         log.info("No /v1/traces records found in JSONL")
+
+
+def cmd_install_plugins(args):
+    harness_name = args.harness or os.environ.get("AGENT_TOOL", "claude-code")
+    if harness_name in ("claude", "claude-code"):
+        seed_dir = os.environ.get("CLAUDE_CODE_PLUGIN_CACHE_DIR", "")
+        if not seed_dir:
+            print("ERROR: CLAUDE_CODE_PLUGIN_CACHE_DIR must be set", file=sys.stderr)
+            sys.exit(1)
+        manifest = Path(args.manifest) if args.manifest else None
+        plugins.install_claude_plugins(Path(seed_dir), manifest_path=manifest)
+    elif harness_name == "opencode":
+        if not args.marketplace_json:
+            print("ERROR: --marketplace-json is required for opencode", file=sys.stderr)
+            sys.exit(1)
+        manifest = Path(args.manifest) if args.manifest else None
+        plugins.install_opencode_skills(Path(args.marketplace_json), manifest_path=manifest)
+    else:
+        print(f"ERROR: unknown harness {harness_name!r}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_run(args, backend, harness):
@@ -262,6 +283,33 @@ def main():
         help="MLflow Bearer token (env: MLFLOW_TRACKING_TOKEN)",
     )
 
+    p_install = sub.add_parser(
+        "install-plugins",
+        help="Install plugins/skills from a marketplace into the image",
+    )
+    p_install.add_argument(
+        "--marketplace-json",
+        metavar="PATH",
+        help="Path to marketplace.json (required for opencode, optional for claude-code)",
+    )
+    p_install.add_argument(
+        "--harness",
+        choices=["claude-code", "opencode"],
+        default=None,
+        help="Harness to install for (default: from AGENT_TOOL env or claude-code)",
+    )
+    p_install.add_argument(
+        "--manifest",
+        metavar="PATH",
+        default=None,
+        help="Override manifest output path",
+    )
+
+    sub.add_parser(
+        "enable-plugins",
+        help="Filter active plugins based on AGENT_ENABLED_PLUGINS",
+    )
+
     args, extra = parser.parse_known_args()
     if hasattr(args, "prompt"):
         args.extra_args = extra
@@ -274,6 +322,14 @@ def main():
 
     if args.command == "mlflow-push":
         cmd_mlflow_push(args)
+        return
+
+    if args.command == "install-plugins":
+        cmd_install_plugins(args)
+        return
+
+    if args.command == "enable-plugins":
+        plugins.enable_plugins()
         return
 
     if args.command not in ("setup", "run", "stop"):

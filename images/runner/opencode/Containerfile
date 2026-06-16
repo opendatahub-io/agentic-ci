@@ -12,21 +12,15 @@ RUN curl -fsSL -o /tmp/opencode.tar.gz \
     && chmod +x /usr/local/bin/opencode \
     && rm -f /tmp/opencode.tar.gz
 
-COPY opencode/install-skills.py /usr/local/bin/install-skills
-RUN chmod +x /usr/local/bin/install-skills
-
-COPY opencode/opencode.json /home/agent-ci/.config/opencode/opencode.json
+COPY images/runner/opencode/opencode.json /home/agent-ci/.config/opencode/opencode.json
 RUN chown -R agent-ci:agent-ci /home/agent-ci/.config
 
 USER agent-ci
-RUN install-skills --marketplace-repo opendatahub-io/skills-registry \
-    && install-skills --all
+RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registry.git /tmp/skills-registry \
+    && agentic-ci install-plugins --harness opencode \
+       --marketplace-json /tmp/skills-registry/.claude-plugin/marketplace.json \
+    && rm -rf /tmp/skills-registry
 
-USER root
-COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-USER agent-ci
 ENV AGENT_TOOL=opencode
 ENV OPENCODE_CONFIG_DIR=/home/agent-ci/.config/opencode
 WORKDIR /home/agent-ci
