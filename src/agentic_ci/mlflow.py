@@ -1,9 +1,46 @@
 """Push OTel trace payloads from a JSONL log to an MLflow OTLP endpoint."""
 
+import base64
+import copy
 import json
 import sys
 
 import requests
+from google.protobuf import json_format
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
+
+_ID_KEYS = ("traceId", "spanId", "parentSpanId")
+
+
+def _hex_to_base64(value):
+    """Convert a hex string to base64 for protobuf bytes fields."""
+    if not isinstance(value, str) or len(value) not in (16, 32):
+        return value
+    try:
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _fixup_ids(payload):
+    """Convert hex-encoded traceId/spanId/parentSpanId to base64.
+
+    OTLP JSON spec uses lowercase hex for bytes fields, but protobuf's
+    ParseDict expects base64 encoding.
+    """
+    for rs in payload.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                for key in _ID_KEYS:
+                    if key in span:
+                        span[key] = _hex_to_base64(span[key])
+                for link in span.get("links", []):
+                    for key in _ID_KEYS:
+                        if key in link:
+                            link[key] = _hex_to_base64(link[key])
+    return payload
 
 
 def _resolve_experiment_id(endpoint, name, headers):
@@ -24,6 +61,14 @@ def _resolve_experiment_id(endpoint, name, headers):
     except requests.RequestException:
         pass
     return None
+
+
+def _serialize_traces(payload):
+    """Convert an OTLP JSON trace payload dict to protobuf bytes."""
+    payload = _fixup_ids(copy.deepcopy(payload))
+    request = ExportTraceServiceRequest()
+    json_format.ParseDict(payload, request)
+    return request.SerializeToString()
 
 
 def push_traces(log_file, endpoint, experiment, token=None):
@@ -71,11 +116,13 @@ def push_traces(log_file, endpoint, experiment, token=None):
         if not payload:
             continue
         try:
+            data = _serialize_traces(payload)
             resp = requests.post(
                 traces_url,
-                json=payload,
+                data=data,
                 headers={
                     **headers,
+                    "Content-Type": "application/x-protobuf",
                     "x-mlflow-experiment-id": experiment_id,
                 },
                 timeout=30,

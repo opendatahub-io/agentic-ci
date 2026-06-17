@@ -15,6 +15,7 @@ authors = [
 keywords = ["ci", "cd", "ai", "agents", "claude", "llm", "telemetry"]
 dependencies = [
     "PyYAML>=6.0",
+    "opentelemetry-proto>=1.0.0",
     "requests>=2.28",
     "tenacity>=8.0",
 ]
