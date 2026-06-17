@@ -13,7 +13,7 @@ def _resolve_experiment_id(endpoint, name, headers):
     try:
         resp = requests.post(
             url,
-            json={"filter": f"name = '{escaped_name}'"},
+            json={"filter": f"name = '{escaped_name}'", "max_results": 1},
             headers=headers,
             timeout=30,
         )
