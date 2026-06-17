@@ -20,7 +20,6 @@
     {
       "matchPackageNames": [
         "agentic-ci",
-        "claude-code",
         "acli"
       ],
       "minimumReleaseAge": "0 days"
