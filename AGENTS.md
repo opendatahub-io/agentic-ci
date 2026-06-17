@@ -2,7 +2,8 @@
 
 agentic-ci runs AI coding agents in sandboxed CI environments with pluggable backends and harnesses. Users run `agentic-ci run "prompt"` to execute an agent in an isolated environment with streaming output and OTEL telemetry.
 
-Two **backends** provide execution environments:
+Three **backends** provide execution environments:
+- **Local**: Runs the agent directly in the current environment. No container or sandbox — the agent binary must be on PATH. Useful inside existing CI containers (e.g. Prow step images).
 - **Podman** (default): Runs the agent in a Podman container. Simple, widely available.
 - **OpenShell**: Runs the agent in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox with network policy enforcement and filesystem isolation.
 
@@ -19,6 +20,7 @@ src/agentic_ci/
     harness.py          # Harness ABC + ClaudeCode/OpenCode implementations
     backends/
         __init__.py     # Backend factory (create_backend)
+        local.py        # LocalBackend — direct execution (no container)
         podman.py       # PodmanBackend — container execution
         openshell/
             __init__.py # OpenShellBackend — sandbox execution

@@ -79,6 +79,19 @@ class Harness(ABC):
     def default_model(self) -> str:
         """Default model when no --model flag or env var is set."""
 
+    @abstractmethod
+    def build_local_env(
+        self,
+        otel_port: int | None = None,
+        otel_rate_file: str | None = None,
+    ) -> dict[str, str]:
+        """Return env vars as a plain dict for direct (local) execution.
+
+        Unlike build_env_args (podman --env format) or build_env_script_lines
+        (OpenShell export format), this returns a dict suitable for merging
+        into os.environ and passing to subprocess.Popen(env=...).
+        """
+
     @property
     def supports_otel(self) -> bool:
         """Whether the agent CLI supports OTEL telemetry export."""
@@ -216,6 +229,39 @@ class ClaudeCodeHarness(Harness):
             "OTEL_LOG_TOOL_CONTENT=1",
         ]
 
+    def build_local_env(self, otel_port=None, otel_rate_file=None):
+        env = {
+            "AGENT_TOOL": "claude",
+            "DISABLE_AUTOUPDATER": "1",
+            # -p sets sessionKind, breaking --continue lookup (claude-code#43013)
+            "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
+        }
+        if self.auth_mode == "api-key":
+            env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+        else:
+            env["CLAUDE_CODE_USE_VERTEX"] = "1"
+            env["CLOUD_ML_REGION"] = os.environ.get("CLOUD_ML_REGION", "global")
+            env["ANTHROPIC_VERTEX_PROJECT_ID"] = os.environ.get(
+                "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+            )
+        if otel_port:
+            env.update(
+                {
+                    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+                    "OTEL_METRICS_EXPORTER": "otlp",
+                    "OTEL_LOGS_EXPORTER": "otlp",
+                    "OTEL_TRACES_EXPORTER": "otlp",
+                    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+                    "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{otel_port}",
+                    "OTEL_METRIC_EXPORT_INTERVAL": "10000",
+                    "OTEL_LOG_USER_PROMPTS": "1",
+                    "OTEL_LOG_TOOL_DETAILS": "1",
+                    "OTEL_LOG_TOOL_CONTENT": "1",
+                }
+            )
+        return env
+
     def credential_mount_target(self):
         return os.environ.get("CLAUDE_CONTAINER_HOME", "/home/agent-ci")
 
@@ -320,6 +366,23 @@ class OpenCodeHarness(Harness):
 
     def build_otel_exec_env(self, otel_port=None):
         return []
+
+    def build_local_env(self, otel_port=None, otel_rate_file=None):
+        env = {
+            "AGENT_TOOL": "opencode",
+            "OPENCODE_DISABLE_AUTOUPDATE": "1",
+        }
+        if self.auth_mode == "api-key":
+            env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+        else:
+            env["GOOGLE_CLOUD_PROJECT"] = os.environ.get(
+                "GOOGLE_CLOUD_PROJECT",
+                os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
+            )
+            env["VERTEX_LOCATION"] = os.environ.get(
+                "VERTEX_LOCATION", os.environ.get("CLOUD_ML_REGION", "global")
+            )
+        return env
 
     def credential_mount_target(self):
         return os.environ.get("OPENCODE_CONTAINER_HOME", "/home/agent-ci")
