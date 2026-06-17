@@ -18,9 +18,7 @@ HEX_TRACE_PAYLOAD = {
     "resourceSpans": [
         {
             "resource": {
-                "attributes": [
-                    {"key": "service.name", "value": {"stringValue": "test-agent"}}
-                ]
+                "attributes": [{"key": "service.name", "value": {"stringValue": "test-agent"}}]
             },
             "scopeSpans": [
                 {
