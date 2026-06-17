@@ -116,6 +116,7 @@ class TestClaudeCodeHarness:
         env = ClaudeCodeHarness().build_local_env()
         assert env["AGENT_TOOL"] == "claude"
         assert env["DISABLE_AUTOUPDATER"] == "1"
+        assert env["CLAUDE_CODE_ENTRYPOINT"] == "sdk-cli"
         assert env["CLAUDE_CODE_USE_VERTEX"] == "1"
         assert env["CLOUD_ML_REGION"] == "us-east1"
         assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "my-proj"
