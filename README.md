@@ -14,6 +14,19 @@ simplicity and security.
 
 ## Backends
 
+### Local
+
+Runs the agent directly in the current environment with no container
+or sandbox layer. The agent binary must already be installed and on
+PATH. Environment variables (auth, OTEL, model) are set automatically
+by the harness.
+
+Good for: running inside an existing CI container (e.g. a Prow step
+image) where the agent CLI is pre-installed and an extra isolation
+layer is unnecessary.
+
+Requires: the agent CLI on PATH (e.g. `claude`).
+
 ### Podman (default)
 
 Runs the agent inside a Podman container. Each `run` creates a fresh
@@ -60,6 +73,9 @@ pip install agentic-ci
 ### Run a prompt
 
 ```bash
+# Local (direct execution, no container)
+agentic-ci run --backend local "Fix the flaky test in test_auth.py"
+
 # Podman (default backend)
 agentic-ci run "Fix the flaky test in test_auth.py" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest
@@ -113,6 +129,15 @@ Extra arguments after the prompt are passed through to the Claude CLI.
 ### Examples
 
 ```bash
+# Local backend with extra Claude args (everything after -- is passed through)
+agentic-ci run --backend local \
+    "Fix the flaky test" \
+    -- --allowedTools "Bash Read Edit" --max-turns 10 --verbose
+
+# Local backend with --continue for multi-stage flows
+agentic-ci run --backend local "Summarize your findings" \
+    -- --continue --max-turns 5
+
 # Use a specific model
 agentic-ci run "Update the changelog" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest \
@@ -237,9 +262,17 @@ from agentic_ci.backends import create_backend
 from agentic_ci.harness import create_harness
 
 harness = create_harness("claude-code")
+
+# Podman backend
 backend = create_backend("podman", harness=harness, workdir="/path/to/repo", image="my-image:latest")
 backend.setup()
 rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
+backend.stop()
+
+# Local backend (no container)
+backend = create_backend("local", harness=harness, workdir="/path/to/repo")
+backend.setup()
+rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6", extra_args=["--max-turns", "10"])
 backend.stop()
 ```
 

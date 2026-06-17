@@ -233,7 +233,7 @@ class ClaudeCodeHarness(Harness):
         env = {
             "AGENT_TOOL": "claude",
             "DISABLE_AUTOUPDATER": "1",
-            # Workaround: -p sets sessionKind which breaks --continue lookup (anthropics/claude-code#43013)
+            # -p sets sessionKind, breaking --continue lookup (claude-code#43013)
             "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
         }
         if self.auth_mode == "api-key":
