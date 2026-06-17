@@ -130,9 +130,11 @@ Extra arguments after the prompt are passed through to the Claude CLI.
 
 ```bash
 # Local backend with extra Claude args (everything after -- is passed through)
+# Note: build_args() sets --permission-mode bypassPermissions by default;
+# pass --permission-mode default to restrict tools via --allowedTools
 agentic-ci run --backend local \
     "Fix the flaky test" \
-    -- --allowedTools "Bash Read Edit" --max-turns 10 --verbose
+    -- --permission-mode default --allowedTools "Bash Read Edit" --max-turns 10 --verbose
 
 # Local backend with --continue for multi-stage flows
 agentic-ci run --backend local "Summarize your findings" \
