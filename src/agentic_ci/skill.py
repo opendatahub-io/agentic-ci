@@ -26,7 +26,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypedDict
 
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness
@@ -43,6 +43,17 @@ def _noop(**_kw):
 
 def _noop_verdict(_work_dir):
     return {}
+
+
+class _SkillHookRequired(TypedDict):
+    name: str
+
+
+class SkillHook(_SkillHookRequired, total=False):
+    """Structured definition of an extra skill to run at a pipeline hook point."""
+
+    args: str
+    hooks: list[str]
 
 
 @dataclass
@@ -64,7 +75,7 @@ class SkillConfig:
     pre_gates: list[Callable[..., str | None]] = field(default_factory=list)
     post_gates: list[Callable[..., tuple[dict | None, list[str]]]] = field(default_factory=list)
 
-    extra_skills: list[str | dict] = field(default_factory=list)
+    extra_skills: list[SkillHook] = field(default_factory=list)
     context_dir: str = ".context"
     artifacts: list[str] = field(default_factory=list)
 

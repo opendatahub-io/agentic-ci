@@ -25,46 +25,41 @@ def _dry_run_skill(tmp_path, extra_skills, context_dir=".context"):
 
 
 class TestExtraSkillsConfigWriting:
-    def test_plain_strings_written(self, tmp_path):
-        _dry_run_skill(tmp_path, ["skill-a", "skill-b"])
-        config_file = tmp_path / ".context" / "config.json"
-        assert config_file.exists()
-        data = json.loads(config_file.read_text())
-        assert data == {"extra_skills": ["skill-a", "skill-b"]}
-
     def test_structured_dicts_written(self, tmp_path):
         hooks = [
             {"name": "preflight", "args": "--local --fix", "hooks": ["post_implement"]},
         ]
         _dry_run_skill(tmp_path, hooks)
-        data = json.loads((tmp_path / ".context" / "config.json").read_text())
+        config_file = tmp_path / ".context" / "config.json"
+        assert config_file.exists()
+        data = json.loads(config_file.read_text())
         assert data["extra_skills"] == hooks
 
-    def test_mixed_str_and_dict(self, tmp_path):
-        mixed = [
-            "simple-skill",
-            {"name": "preflight", "args": "--fix", "hooks": ["post_implement"]},
+    def test_multiple_skills_written(self, tmp_path):
+        skills = [
+            {"name": "skill-a"},
+            {"name": "skill-b", "args": "--fix", "hooks": ["post_implement"]},
         ]
-        _dry_run_skill(tmp_path, mixed)
+        _dry_run_skill(tmp_path, skills)
         data = json.loads((tmp_path / ".context" / "config.json").read_text())
-        assert data["extra_skills"] == mixed
+        assert data["extra_skills"] == skills
 
     def test_empty_extra_skills_no_file(self, tmp_path):
         _dry_run_skill(tmp_path, [])
         assert not (tmp_path / ".context" / "config.json").exists()
 
     def test_custom_context_dir(self, tmp_path):
-        _dry_run_skill(tmp_path, ["s"], context_dir=".autofix-context")
+        _dry_run_skill(tmp_path, [{"name": "s"}], context_dir=".autofix-context")
         assert (tmp_path / ".autofix-context" / "config.json").exists()
         assert not (tmp_path / ".context" / "config.json").exists()
 
     def test_path_traversal_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="escapes work_dir"):
-            _dry_run_skill(tmp_path, ["s"], context_dir="../escape")
+            _dry_run_skill(tmp_path, [{"name": "s"}], context_dir="../escape")
 
     def test_absolute_path_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="escapes work_dir"):
-            _dry_run_skill(tmp_path, ["s"], context_dir="/tmp/evil")
+            _dry_run_skill(tmp_path, [{"name": "s"}], context_dir="/tmp/evil")
 
     def test_symlinked_context_dir_rejected(self, tmp_path):
         target = tmp_path / "real-dir"
@@ -72,7 +67,7 @@ class TestExtraSkillsConfigWriting:
         link = tmp_path / ".context"
         link.symlink_to(target)
         with pytest.raises(ValueError, match="symlink"):
-            _dry_run_skill(tmp_path, ["s"])
+            _dry_run_skill(tmp_path, [{"name": "s"}])
 
     def test_symlinked_config_json_rejected(self, tmp_path):
         ctx_dir = tmp_path / ".context"
@@ -81,4 +76,4 @@ class TestExtraSkillsConfigWriting:
         target.write_text("{}")
         (ctx_dir / "config.json").symlink_to(target)
         with pytest.raises(ValueError, match="symlink"):
-            _dry_run_skill(tmp_path, ["s"])
+            _dry_run_skill(tmp_path, [{"name": "s"}])
