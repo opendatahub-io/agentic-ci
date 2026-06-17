@@ -194,9 +194,9 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--backend",
-        choices=["podman", "openshell"],
+        choices=["local", "podman", "openshell"],
         default="podman",
-        help="Sandbox backend (default: podman)",
+        help="Execution backend (default: podman)",
     )
     common.add_argument("--workdir", default=".", metavar="PATH", help="Working directory")
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")

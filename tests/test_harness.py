@@ -109,6 +109,45 @@ class TestClaudeCodeHarness:
     def test_build_otel_exec_env_empty_without_port(self):
         assert ClaudeCodeHarness().build_otel_exec_env(otel_port=None) == []
 
+    def test_build_local_env_vertex(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("CLOUD_ML_REGION", "us-east1")
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "my-proj")
+        env = ClaudeCodeHarness().build_local_env()
+        assert env["AGENT_TOOL"] == "claude"
+        assert env["DISABLE_AUTOUPDATER"] == "1"
+        assert env["CLAUDE_CODE_USE_VERTEX"] == "1"
+        assert env["CLOUD_ML_REGION"] == "us-east1"
+        assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "my-proj"
+        assert "ANTHROPIC_API_KEY" not in env
+
+    def test_build_local_env_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        env = ClaudeCodeHarness().build_local_env()
+        assert env["ANTHROPIC_API_KEY"] == "sk-test-key"
+        assert "CLAUDE_CODE_USE_VERTEX" not in env
+
+    def test_build_local_env_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        env = ClaudeCodeHarness().build_local_env()
+        assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "gcp-proj"
+
+    def test_build_local_env_with_otel(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        env = ClaudeCodeHarness().build_local_env(otel_port=4318)
+        assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert env["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"] == "1"
+        assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:4318"
+        assert env["OTEL_TRACES_EXPORTER"] == "otlp"
+
+    def test_build_local_env_no_otel_without_port(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        env = ClaudeCodeHarness().build_local_env()
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in env
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
+
     def test_build_env_script_lines(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
@@ -248,6 +287,48 @@ class TestOpenCodeHarness:
 
     def test_build_otel_exec_env_always_empty(self):
         assert OpenCodeHarness().build_otel_exec_env(otel_port=4318) == []
+
+    def test_build_local_env_vertex(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
+        monkeypatch.setenv("VERTEX_LOCATION", "us-central1")
+        env = OpenCodeHarness().build_local_env()
+        assert env["AGENT_TOOL"] == "opencode"
+        assert env["OPENCODE_DISABLE_AUTOUPDATE"] == "1"
+        assert env["GOOGLE_CLOUD_PROJECT"] == "my-proj"
+        assert env["VERTEX_LOCATION"] == "us-central1"
+        assert "ANTHROPIC_API_KEY" not in env
+
+    def test_build_local_env_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        env = OpenCodeHarness().build_local_env()
+        assert env["ANTHROPIC_API_KEY"] == "sk-test-key"
+        assert "GOOGLE_CLOUD_PROJECT" not in env
+
+    def test_build_local_env_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "fallback-proj")
+        monkeypatch.setenv("CLOUD_ML_REGION", "eu-west1")
+        env = OpenCodeHarness().build_local_env()
+        assert env["GOOGLE_CLOUD_PROJECT"] == "fallback-proj"
+        assert env["VERTEX_LOCATION"] == "eu-west1"
+
+    def test_build_local_env_gcp_project_id_fallback(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+        monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+        monkeypatch.delenv("CLOUD_ML_REGION", raising=False)
+        monkeypatch.setenv("GCP_PROJECT_ID", "gcp-proj")
+        env = OpenCodeHarness().build_local_env()
+        assert env["GOOGLE_CLOUD_PROJECT"] == "gcp-proj"
+
+    def test_build_local_env_no_otel(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        env = OpenCodeHarness().build_local_env(otel_port=4318)
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
 
     def test_build_env_script_lines(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

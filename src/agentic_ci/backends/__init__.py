@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from agentic_ci.backends.local import LocalBackend
 from agentic_ci.backends.openshell import OpenShellBackend
 from agentic_ci.backends.podman import PodmanBackend
 
@@ -23,7 +24,13 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
     Returns:
         A Backend instance.
     """
-    if name == "podman":
+    if name == "local":
+        return LocalBackend(
+            workdir=kwargs.get("workdir", "."),
+            extra_env=kwargs.get("extra_env"),
+            harness=harness,
+        )
+    elif name == "podman":
         return PodmanBackend(
             workdir=kwargs.get("workdir", "."),
             image=kwargs.get("image"),
@@ -41,4 +48,4 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             harness=harness,
         )
     else:
-        raise ValueError(f"Unknown backend: {name!r}. Choose 'podman' or 'openshell'.")
+        raise ValueError(f"Unknown backend: {name!r}. Choose 'local', 'podman', or 'openshell'.")
