@@ -5,6 +5,7 @@ from unittest import mock
 import pytest
 
 from agentic_ci.backends import create_backend
+from agentic_ci.backends.local import LocalBackend
 from agentic_ci.backends.openshell import OpenShellBackend
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, create_harness
@@ -27,6 +28,19 @@ def test_create_openshell_backend(harness):
     assert isinstance(backend, OpenShellBackend)
     assert backend.workdir == "/tmp"
     assert backend.harness is harness
+
+
+def test_create_local_backend(harness):
+    backend = create_backend("local", harness=harness, workdir="/tmp")
+    assert isinstance(backend, LocalBackend)
+    assert backend.workdir == "/tmp"
+    assert backend.harness is harness
+    assert backend.image is None
+
+
+def test_create_local_with_extra_env(harness):
+    backend = create_backend("local", harness=harness, extra_env={"FOO": "bar"})
+    assert backend._extra_env == {"FOO": "bar"}
 
 
 def test_create_podman_with_image(harness):
@@ -67,8 +81,10 @@ def test_unknown_backend_raises(harness):
 def test_backends_have_stop_method(harness):
     podman = create_backend("podman", harness=harness, workdir="/tmp")
     openshell = create_backend("openshell", harness=harness, workdir="/tmp")
+    local = create_backend("local", harness=harness, workdir="/tmp")
     assert callable(getattr(podman, "stop", None))
     assert callable(getattr(openshell, "stop", None))
+    assert callable(getattr(local, "stop", None))
 
 
 class TestOpenShellEnvScript:

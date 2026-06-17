@@ -7,7 +7,7 @@ simplicity and security.
 
 ## Features
 
-- **Multiple backends**: Podman containers or OpenShell sandboxes with network policy enforcement
+- **Multiple backends**: Local (direct execution), Podman containers, or OpenShell sandboxes with network policy enforcement
 - **Multiple harnesses**: Claude Code and OpenCode agent CLIs
 - **Streaming output**: Colored, parsed CI logs with tool call summaries and token tracking
 - **OTEL telemetry**: Token usage, cost tracking, and metrics collection
@@ -25,6 +25,9 @@ pip install agentic-ci
 ## Quick start
 
 ```bash
+# Run locally (no container needed)
+agentic-ci run --backend local "Fix the flaky test in test_auth.py"
+
 # Run with Podman (default)
 agentic-ci run "Fix the flaky test in test_auth.py" \
     --image ghcr.io/opendatahub-io/ai-helpers:latest
