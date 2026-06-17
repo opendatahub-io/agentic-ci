@@ -70,13 +70,15 @@ echo "  claude:     $(claude --version 2>&1 || echo unknown)"
 _has_creds() {
     [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]] || \
     [[ -n "${GCLOUD_CREDENTIALS:-}" ]] || \
-    [[ -n "${ANTHROPIC_API_KEY:-}" ]]
+    [[ -n "${ANTHROPIC_API_KEY:-}" ]] || \
+    [[ -f "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] || \
+    [[ -f "${HOME}/.config/gcloud/application_default_credentials.json" ]]
 }
 
 if ! _has_creds; then
     echo ""
     print_warning "Skipping e2e tests (no credentials set)"
-    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, or ANTHROPIC_API_KEY"
+    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, ANTHROPIC_API_KEY, or configure gcloud ADC"
     exit 0
 fi
 
