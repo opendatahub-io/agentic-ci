@@ -316,11 +316,13 @@ config = SkillConfig(
     skill_name="autofix-resolve",
     extra_skills=[
         {"name": "preflight", "args": "--local --fix", "hooks": ["post_implement"]},
-        "lint-check",  # plain string = all hooks, no args
+        {"name": "lint-check"},
     ],
     context_dir=".autofix-context",  # where config.json is written (default: ".context")
 )
 ```
+
+Each entry is an object with `name` (required), `args` (optional), and `hooks` (optional).
 
 When `extra_skills` is non-empty, `run_skill()` writes
 `{context_dir}/config.json` before launching the container:
@@ -329,7 +331,7 @@ When `extra_skills` is non-empty, `run_skill()` writes
 {
   "extra_skills": [
     {"name": "preflight", "args": "--local --fix", "hooks": ["post_implement"]},
-    "lint-check"
+    {"name": "lint-check"}
   ]
 }
 ```
