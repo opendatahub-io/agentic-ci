@@ -109,9 +109,8 @@ def cmd_run(args, backend, harness):
     try:
         if not args.no_otel and harness.supports_otel:
             log.section("Starting OTEL collector")
-            bind_addr = "0.0.0.0" if args.backend == "openshell" else "127.0.0.1"
             otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(
-                run_dir, bind_addr=bind_addr
+                run_dir, bind_addr=backend.collector_bind_address
             )
             os.environ["OTEL_RATE_FILE"] = otel_rate
             log.detail("pid", str(otel_proc.pid))
