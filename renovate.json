@@ -23,6 +23,11 @@
         "claude-code"
       ],
       "minimumReleaseAge": "0 days"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackagePrefixes": ["ubi10/"],
+      "minimumReleaseAge": "0 days"
     }
   ],
   "customDatasources": {
@@ -155,6 +160,16 @@
       "matchStrings": ["agentic-ci==(?<currentValue>[^\\s]+)"],
       "depNameTemplate": "agentic-ci",
       "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/.*Containerfile[^/]*$"
+      ],
+      "matchStrings": ["FROM registry\\.access\\.redhat\\.com/(?<depName>ubi10/ubi[^:]*):(?<currentValue>[0-9]+\\.[0-9]+)"],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://registry.access.redhat.com",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)$"
     }
   ]
 }
