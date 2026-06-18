@@ -104,8 +104,7 @@ merge_protections:
   # ---------------------------------------------------------------------------
   # Human PR rules.
   #
-  # Maintainers (@opendatahub-io/agentic-ci-maintainers) need 1 approval.
-  # Everyone else needs 2 approvals.
+  # All human PRs require 1 approval.
   #
   # Rules are split by which image-related paths the PR touches, so we only
   # require checks from workflows that will actually run. A PR that doesn't
@@ -252,7 +251,7 @@ merge_protections:
       - "-author=dependabot[bot]"
       - "files~=^(images/|tests/images/|tests/e2e/)"
     success_conditions:
-      - "#approved-reviews-by>=2"
+      - "#approved-reviews-by>=1"
       # ci.yml
       - check-success = Run Tox (py310)
       - check-success = Run Tox (py311)
@@ -292,7 +291,7 @@ merge_protections:
       - "-files~=^(images/|tests/images/|tests/e2e/)"
       - "files~=^scripts/bump-versions\\.py$"
     success_conditions:
-      - "#approved-reviews-by>=2"
+      - "#approved-reviews-by>=1"
       # ci.yml
       - check-success = Run Tox (py310)
       - check-success = Run Tox (py311)
@@ -318,7 +317,7 @@ merge_protections:
       - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$)"
       - "files~=^(src/agentic_ci/|Makefile$)"
     success_conditions:
-      - "#approved-reviews-by>=2"
+      - "#approved-reviews-by>=1"
       # ci.yml
       - check-success = Run Tox (py310)
       - check-success = Run Tox (py311)
@@ -354,7 +353,7 @@ merge_protections:
       - "-author=dependabot[bot]"
       - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$)"
     success_conditions:
-      - "#approved-reviews-by>=2"
+      - "#approved-reviews-by>=1"
       # ci.yml
       - check-success = Run Tox (py310)
       - check-success = Run Tox (py311)
