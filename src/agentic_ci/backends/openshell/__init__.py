@@ -33,6 +33,7 @@ class OpenShellBackend(Backend):
     written elsewhere in the sandbox (e.g. /tmp) are not retrieved.
     """
 
+    collector_bind_address = "0.0.0.0"
     _ENV_SCRIPT = "/tmp/.agentic-ci-env.sh"
 
     def __init__(

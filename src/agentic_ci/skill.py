@@ -28,8 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
 
-from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness
+from agentic_ci.backends import create_backend
+from agentic_ci.harness import create_harness
 from agentic_ci.otel import parse_metrics, start_collector, stop_collector
 
 log = logging.getLogger(__name__)
@@ -82,6 +82,8 @@ class SkillConfig:
     max_retries: int = 1
     retryable_modes: frozenset[str] = frozenset({"resolve"})
 
+    backend_name: str = "podman"
+    harness_name: str = "claude-code"
     container_image: str | None = None
     container_env: dict[str, str] = field(default_factory=dict)
     container_runner: Callable[..., int] | None = None
@@ -119,15 +121,24 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
 
 
 def _default_run_container(
-    work_dir, prompt, output_file, *, image=None, verdict_path=None, container_env=None
+    work_dir,
+    prompt,
+    output_file,
+    *,
+    image=None,
+    verdict_path=None,
+    container_env=None,
+    backend_name="podman",
+    harness_name="claude-code",
 ):
-    """Default container runner using PodmanBackend."""
-    harness = ClaudeCodeHarness()
+    """Default container runner using the configured backend."""
+    harness = create_harness(harness_name)
     model = os.environ.get(harness.model_env_var()) or harness.default_model()
-    backend = PodmanBackend(
+    backend = create_backend(
+        backend_name,
+        harness=harness,
         workdir=str(work_dir),
         image=image,
-        harness=harness,
         extra_env=container_env or {},
     )
     if verdict_path is not None:
@@ -139,12 +150,14 @@ def _default_run_container(
         run_dir = Path(work_dir) / "_run"
         run_dir.mkdir(parents=True, exist_ok=True)
         try:
-            otel_proc, otel_port, _, _ = start_collector(str(run_dir))
+            otel_proc, otel_port, _, _ = start_collector(
+                str(run_dir), bind_addr=backend.collector_bind_address
+            )
         except Exception:
             log.warning("Failed to start OTEL collector, continuing without telemetry")
 
     try:
-        backend.setup()
+        backend.setup(otel_port=otel_port)
         return backend.run(prompt, model=model, otel_port=otel_port)
     finally:
         if otel_proc:
@@ -238,13 +251,13 @@ def run_skill(
     output_file = work_dir / "agent-output.txt"
 
     runner = config.container_runner or _default_run_container
-    # verdict_path is only passed to the default runner so _process_stream
-    # can verify the verdict file exists before promoting SIGKILL to success.
     runner_kwargs: dict = {"image": config.container_image}
     if config.container_env:
         runner_kwargs["container_env"] = config.container_env
     if config.container_runner is None:
         runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
+        runner_kwargs["backend_name"] = config.backend_name
+        runner_kwargs["harness_name"] = config.harness_name
 
     if dry_run:
         if dry_run_verdict_path:

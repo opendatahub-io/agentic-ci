@@ -23,6 +23,8 @@ class Backend(ABC):
     execution environments (OpenShell sandbox, Podman container, etc.).
     """
 
+    collector_bind_address: str = "127.0.0.1"
+
     def __init__(self, workdir=".", image=None, *, harness: Harness):
         self.workdir = os.path.abspath(workdir)
         self.image = image
