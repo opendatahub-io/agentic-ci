@@ -89,8 +89,8 @@ RUN curl -fsSL -o /etc/yum.repos.d/acli.repo \
     && dnf clean all
 
 # uv
-ARG UV_VERSION=0.11.20
-ARG UV_SHA256=a7545a1360d29baa696753af2f41849047b332bcb90e8ea75ad0568e7f865e35
+ARG UV_VERSION=0.11.21
+ARG UV_SHA256=9dadff5b9e7b1d2d011e41852a1cbca713d9d5d88194f2eb6bd240fa4fb0a719
 RUN curl -fsSL -o /tmp/uv.tar.gz \
         "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
