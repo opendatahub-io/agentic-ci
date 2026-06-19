@@ -1,6 +1,5 @@
 """Tests for Podman backend."""
 
-import base64
 import json
 import os
 
@@ -18,115 +17,6 @@ def claude_harness():
 @pytest.fixture()
 def opencode_harness():
     return OpenCodeHarness()
-
-
-def test_find_credentials_from_gcloud_credentials_json(monkeypatch, tmp_path, claude_harness):
-    creds = json.dumps({"type": "authorized_user", "client_id": "test"})
-    monkeypatch.setenv("GCLOUD_CREDENTIALS", creds)
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["client_id"] == "test"
-    assert source == "GCLOUD_CREDENTIALS env var"
-
-
-def test_find_credentials_from_base64(monkeypatch, tmp_path, claude_harness):
-    creds = json.dumps({"type": "service_account", "project_id": "test"})
-    encoded = base64.b64encode(creds.encode()).decode()
-    monkeypatch.setenv("GCLOUD_CREDENTIALS", encoded)
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["project_id"] == "test"
-    assert source == "GCLOUD_CREDENTIALS env var (base64)"
-
-
-def test_find_credentials_from_service_account_key(monkeypatch, tmp_path, claude_harness):
-    creds = json.dumps({"type": "service_account", "project_id": "sa-test"})
-    encoded = base64.b64encode(creds.encode()).decode()
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", encoded)
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["project_id"] == "sa-test"
-    assert source == "GCP_SERVICE_ACCOUNT_KEY env var"
-
-
-def test_find_credentials_from_service_account_key_json_file(monkeypatch, tmp_path, claude_harness):
-    creds = json.dumps({"type": "service_account", "project_id": "sa-file-test"})
-    key_file = tmp_path / "sa-key.json"
-    key_file.write_text(creds)
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["project_id"] == "sa-file-test"
-    assert source == "GCP_SERVICE_ACCOUNT_KEY file"
-
-
-def test_find_credentials_from_service_account_key_base64_file(
-    monkeypatch, tmp_path, claude_harness
-):
-    creds = json.dumps({"type": "service_account", "project_id": "sa-b64-file"})
-    encoded = base64.b64encode(creds.encode()).decode()
-    key_file = tmp_path / "sa-key.b64"
-    key_file.write_text(encoded)
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["project_id"] == "sa-b64-file"
-    assert source == "GCP_SERVICE_ACCOUNT_KEY file"
-
-
-def test_find_credentials_from_service_account_key_file_invalid(
-    monkeypatch, tmp_path, claude_harness
-):
-    key_file = tmp_path / "bad-key.json"
-    key_file.write_text("not valid json or base64")
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.setenv("GCP_SERVICE_ACCOUNT_KEY", str(key_file))
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    with pytest.raises(RuntimeError, match="not valid JSON or base64"):
-        backend._find_credentials()
-
-
-def test_find_credentials_from_adc_file(monkeypatch, tmp_path, claude_harness):
-    creds = json.dumps({"type": "authorized_user", "client_id": "file-test"})
-    adc_path = tmp_path / "adc.json"
-    adc_path.write_text(creds)
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.delenv("GCP_SERVICE_ACCOUNT_KEY", raising=False)
-    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(adc_path))
-    monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    result, source = backend._find_credentials()
-    assert json.loads(result)["client_id"] == "file-test"
-    assert source == "GOOGLE_APPLICATION_CREDENTIALS file"
-
-
-def test_find_credentials_raises_when_missing(monkeypatch, tmp_path, claude_harness):
-    monkeypatch.delenv("GCLOUD_CREDENTIALS", raising=False)
-    monkeypatch.delenv("GCP_SERVICE_ACCOUNT_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "nonexistent"))
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    with pytest.raises(RuntimeError, match="No GCP credentials found"):
-        backend._find_credentials()
-
-
-def test_find_credentials_invalid_json_raises(monkeypatch, tmp_path, claude_harness):
-    monkeypatch.setenv("GCLOUD_CREDENTIALS", "not-json-not-base64")
-
-    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
-    with pytest.raises(RuntimeError, match="not valid JSON"):
-        backend._find_credentials()
 
 
 def test_build_env_args_claude_code(tmp_path, claude_harness):
@@ -154,18 +44,6 @@ def test_build_env_args_extra_env(tmp_path, claude_harness):
     )
     args = backend._build_env_args()
     assert "MY_VAR=value" in args
-
-
-def test_is_valid_json():
-    assert PodmanBackend._is_valid_json('{"key": "value"}')
-    assert not PodmanBackend._is_valid_json("not json")
-    assert not PodmanBackend._is_valid_json("")
-
-
-def test_try_base64_decode():
-    encoded = base64.b64encode(b"hello").decode()
-    assert PodmanBackend._try_base64_decode(encoded) == "hello"
-    assert PodmanBackend._try_base64_decode("!!!invalid!!!") is None
 
 
 def test_resolve_credentials_creates_config(monkeypatch, tmp_path, claude_harness):

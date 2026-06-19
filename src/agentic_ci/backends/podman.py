@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 import os
 import subprocess
 import tempfile
@@ -11,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
+from agentic_ci.gcp import find_credentials as _find_gcp_credentials
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -207,7 +206,7 @@ class PodmanBackend(Backend):
         with open(config_path, "w") as f:
             f.write(f"[core]\nproject = {vertex_project}\ndisable_prompts = true\n")
 
-        creds_json, creds_source = self._find_credentials()
+        creds_json, creds_source = _find_gcp_credentials()
         adc_path = os.path.join(
             self._config_dir, ".config", "gcloud", "application_default_credentials.json"
         )
@@ -215,55 +214,6 @@ class PodmanBackend(Backend):
             f.write(creds_json)
 
         log.section(f"Credentials staged ({creds_source})")
-
-    def _find_credentials(self):
-        """Locate and validate gcloud credentials. Returns (json_string, source_label)."""
-        raw = os.environ.get("GCLOUD_CREDENTIALS", "")
-        if raw:
-            if self._is_valid_json(raw):
-                return raw, "GCLOUD_CREDENTIALS env var"
-            decoded = self._try_base64_decode(raw)
-            if decoded and self._is_valid_json(decoded):
-                return decoded, "GCLOUD_CREDENTIALS env var (base64)"
-            raise RuntimeError("GCLOUD_CREDENTIALS is not valid JSON or base64-encoded JSON")
-
-        sa_key = os.environ.get("GCP_SERVICE_ACCOUNT_KEY", "")
-        if sa_key:
-            if os.path.isfile(sa_key):
-                try:
-                    with open(sa_key) as f:
-                        content = f.read().strip()
-                except OSError as exc:
-                    raise RuntimeError(
-                        f"Failed to read GCP_SERVICE_ACCOUNT_KEY file {sa_key}: {exc}"
-                    ) from exc
-                sa_key = content
-                source_label = "GCP_SERVICE_ACCOUNT_KEY file"
-            else:
-                source_label = "GCP_SERVICE_ACCOUNT_KEY env var"
-            if self._is_valid_json(sa_key):
-                return sa_key, source_label
-            decoded = self._try_base64_decode(sa_key)
-            if decoded and self._is_valid_json(decoded):
-                return decoded, source_label
-            raise RuntimeError("GCP_SERVICE_ACCOUNT_KEY is not valid JSON or base64-encoded JSON")
-
-        adc = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
-        ga_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
-        for path, label in [
-            (adc, "default ADC file"),
-            (ga_creds, "GOOGLE_APPLICATION_CREDENTIALS file"),
-        ]:
-            if path and os.path.isfile(path):
-                with open(path) as f:
-                    content = f.read()
-                if self._is_valid_json(content):
-                    return content, label
-
-        raise RuntimeError(
-            "No GCP credentials found. Set GCLOUD_CREDENTIALS, "
-            "GCP_SERVICE_ACCOUNT_KEY, or configure gcloud ADC."
-        )
 
     def _build_env_args(self):
         args = list(self.harness.build_env_args())
@@ -297,18 +247,3 @@ class PodmanBackend(Backend):
                 ]
             )
         return vols
-
-    @staticmethod
-    def _is_valid_json(text):
-        try:
-            json.loads(text)
-            return True
-        except (json.JSONDecodeError, ValueError):
-            return False
-
-    @staticmethod
-    def _try_base64_decode(text):
-        try:
-            return base64.b64decode(text).decode("utf-8")
-        except Exception:
-            return None
