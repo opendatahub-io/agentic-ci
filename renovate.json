@@ -130,18 +130,6 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^images/ci/Containerfile\\.podman$",
-        "^images/ci/Containerfile\\.openshell$"
-      ],
-      "matchStrings": ["ARG ACLI_VERSION=(?<currentValue>[^\\n]+)"],
-      "depNameTemplate": "acli",
-      "datasourceTemplate": "rpm",
-      "registryUrlTemplate": "https://acli.atlassian.com/linux/rpm/repodata/",
-      "versioningTemplate": "rpm"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/shared/Containerfile\\.openshell-base$"
       ],
