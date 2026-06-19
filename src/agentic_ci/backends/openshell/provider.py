@@ -5,6 +5,9 @@ import os
 import subprocess
 
 from agentic_ci import log
+from agentic_ci.gcp import adc_path as _adc_path
+from agentic_ci.gcp import ensure_adc
+from agentic_ci.gcp import read_credential_type as _adc_credential_type
 
 PROVIDER_NAME = "ci-gcp"
 
@@ -86,10 +89,13 @@ def _create_gcp_provider():
         "VERTEX_LOCATION",
         os.environ.get("CLOUD_ML_REGION", "global"),
     )
+
+    source = ensure_adc()
     cred_type = _adc_credential_type()
 
     print(
-        f"  Creating GCP provider (project={project}, region={region}, creds={cred_type})",
+        f"  Creating GCP provider "
+        f"(project={project}, region={region}, creds={cred_type}, source={source})",
         flush=True,
     )
 
@@ -184,24 +190,3 @@ def _create_gcp_provider_sa(project, region):
         ],
         check=True,
     )
-
-
-def _adc_path():
-    """Return the path to the gcloud ADC file."""
-    return os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
-
-
-def _adc_credential_type():
-    """Read the credential type from the gcloud ADC file.
-
-    Returns 'service_account', 'authorized_user', or 'unknown'.
-    """
-    adc = _adc_path()
-    if not os.path.isfile(adc):
-        return "unknown"
-    try:
-        with open(adc) as f:
-            data = json.load(f)
-        return data.get("type", "unknown")
-    except (json.JSONDecodeError, OSError):
-        return "unknown"
