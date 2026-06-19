@@ -35,6 +35,7 @@ def _make_response(status_code, json_data=None, text=""):
 
 class TestCreateMergeRequest:
     def test_success_returns_url(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, [])
         mock_session.post.return_value = _make_response(
             201, {"html_url": "https://github.com/owner/repo/pull/42"}
         )
@@ -49,6 +50,7 @@ class TestCreateMergeRequest:
         assert error is None
 
     def test_failure_returns_error(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, [])
         mock_session.post.return_value = _make_response(
             422, {"message": "Validation Failed"}, "error body"
         )
@@ -61,6 +63,36 @@ class TestCreateMergeRequest:
         )
         assert url is None
         assert error == "Validation Failed"
+
+    def test_returns_existing_open_pr(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(
+            200, [{"html_url": "https://github.com/owner/repo/pull/99"}]
+        )
+        url, error = forge.create_merge_request(
+            "https://github.com/owner/repo",
+            "feature-branch",
+            "main",
+            "Fix bug",
+            "Description",
+        )
+        assert url == "https://github.com/owner/repo/pull/99"
+        assert error is None
+        mock_session.post.assert_not_called()
+
+    def test_existing_pr_check_failure_falls_through(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(403, text="Forbidden")
+        mock_session.post.return_value = _make_response(
+            201, {"html_url": "https://github.com/owner/repo/pull/42"}
+        )
+        url, error = forge.create_merge_request(
+            "https://github.com/owner/repo",
+            "feature-branch",
+            "main",
+            "Fix bug",
+            "Description",
+        )
+        assert url == "https://github.com/owner/repo/pull/42"
+        assert error is None
 
 
 class TestUpdateMergeRequest:

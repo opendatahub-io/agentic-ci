@@ -46,6 +46,23 @@ class GitHubForge(Forge):
         description: str,
     ) -> tuple[str | None, str | None]:
         repo_path = repo_path_from_url(repo_url)
+
+        owner = repo_path.split("/")[0]
+        existing = self._session.get(
+            f"https://api.github.com/repos/{repo_path}/pulls",
+            params={
+                "head": f"{owner}:{source_branch}",
+                "base": target_branch,
+                "state": "open",
+            },
+        )
+        if existing.status_code == 200:
+            prs = existing.json()
+            if prs:
+                existing_url = prs[0].get("html_url")
+                log.info("Found existing open PR: %s", existing_url)
+                return existing_url, None
+
         payload = {
             "head": source_branch,
             "base": target_branch,

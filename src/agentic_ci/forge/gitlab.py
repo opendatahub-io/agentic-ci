@@ -52,6 +52,22 @@ class GitLabForge(Forge):
     ) -> tuple[str | None, str | None]:
         project_path = repo_path_from_url(repo_url)
         pid = self.project_id(project_path)
+
+        existing = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{pid}/merge_requests",
+            params={
+                "source_branch": source_branch,
+                "target_branch": target_branch,
+                "state": "opened",
+            },
+        )
+        if existing.status_code == 200:
+            mrs = existing.json()
+            if mrs:
+                existing_url = mrs[0].get("web_url")
+                log.info("Found existing open MR: %s", existing_url)
+                return existing_url, None
+
         payload: dict[str, str | bool] = {
             "source_branch": source_branch,
             "target_branch": target_branch,
