@@ -119,6 +119,12 @@ class OpenShellBackend(Backend):
         log.section("Downloading workdir")
         sandbox.download(sandbox_workdir, self.workdir)
 
+        # The base class verdict check in _process_stream() runs before
+        # download, so the file isn't on the host yet. Re-check now.
+        if rc != 0 and self.verdict_path is not None and self.verdict_path.exists():
+            log.info("verdict file found after download (rc=%d), treating as success", rc)
+            rc = 0
+
         return rc
 
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
