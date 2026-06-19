@@ -310,6 +310,46 @@ POLICY
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
+    # --- Verdict file download test ---
+    # Verifies that files written to gitignored directories inside the
+    # sandbox (like autofix-output/) are downloaded back to the host.
+    # This was broken when sandbox.download() used --no-git-ignore
+    # (unsupported flag) and when the verdict check ran before download.
+    print_header "=== agentic-ci run: verdict file download ==="
+
+    WORKDIR="$TMPDIR_E2E/verdict-download"
+    mkdir -p "$WORKDIR"
+    # Add a .gitignore that excludes the output directory, matching the
+    # real autofix layout where the verdict lives in a gitignored path.
+    cat > "$WORKDIR/.gitignore" <<'GITIGNORE'
+autofix-output/
+GITIGNORE
+    git -C "$WORKDIR" init -q
+
+    print_step "Running Claude Code to create a file in a gitignored directory..."
+    VERDICT_LOG="$TMPDIR_E2E/verdict-download.log"
+    RC=0
+    agentic-ci run \
+        "Create the directory autofix-output/ then write the file autofix-output/verdict.json with the content {\"verdict\": \"committed\"}. Do not say anything else." \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$VERDICT_LOG" || RC=$?
+
+    assert_ok "verdict-download run exited successfully" test "$RC" -eq 0
+    assert_ok "verdict-download: verdict file downloaded to host" \
+        test -f "$WORKDIR/autofix-output/verdict.json"
+
+    if [[ -f "$WORKDIR/autofix-output/verdict.json" ]]; then
+        VERDICT_CONTENT="$(cat "$WORKDIR/autofix-output/verdict.json")"
+        assert_contains "verdict-download: file has expected content" \
+            "$VERDICT_CONTENT" "committed"
+    fi
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
     # --- AGENT_ENABLED_PLUGINS via OpenShell ---
     # Verifies that the env script sources entrypoint.sh and calls
     # _enable_plugins so only the requested plugins are loaded.
