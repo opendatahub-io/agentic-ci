@@ -15,6 +15,7 @@ DEFAULT_ENDPOINTS = [
     "github.com:443:full",
     "*.github.com:443:full",
     "gitlab.com:443:full",
+    "*.gitlab.com:443:full",
     "pypi.org:443:read-only",
     "files.pythonhosted.org:443:read-only",
     "aiplatform.googleapis.com:443:read-write",
