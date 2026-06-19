@@ -54,8 +54,9 @@ class Backend(ABC):
     def _process_stream(self, proc, streaming):
         """Read output from proc.stdout through the harness stream processor.
 
-        Returns the exit code, treating stream-complete as success even
-        if the process exit code is non-zero.
+        Returns ``(rc, stream_complete)`` so callers can insert
+        backend-specific steps (e.g. downloading the workdir) before
+        the verdict check in :meth:`_resolve_exit_code`.
         """
         stderr_buf = bytearray()
 
@@ -97,6 +98,22 @@ class Backend(ABC):
         if processor:
             processor.flush_errors()
 
+        if rc != 0 and stderr_buf:
+            filtered = self._filter_stderr_noise(stderr_buf)
+            if filtered:
+                log.section("Agent stderr")
+                sys.stderr.buffer.write(filtered)
+                sys.stderr.buffer.flush()
+
+        return rc, stream_complete
+
+    def _resolve_exit_code(self, rc, stream_complete):
+        """Apply verdict-based exit code override.
+
+        When the stream processor detected a completed run but the
+        process exited non-zero (e.g. SIGKILL after the agent finished),
+        promote the exit code to 0 if the verdict file is present.
+        """
         if stream_complete and rc != 0:
             if self.verdict_path is not None and not self.verdict_path.exists():
                 log.info(
@@ -106,14 +123,6 @@ class Backend(ABC):
             else:
                 log.info(f"stream processor detected run complete (rc={rc}), treating as success")
                 rc = 0
-
-        if rc != 0 and stderr_buf:
-            filtered = self._filter_stderr_noise(stderr_buf)
-            if filtered:
-                log.section("Agent stderr")
-                sys.stderr.buffer.write(filtered)
-                sys.stderr.buffer.flush()
-
         return rc
 
     _STDERR_NOISE = (

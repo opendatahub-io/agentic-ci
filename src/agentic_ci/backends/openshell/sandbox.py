@@ -106,15 +106,7 @@ def upload(local_path):
 def download(sandbox_path, local_dest):
     """Download a path from the sandbox to a local destination."""
     _run(
-        [
-            "openshell",
-            "sandbox",
-            "download",
-            "--no-git-ignore",
-            SANDBOX_NAME,
-            sandbox_path,
-            local_dest,
-        ],
+        ["openshell", "sandbox", "download", SANDBOX_NAME, sandbox_path, local_dest],
         check=True,
     )
 

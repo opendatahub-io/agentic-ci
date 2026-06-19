@@ -113,18 +113,13 @@ class OpenShellBackend(Backend):
         ]
         proc = sandbox.exec_cmd_streaming(cmd)
 
-        rc = self._process_stream(proc, streaming)
+        rc, stream_complete = self._process_stream(proc, streaming)
         self._wait_for_otel_flush(otel_port)
 
         log.section("Downloading workdir")
         sandbox.download(sandbox_workdir, self.workdir)
 
-        # The base class verdict check in _process_stream() runs before
-        # download, so the file isn't on the host yet. Re-check now.
-        if rc != 0 and self.verdict_path is not None and self.verdict_path.exists():
-            log.info("verdict file found after download (rc=%d), treating as success", rc)
-            rc = 0
-
+        rc = self._resolve_exit_code(rc, stream_complete)
         return rc
 
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):

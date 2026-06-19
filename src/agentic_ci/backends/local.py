@@ -60,6 +60,7 @@ class LocalBackend(Backend):
             env=env,
         )
 
-        rc = self._process_stream(proc, streaming)
+        rc, stream_complete = self._process_stream(proc, streaming)
+        rc = self._resolve_exit_code(rc, stream_complete)
         self._wait_for_otel_flush(otel_port)
         return rc

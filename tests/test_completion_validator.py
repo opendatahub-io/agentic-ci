@@ -88,7 +88,8 @@ class TestVerdictPathGuard:
         """Without a verdict_path set, stream_complete promotes rc to 0."""
         backend = ConcreteBackend(harness=FakeHarness())
         proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
-        rc = backend._process_stream(proc, streaming=True)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+        rc = backend._resolve_exit_code(rc, stream_complete)
         assert rc == 0
 
     def test_verdict_exists_promotes_rc(self, tmp_path):
@@ -98,7 +99,8 @@ class TestVerdictPathGuard:
         backend = ConcreteBackend(harness=FakeHarness())
         backend.verdict_path = verdict
         proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
-        rc = backend._process_stream(proc, streaming=True)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+        rc = backend._resolve_exit_code(rc, stream_complete)
         assert rc == 0
 
     def test_verdict_missing_keeps_original_rc(self, tmp_path):
@@ -106,7 +108,8 @@ class TestVerdictPathGuard:
         backend = ConcreteBackend(harness=FakeHarness())
         backend.verdict_path = tmp_path / "verdict.json"
         proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
-        rc = backend._process_stream(proc, streaming=True)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+        rc = backend._resolve_exit_code(rc, stream_complete)
         assert rc == -9
 
     def test_no_stream_complete_no_promotion(self):
@@ -114,8 +117,146 @@ class TestVerdictPathGuard:
         backend = ConcreteBackend(harness=FakeHarness())
         backend.verdict_path = None
         proc = _make_proc(['{"type": "system"}\n'], returncode=1)
-        rc = backend._process_stream(proc, streaming=True)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+        rc = backend._resolve_exit_code(rc, stream_complete)
         assert rc == 1
+
+    def test_process_stream_returns_tuple(self):
+        """_process_stream returns (rc, stream_complete) tuple."""
+        backend = ConcreteBackend(harness=FakeHarness())
+        proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+        result = backend._process_stream(proc, streaming=True)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        rc, stream_complete = result
+        assert rc == -9
+        assert stream_complete is True
+
+    def test_process_stream_no_completion(self):
+        """_process_stream returns stream_complete=False when stream doesn't complete."""
+        backend = ConcreteBackend(harness=FakeHarness())
+        proc = _make_proc(['{"type": "system"}\n'], returncode=1)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+        assert rc == 1
+        assert stream_complete is False
+
+
+class TestOpenShellDownloadBeforeVerdict:
+    """Verify OpenShellBackend downloads the workdir before checking the verdict."""
+
+    def test_verdict_found_after_download(self, tmp_path):
+        """When download creates the verdict file, _resolve_exit_code sees it and promotes rc."""
+        backend = ConcreteBackend(harness=FakeHarness())
+        verdict = tmp_path / "autofix-output" / ".autofix-verdict.json"
+        backend.verdict_path = verdict
+
+        proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+
+        assert not verdict.exists()
+        assert rc == -9
+        assert stream_complete is True
+
+        verdict.parent.mkdir(parents=True)
+        verdict.write_text('{"verdict": "committed"}')
+
+        rc = backend._resolve_exit_code(rc, stream_complete)
+        assert rc == 0
+
+    def test_verdict_still_missing_after_download(self, tmp_path):
+        """When download doesn't produce the verdict file, rc is preserved."""
+        backend = ConcreteBackend(harness=FakeHarness())
+        backend.verdict_path = tmp_path / "autofix-output" / ".autofix-verdict.json"
+
+        proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
+
+        rc = backend._resolve_exit_code(rc, stream_complete)
+        assert rc == -9
+
+
+class TestOpenShellRunVerdictOrdering:
+    """Integration test: OpenShellBackend.run() downloads before verdict check."""
+
+    def test_run_downloads_before_verdict_check(self, tmp_path, monkeypatch):
+        """OpenShellBackend.run() must download the workdir before checking the verdict.
+
+        Simulates an agent that writes a verdict file inside the sandbox.
+        The mock download copies it to the host. The verdict check should
+        find it and promote the exit code to 0.
+        """
+        from agentic_ci.backends.openshell import OpenShellBackend
+        from agentic_ci.harness import ClaudeCodeHarness
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        harness = ClaudeCodeHarness()
+        workdir = tmp_path / "repo"
+        workdir.mkdir()
+        backend = OpenShellBackend(workdir=str(workdir), harness=harness)
+        verdict = workdir / "autofix-output" / ".autofix-verdict.json"
+        backend.verdict_path = verdict
+
+        call_order = []
+
+        def mock_exec_cmd_streaming(cmd):
+            call_order.append("exec")
+            return _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+
+        def mock_download(sandbox_path, local_dest):
+            call_order.append("download")
+            verdict.parent.mkdir(parents=True, exist_ok=True)
+            verdict.write_text('{"verdict": "committed"}')
+
+        with (
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch(
+                "agentic_ci.backends.openshell.sandbox.exec_cmd_streaming",
+                side_effect=mock_exec_cmd_streaming,
+            ),
+            mock.patch(
+                "agentic_ci.backends.openshell.sandbox.download",
+                side_effect=mock_download,
+            ),
+        ):
+            rc = backend.run(prompt="test", model="test-model", otel_port=None)
+
+        assert rc == 0, f"Expected rc=0 (verdict found after download), got {rc}"
+        assert call_order == ["exec", "download"]
+
+    def test_run_preserves_rc_when_verdict_missing_after_download(self, tmp_path, monkeypatch):
+        """If the verdict file is still missing after download, rc is preserved."""
+        from agentic_ci.backends.openshell import OpenShellBackend
+        from agentic_ci.harness import ClaudeCodeHarness
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        harness = ClaudeCodeHarness()
+        workdir = tmp_path / "repo"
+        workdir.mkdir()
+        backend = OpenShellBackend(workdir=str(workdir), harness=harness)
+        backend.verdict_path = workdir / "autofix-output" / ".autofix-verdict.json"
+
+        def mock_exec_cmd_streaming(cmd):
+            return _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+
+        def mock_download(sandbox_path, local_dest):
+            pass
+
+        with (
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch(
+                "agentic_ci.backends.openshell.sandbox.exec_cmd_streaming",
+                side_effect=mock_exec_cmd_streaming,
+            ),
+            mock.patch(
+                "agentic_ci.backends.openshell.sandbox.download",
+                side_effect=mock_download,
+            ),
+        ):
+            rc = backend.run(prompt="test", model="test-model", otel_port=None)
+
+        assert rc == -9, f"Expected rc=-9 (verdict still missing), got {rc}"
 
 
 class TestRunSkillVerdictWiring:
