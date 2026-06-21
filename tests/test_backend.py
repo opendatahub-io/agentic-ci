@@ -136,6 +136,48 @@ class TestOpenShellEnvScript:
         script = self._capture_script(monkeypatch, tmp_path)
         assert "AGENT_ENABLED_PLUGINS" not in script
 
+    def _capture_script_vertex(self, monkeypatch, tmp_path, **env_overrides):
+        """Like _capture_script but with Vertex auth (no API key)."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_MAX_RETRIES", raising=False)
+        for key, val in env_overrides.items():
+            if val is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, val)
+
+        harness = ClaudeCodeHarness()
+        backend = OpenShellBackend(workdir=str(tmp_path), harness=harness)
+
+        captured = []
+
+        def mock_upload(path):
+            with open(path) as f:
+                captured.append(f.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=mock_upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("claude-opus-4-6")
+
+        assert len(captured) == 1
+        return captured[0]
+
+    def test_env_script_sets_max_retries_for_vertex(self, monkeypatch, tmp_path):
+        script = self._capture_script_vertex(monkeypatch, tmp_path)
+        assert "CLAUDE_CODE_MAX_RETRIES=20" in script
+
+    def test_env_script_max_retries_override(self, monkeypatch, tmp_path):
+        script = self._capture_script_vertex(monkeypatch, tmp_path, CLAUDE_CODE_MAX_RETRIES="30")
+        assert "CLAUDE_CODE_MAX_RETRIES=30" in script
+
+    def test_env_script_omits_max_retries_for_api_key(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "CLAUDE_CODE_MAX_RETRIES" not in script
+
 
 class TestTokenKeepalive:
     """Tests for _token_keepalive and its integration in OpenShellBackend.run()."""

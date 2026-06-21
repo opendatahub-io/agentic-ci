@@ -53,6 +53,14 @@ def _token_keepalive(stop: threading.Event) -> None:
             return
 
 
+# Claude Code's API retry budget (the "Retry N/10" counter in the stream).
+# The default is 10, but a Vertex token-rotation lapse can produce a burst of
+# retryable "unknown" errors that, on stock 60-min token intervals, exhausted
+# all 10 retries and killed the run. The 20-min token keepalive shortens those
+# windows; this widens the budget so even an unlucky long lapse recovers.
+# Belt-and-suspenders with the keepalive above. Overridable via env var.
+_DEFAULT_MAX_RETRIES = "20"
+
 _OPENSHELL_HOST = "host.openshell.internal"
 
 
@@ -203,6 +211,10 @@ class OpenShellBackend(Backend):
             )
         else:
             lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+
+        if self.harness.auth_mode == "vertex":
+            max_retries = os.environ.get("CLAUDE_CODE_MAX_RETRIES", _DEFAULT_MAX_RETRIES)
+            lines.append(f"export CLAUDE_CODE_MAX_RETRIES={shlex.quote(max_retries)}")
 
         for key, val in self._extra_env.items():
             lines.append(f"export {key}={shlex.quote(val)}")
