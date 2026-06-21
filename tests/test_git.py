@@ -4,7 +4,13 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_ci.git import checkout_branch, get_default_branch, git_output, strip_committed_files
+from agentic_ci.git import (
+    checkout_branch,
+    get_changed_files,
+    get_default_branch,
+    git_output,
+    strip_committed_files,
+)
 
 
 class TestCheckoutBranch:
@@ -183,3 +189,25 @@ class TestStripCommittedFiles:
         strip_committed_files(repo, ["output/*"])
 
         assert verdict.exists()
+
+    def test_stripped_file_excluded_from_get_changed_files(self, tmp_path: Path):
+        """After stripping, get_changed_files must not report the file."""
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "autofix-output").mkdir()
+        (repo / "autofix-output" / "verdict.json").write_text("{}")
+        (repo / "fix.py").write_text("print('fix')\n")
+        subprocess.run(
+            ["git", "add", "-f", "autofix-output/verdict.json", "fix.py"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "fix"], cwd=str(repo), capture_output=True, check=True
+        )
+
+        strip_committed_files(repo, ["autofix-output/*"])
+
+        changed = get_changed_files(repo, base_ref="origin/HEAD")
+        assert "fix.py" in changed
+        assert "autofix-output/verdict.json" not in changed
