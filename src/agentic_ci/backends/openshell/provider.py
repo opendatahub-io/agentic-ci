@@ -178,6 +178,19 @@ def _create_gcp_provider_sa(project, region):
 
     # The refresh worker runs on a 60s interval. Request an immediate
     # rotation so the initial access token is minted before the agent starts.
+    rotate_token()
+
+
+def rotate_token():
+    """Force-rotate the gateway's GCP access token.
+
+    The OpenShell gateway refresh worker mints tokens on a 60s interval,
+    but can let a token lapse around the hourly expiry boundary when a
+    transient mint failure is only retried after 60s while the old token
+    keeps aging. Calling this proactively keeps a fresh token in play.
+
+    Raises subprocess.CalledProcessError on failure.
+    """
     _run(
         [
             "openshell",

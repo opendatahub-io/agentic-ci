@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import tempfile
+import threading
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
@@ -13,6 +15,43 @@ from agentic_ci.backends.openshell import gateway, provider, sandbox
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
+
+# GCP access tokens minted by the OpenShell gateway live for 3600s. The
+# gateway's refresh worker is supposed to rotate them ahead of expiry, but
+# around the hourly boundary a transient mint failure (retried only every 60s)
+# can let the token lapse, producing a burst of 401s that exhausts the agent's
+# retry budget and kills the run mid-way (see NVIDIA/OpenShell PR #1763).
+#
+# Force a rotation well inside the token lifetime so a freshly minted token is
+# always present, tolerating a couple of failed rotations without draining the
+# token's remaining life.
+_TOKEN_KEEPALIVE_INTERVAL = 1200  # rotate every 20 min
+
+# Phase-offset the first rotation by 10 min so the 20-min cadence lands at
+# 10/30/50/70/... min, never coinciding with the ~hourly expiry boundary that
+# the gateway refresh worker and the agent's client token cache already act on.
+# Rotating on top of that natural re-fetch correlated with extra transient
+# errors; offsetting avoids the collision.
+_TOKEN_KEEPALIVE_OFFSET = 600  # 10 min
+
+
+def _token_keepalive(stop: threading.Event) -> None:
+    """Force-rotate the gateway's GCP access token on a phase-offset 20-min
+    cadence until *stop* is set. Failures are logged but never raised."""
+    if stop.wait(_TOKEN_KEEPALIVE_OFFSET):
+        return
+    while True:
+        try:
+            provider.rotate_token()
+        except subprocess.CalledProcessError as exc:
+            print(
+                f"  [token-keepalive] rotate failed (rc={exc.returncode}): "
+                f"{exc.stderr.strip() if exc.stderr else ''}",
+                flush=True,
+            )
+        if stop.wait(_TOKEN_KEEPALIVE_INTERVAL):
+            return
+
 
 _OPENSHELL_HOST = "host.openshell.internal"
 
@@ -111,16 +150,34 @@ class OpenShellBackend(Backend):
             "--",
             *agent_args,
         ]
-        proc = sandbox.exec_cmd_streaming(cmd)
 
-        rc, stream_complete = self._process_stream(proc, streaming)
-        self._wait_for_otel_flush(otel_port)
+        stop_keepalive = threading.Event()
+        keepalive: threading.Thread | None = None
 
-        log.section("Downloading workdir")
-        sandbox.download(sandbox_workdir, self.workdir)
+        # The token-lapse race only affects the OpenShell gateway's minted
+        # Vertex credential; the API-key auth path is unaffected.
+        if self.harness.auth_mode == "vertex":
+            log.section("Starting GCP token keepalive")
+            keepalive = threading.Thread(
+                target=_token_keepalive, args=(stop_keepalive,), daemon=True
+            )
+            keepalive.start()
 
-        rc = self._resolve_exit_code(rc, stream_complete)
-        return rc
+        try:
+            proc = sandbox.exec_cmd_streaming(cmd)
+
+            rc, stream_complete = self._process_stream(proc, streaming)
+            self._wait_for_otel_flush(otel_port)
+
+            log.section("Downloading workdir")
+            sandbox.download(sandbox_workdir, self.workdir)
+
+            rc = self._resolve_exit_code(rc, stream_complete)
+            return rc
+        finally:
+            stop_keepalive.set()
+            if keepalive:
+                keepalive.join(timeout=5)
 
     def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.

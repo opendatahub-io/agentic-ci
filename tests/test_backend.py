@@ -1,12 +1,13 @@
 """Tests for backend factory."""
 
+import threading
 from unittest import mock
 
 import pytest
 
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.local import LocalBackend
-from agentic_ci.backends.openshell import OpenShellBackend
+from agentic_ci.backends.openshell import OpenShellBackend, _token_keepalive
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, create_harness
 
@@ -134,3 +135,62 @@ class TestOpenShellEnvScript:
     def test_env_script_omits_enabled_plugins_when_unset(self, monkeypatch, tmp_path):
         script = self._capture_script(monkeypatch, tmp_path)
         assert "AGENT_ENABLED_PLUGINS" not in script
+
+
+class TestTokenKeepalive:
+    """Tests for _token_keepalive and its integration in OpenShellBackend.run()."""
+
+    def test_keepalive_calls_rotate_token(self, monkeypatch):
+        """After the phase offset, rotate_token is called on each interval tick."""
+        monkeypatch.setattr("agentic_ci.backends.openshell._TOKEN_KEEPALIVE_OFFSET", 0)
+        monkeypatch.setattr("agentic_ci.backends.openshell._TOKEN_KEEPALIVE_INTERVAL", 0)
+        call_count = 0
+        stop = threading.Event()
+
+        def mock_rotate():
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                stop.set()
+
+        monkeypatch.setattr("agentic_ci.backends.openshell.provider.rotate_token", mock_rotate)
+        _token_keepalive(stop)
+        assert call_count >= 3
+
+    def test_keepalive_stops_on_event_during_offset(self, monkeypatch):
+        """Setting stop during the initial offset exits without rotating."""
+        monkeypatch.setattr("agentic_ci.backends.openshell._TOKEN_KEEPALIVE_OFFSET", 10)
+        rotate_called = False
+
+        def mock_rotate():
+            nonlocal rotate_called
+            rotate_called = True
+
+        monkeypatch.setattr("agentic_ci.backends.openshell.provider.rotate_token", mock_rotate)
+        stop = threading.Event()
+        stop.set()
+        _token_keepalive(stop)
+        assert not rotate_called
+
+    def test_keepalive_logs_rotate_failure(self, monkeypatch, capsys):
+        """CalledProcessError from rotate_token is logged, not raised."""
+        import subprocess
+
+        monkeypatch.setattr("agentic_ci.backends.openshell._TOKEN_KEEPALIVE_OFFSET", 0)
+        monkeypatch.setattr("agentic_ci.backends.openshell._TOKEN_KEEPALIVE_INTERVAL", 0)
+        stop = threading.Event()
+        call_count = 0
+
+        def mock_rotate():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise subprocess.CalledProcessError(1, "openshell", stderr="auth error")
+            stop.set()
+
+        monkeypatch.setattr("agentic_ci.backends.openshell.provider.rotate_token", mock_rotate)
+        _token_keepalive(stop)
+        captured = capsys.readouterr()
+        assert "[token-keepalive] rotate failed" in captured.out
+        assert "auth error" in captured.out
+        assert call_count >= 2
