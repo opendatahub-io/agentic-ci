@@ -440,7 +440,10 @@ class GitDiffError(Exception):
 
 
 def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
-    """Get list of files changed relative to base_ref.
+    """Return files changed between *base_ref* and HEAD (committed state only).
+
+    Uses the two-ref form ``git diff --name-only <base_ref> HEAD`` so that
+    untracked working-tree files are excluded from the result.
 
     Raises GitDiffError if the git command fails.
     """
@@ -448,7 +451,7 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
         raise GitDiffError(f"Invalid ref name: {base_ref}")
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base_ref],
+            ["git", "diff", "--name-only", base_ref, "HEAD"],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
