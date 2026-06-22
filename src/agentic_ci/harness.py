@@ -5,6 +5,7 @@ A harness encapsulates everything specific to a particular agent CLI
 it needs, where credentials are mounted, and how to parse its output.
 """
 
+import json
 import os
 import shlex
 from abc import ABC, abstractmethod
@@ -101,6 +102,20 @@ class Harness(ABC):
     def autoupdater_env_var(self) -> str:
         """Env var name to disable auto-updates."""
         return "DISABLE_AUTOUPDATER"
+
+    def write_sandbox_config(self, config_dir, otel_enabled=False):
+        """Write agent-specific config files to the sandbox config dir.
+
+        Called by backends before container start. Default is a no-op.
+        """
+
+    def sandbox_config_mounts(self, config_dir):
+        """Return list of (host_path, container_path) for config file mounts.
+
+        Called by backends to mount config files written by write_sandbox_config().
+        Default returns empty list.
+        """
+        return []
 
 
 class ClaudeCodeHarness(Harness):
@@ -309,6 +324,8 @@ class OpenCodeHarness(Harness):
             "--env",
             "AGENT_TOOL=opencode",
             "--env",
+            f"OPENCODE_CONFIG_DIR={self._CONTAINER_CONFIG_DIR}",
+            "--env",
             "OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
         if self.auth_mode == "api-key":
@@ -346,26 +363,51 @@ class OpenCodeHarness(Harness):
         if enabled_plugins:
             common.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
         if self.auth_mode == "api-key":
-            return [
+            lines = [
                 f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
                 *common,
             ]
-        project = os.environ.get(
-            "GOOGLE_CLOUD_PROJECT",
-            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
-        )
-        location = os.environ.get(
-            "VERTEX_LOCATION",
-            os.environ.get("CLOUD_ML_REGION", "global"),
-        )
-        return [
-            f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
-            f"export VERTEX_LOCATION={shlex.quote(location)}",
-            *common,
-        ]
+        else:
+            project = os.environ.get(
+                "GOOGLE_CLOUD_PROJECT",
+                os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
+            )
+            location = os.environ.get(
+                "VERTEX_LOCATION",
+                os.environ.get("CLOUD_ML_REGION", "global"),
+            )
+            lines = [
+                f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
+                f"export VERTEX_LOCATION={shlex.quote(location)}",
+                *common,
+            ]
+        if otel_port:
+            lines.extend(
+                [
+                    f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_GATEWAY_HOST}:{otel_port}",
+                    "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+                    "export OTEL_BSP_SCHEDULE_DELAY=0",
+                ]
+            )
+        return lines
 
     def build_otel_exec_env(self, otel_port=None):
-        return []
+        """Return OTel env vars for OpenCode.
+
+        See docs/otel-configuration.md for why these differ from Claude Code.
+        """
+        if not otel_port:
+            return []
+        return [
+            "--env",
+            f"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:{otel_port}",
+            "--env",
+            "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+            "--env",
+            # Flush spans immediately — OpenCode's process.exit() kills the
+            # Node.js process before the batch processor can drain its queue.
+            "OTEL_BSP_SCHEDULE_DELAY=0",
+        ]
 
     def build_local_env(self, otel_port=None, otel_rate_file=None):
         env = {
@@ -400,8 +442,29 @@ class OpenCodeHarness(Harness):
         return "google-vertex/claude-opus-4-6@default"
 
     @property
+    def supports_otel(self) -> bool:
+        return True
+
+    @property
     def autoupdater_env_var(self):
         return "OPENCODE_DISABLE_AUTOUPDATE"
+
+    _CONTAINER_CONFIG_DIR = "/sandbox/.config/opencode"
+
+    def write_sandbox_config(self, config_dir, otel_enabled=False):
+        opencode_dir = os.path.join(config_dir, ".config", "opencode")
+        os.makedirs(opencode_dir, exist_ok=True)
+        config = {"$schema": "https://opencode.ai/config.json"}
+        if otel_enabled:
+            config["experimental"] = {"openTelemetry": True}
+        with open(os.path.join(opencode_dir, "opencode.json"), "w") as f:
+            json.dump(config, f, indent=2)
+
+    def sandbox_config_mounts(self, config_dir):
+        host_path = os.path.join(config_dir, ".config", "opencode", "opencode.json")
+        if os.path.exists(host_path):
+            return [(host_path, f"{self._CONTAINER_CONFIG_DIR}/opencode.json")]
+        return []
 
 
 def create_harness(name: str) -> Harness:
