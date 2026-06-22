@@ -27,6 +27,7 @@ src/agentic_ci/
             gateway.py  # OpenShell gateway lifecycle
             sandbox.py  # OpenShell sandbox lifecycle
             policy.py   # Policy resolution + built-in default
+    plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
     stream.py           # Stream parsers for Claude Code and OpenCode output
     otel.py             # OTLP collector + token/cost summary
 ```
@@ -36,6 +37,8 @@ src/agentic_ci/
 - **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor.
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`.
+
+- **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`) and runtime filtering (`enable_plugins`). At build time, installs skills from the skills-registry marketplace into the container image and writes a plugin-to-skill manifest. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk (since `permission.skill.deny` doesn't prevent loading with `--dangerously-skip-permissions`).
 
 - **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
@@ -65,12 +68,9 @@ images/
     claude-code/
       Containerfile                 — Claude Code runner image
       Containerfile.openshell       — Claude Code sandbox image (OpenShell)
-      install-plugin.py             — Non-interactive Claude Code plugin installer
-      claude-settings.json          — Seed settings with skills-registry marketplace
     opencode/
       Containerfile                 — OpenCode runner image
       Containerfile.openshell       — OpenCode sandbox image (OpenShell)
-      install-skills.py             — Non-interactive OpenCode skill installer
       opencode.json                 — Seed config for CI headless mode
   ci/
     Containerfile.podman            — CI environment image (podman + tools)
@@ -148,6 +148,7 @@ When fixing a bug or adding a feature that changes failure modes, update `.claud
 When investigating this repo specifically, focus on these areas by symptom:
 
 - **Container failed**: Check `backends/podman.py` or `backends/openshell/` for container launch logic. Check `harness.py` for agent CLI argument construction. Check `cli.py` for credential and OTEL setup. Check `stream.py` if output parsing failed.
+- **Skills not found / wrong skills loaded**: Check `plugins.py` for install-time skill discovery (`install_opencode_skills` fallback dirs, manifest generation) and runtime filtering (`enable_plugins` reads `AGENT_ENABLED_PLUGINS`). Check `harness.py` `build_env_args()` and `build_env_script_lines()` for env var forwarding to the container. For OpenCode, filtering deletes unwanted skill directories from disk; for Claude Code, it disables plugins in `settings.json`.
 - **Skill engine failure**: Check `skill.py` for the `run_skill()` flow: pre-gates, container launch, post-gates, verdict loading. Check which phase returned an error.
 - **MR/PR operations failed**: Check `forge.py` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
 - **Gate framework issues**: Check `gates.py` for the gate registry and execution order. Check if a gate was added or changed that altered behavior. Gates run as pre/post hooks around the agent; the wiring is in the calling repo (autofix), but the gate implementations may be here.
