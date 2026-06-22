@@ -116,5 +116,52 @@ if [[ -s "$TMPDIR_E2E/err.txt" ]]; then
     echo "--- end stderr ---"
 fi
 
+# Stop the container before the next test
+agentic-ci stop --harness opencode 2>/dev/null || true
+
+# -- AGENT_ENABLED_PLUGINS test -----------------------------------------------
+print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS ==="
+
+WORKDIR="$TMPDIR_E2E/plugins"
+mkdir -p "$WORKDIR"
+
+MANIFEST="/usr/local/share/agentic-ci/plugin-skills.manifest.json"
+OC_FIRST_PLUGIN="$(podman run --rm --entrypoint "" "$IMAGE" python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path('$MANIFEST').read_text())
+print(list(m.keys())[0])
+")"
+OC_EXPECTED_COUNT="$(podman run --rm --entrypoint "" "$IMAGE" python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path('$MANIFEST').read_text())
+print(len(m['$OC_FIRST_PLUGIN']))
+")"
+print_step "Testing with AGENT_ENABLED_PLUGINS=$OC_FIRST_PLUGIN (expecting $OC_EXPECTED_COUNT skills)"
+
+RC=0
+AGENT_ENABLED_PLUGINS="$OC_FIRST_PLUGIN" \
+agentic-ci run "Reply with only the word pong" \
+    --image "$IMAGE" \
+    --harness opencode \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    --no-streaming \
+    > "$TMPDIR_E2E/plugins-out.txt" 2>"$TMPDIR_E2E/plugins-err.txt" || RC=$?
+
+assert_ok "plugin-filter run exited successfully" test "$RC" -eq 0
+
+# Verify the container only has the wanted plugin's skills on disk.
+# Run a fresh container with the same filtering to check the result.
+OC_SKILL_COUNT="$(podman run --rm --entrypoint "" \
+    -e OPENCODE_CONFIG_DIR=/home/agent-ci/.config/opencode \
+    -e AGENT_ENABLED_PLUGINS="$OC_FIRST_PLUGIN" \
+    -e AGENT_TOOL=opencode \
+    "$IMAGE" bash -c "
+        agentic-ci enable-plugins >/dev/null 2>&1
+        find /home/agent-ci/.config/opencode/skills -maxdepth 2 -name SKILL.md | wc -l
+    ")"
+assert_ok "plugin-filter: only $OC_FIRST_PLUGIN skills remain (got $OC_SKILL_COUNT, expected $OC_EXPECTED_COUNT)" \
+    test "$OC_SKILL_COUNT" -eq "$OC_EXPECTED_COUNT"
+
 echo ""
 print_header "=== All test sections complete ==="

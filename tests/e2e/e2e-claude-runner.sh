@@ -140,5 +140,53 @@ if [[ -s "$TMPDIR_E2E/nostream-out.txt" ]]; then
     echo "--- end non-streaming output ---"
 fi
 
+# Stop the container before the next test
+agentic-ci stop --harness claude-code 2>/dev/null || true
+
+# -- AGENT_ENABLED_PLUGINS test -----------------------------------------------
+print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS ==="
+
+WORKDIR="$TMPDIR_E2E/plugins"
+mkdir -p "$WORKDIR"
+
+# Pick the first enabled plugin from the image
+FIRST_PLUGIN="$(podman run --rm --entrypoint "" "$IMAGE" python3 -c "
+import json, pathlib
+d = json.loads(pathlib.Path('/home/agent-ci/.claude/settings.json').read_text())
+ep = d.get('enabledPlugins', {})
+print(list(ep.keys())[0].split('@')[0])
+")"
+print_step "Testing with AGENT_ENABLED_PLUGINS=$FIRST_PLUGIN"
+
+RC=0
+AGENT_ENABLED_PLUGINS="$FIRST_PLUGIN" \
+agentic-ci run "Reply with only the word pong" \
+    --image "$IMAGE" \
+    --harness claude-code \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    --no-streaming \
+    > "$TMPDIR_E2E/plugins-out.txt" 2>&1 || RC=$?
+
+assert_ok "plugin-filter run exited successfully" test "$RC" -eq 0
+
+# Verify settings.json has only the wanted plugin enabled.
+# Run a fresh container with the same env to check the entrypoint result.
+CC_ENABLED_COUNT="$(podman run --rm --entrypoint "" \
+    -e CLAUDE_CONFIG_DIR=/home/agent-ci/.claude \
+    -e AGENT_ENABLED_PLUGINS="$FIRST_PLUGIN" \
+    -e AGENT_TOOL=claude \
+    "$IMAGE" bash -c "
+        agentic-ci enable-plugins >/dev/null 2>&1
+        python3 -c \"
+import json, pathlib
+d = json.loads(pathlib.Path('/home/agent-ci/.claude/settings.json').read_text())
+enabled = [k for k, v in d.get('enabledPlugins', {}).items() if v]
+print(len(enabled))
+\"
+    ")"
+assert_ok "plugin-filter: only 1 plugin enabled (got $CC_ENABLED_COUNT)" \
+    test "$CC_ENABLED_COUNT" -eq 1
+
 echo ""
 print_header "=== All test sections complete ==="
