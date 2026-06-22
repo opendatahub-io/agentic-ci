@@ -443,7 +443,8 @@ def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
     """Return files changed between *base_ref* and HEAD (committed state only).
 
     Uses the two-ref form ``git diff --name-only <base_ref> HEAD`` so that
-    untracked working-tree files are excluded from the result.
+    files still in HEAD after a failed ``git commit --amend`` are detected
+    even when ``git rm --cached`` already removed them from the index.
 
     Raises GitDiffError if the git command fails.
     """
@@ -476,7 +477,8 @@ def strip_committed_files(
     given fnmatch *patterns* and amends the commit to remove them, keeping
     the working-tree copies intact.
 
-    Returns the list of file paths that were stripped (empty if none matched).
+    Returns the list of file paths actually stripped (empty if none matched
+    or all removals failed).
     """
     try:
         changed = get_changed_files(repo_dir, base_ref=base_ref)
@@ -499,18 +501,39 @@ def strip_committed_files(
         len(to_remove),
         ", ".join(to_remove),
     )
+    actually_removed = []
     for filepath in to_remove:
-        subprocess.run(
+        result = subprocess.run(
             ["git", "rm", "--cached", "--quiet", filepath],
             cwd=str(repo_dir),
             capture_output=True,
+            text=True,
         )
-    subprocess.run(
-        ["git", "commit", "--amend", "--no-edit", "--allow-empty"],
-        cwd=str(repo_dir),
-        capture_output=True,
-    )
-    return to_remove
+        if result.returncode != 0:
+            log.error(
+                "git rm --cached failed for %s (rc=%d): %s",
+                filepath,
+                result.returncode,
+                result.stderr.strip(),
+            )
+        else:
+            actually_removed.append(filepath)
+
+    if actually_removed:
+        result = subprocess.run(
+            ["git", "commit", "--amend", "--no-edit", "--allow-empty"],
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            log.error(
+                "git commit --amend failed after stripping (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
+
+    return actually_removed
 
 
 # -- Git credential setup ----------------------------------------------------
