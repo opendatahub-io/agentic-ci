@@ -177,7 +177,6 @@ def install_opencode_skills(
                     if candidate.is_dir():
                         _copy_tree(candidate, skills_dir)
                         skills_sources.append(candidate)
-                        break
 
             if not skills_sources:
                 print(f"  No skills found in {name}")
