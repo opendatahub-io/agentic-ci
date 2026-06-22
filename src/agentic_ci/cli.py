@@ -10,6 +10,7 @@ from pathlib import Path
 
 from agentic_ci import log, mlflow, otel, plugins
 from agentic_ci.backends import create_backend
+from agentic_ci.container import configure_podman_storage
 from agentic_ci.forge.cli import register_subcommands
 from agentic_ci.gates import resolve_gates, validate_gate_env
 from agentic_ci.harness import create_harness
@@ -349,6 +350,9 @@ def main():
         policy=args.policy,
         timeout=args.timeout,
     )
+
+    if args.backend in ("podman", "openshell"):
+        configure_podman_storage()
 
     if args.command == "setup":
         cmd_setup(args, backend)
