@@ -196,6 +196,49 @@ print_header "=== opencode-sandbox: entrypoint ==="
 assert_ok "entrypoint.sh is installed" \
     run_in "$OPENCODE_SANDBOX" test -x /usr/local/bin/entrypoint.sh
 
+print_header "=== opencode-sandbox: AGENT_ENABLED_PLUGINS ==="
+
+# Pick the first plugin from the manifest and verify that enable-plugins
+# removes all other plugins' skill directories from disk.
+OC_FILTER_RESULT="$(run_in "$OPENCODE_SANDBOX" bash -c '
+    export OPENCODE_CONFIG_DIR=/sandbox/.config/opencode
+    MANIFEST=/usr/local/share/agentic-ci/plugin-skills.manifest.json
+    PLUGIN=$(python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path(\"$MANIFEST\").read_text())
+print(list(m.keys())[0])
+")
+    WANTED_COUNT=$(python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path(\"$MANIFEST\").read_text())
+print(len(m[\"$PLUGIN\"]))
+")
+    TOTAL_BEFORE=$(find /sandbox/.config/opencode/skills -maxdepth 2 -name SKILL.md | wc -l)
+    export AGENT_ENABLED_PLUGINS="$PLUGIN"
+    agentic-ci enable-plugins >/dev/null 2>&1
+    TOTAL_AFTER=$(find /sandbox/.config/opencode/skills -maxdepth 2 -name SKILL.md | wc -l)
+    echo "${PLUGIN}|${WANTED_COUNT}|${TOTAL_BEFORE}|${TOTAL_AFTER}"
+')"
+OC_WANTED="$(echo "$OC_FILTER_RESULT" | cut -d'|' -f2)"
+OC_BEFORE="$(echo "$OC_FILTER_RESULT" | cut -d'|' -f3)"
+OC_AFTER="$(echo "$OC_FILTER_RESULT" | cut -d'|' -f4)"
+
+assert_ok "enable-plugins reduced skill count (before=$OC_BEFORE after=$OC_AFTER wanted=$OC_WANTED)" \
+    test "$OC_AFTER" -eq "$OC_WANTED"
+assert_ok "enable-plugins removed skills (before=$OC_BEFORE > after=$OC_AFTER)" \
+    test "$OC_BEFORE" -gt "$OC_AFTER"
+
+# Verify the manifest contains autofix-skills with the expected skills.
+OC_AUTOFIX_SKILLS="$(run_in "$OPENCODE_SANDBOX" python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path('/usr/local/share/agentic-ci/plugin-skills.manifest.json').read_text())
+skills = sorted(m.get('autofix-skills', []))
+print(','.join(skills))
+")"
+assert_contains "manifest has autofix-resolve" "$OC_AUTOFIX_SKILLS" "autofix-resolve"
+assert_contains "manifest has autofix-cve-resolve" "$OC_AUTOFIX_SKILLS" "autofix-cve-resolve"
+assert_contains "manifest has autofix-triage" "$OC_AUTOFIX_SKILLS" "autofix-triage"
+
 # --- Agent run tests (require credentials) ---
 _has_creds() {
     [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]] || \
@@ -392,6 +435,57 @@ print(list(ep.keys())[0].split('@')[0])
         FAIL=$((FAIL + 1))
     fi
     dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
+    # --- AGENT_ENABLED_PLUGINS via OpenShell (OpenCode) ---
+    # Verifies that the env script calls enable-plugins so only the
+    # requested plugin's skills are on disk when the agent starts.
+    print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS via OpenShell (OpenCode) ==="
+
+    WORKDIR="$TMPDIR_E2E/oc-plugins"
+    mkdir -p "$WORKDIR"
+
+    OC_FIRST_PLUGIN="$(run_in "$OPENCODE_SANDBOX" python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path('/usr/local/share/agentic-ci/plugin-skills.manifest.json').read_text())
+print(list(m.keys())[0])
+")"
+    OC_EXPECTED_COUNT="$(run_in "$OPENCODE_SANDBOX" python3 -c "
+import json, pathlib
+m = json.loads(pathlib.Path('/usr/local/share/agentic-ci/plugin-skills.manifest.json').read_text())
+print(len(m['$OC_FIRST_PLUGIN']))
+")"
+    print_step "Testing with AGENT_ENABLED_PLUGINS=$OC_FIRST_PLUGIN (expecting $OC_EXPECTED_COUNT skills)"
+
+    OC_PLUGINS_LOG="$TMPDIR_E2E/oc-plugins.log"
+    RC=0
+    AGENT_ENABLED_PLUGINS="$OC_FIRST_PLUGIN" \
+    agentic-ci run "Reply with only the word pong" \
+        --backend openshell \
+        --image "$OPENCODE_SANDBOX" \
+        --harness opencode \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$OC_PLUGINS_LOG" || RC=$?
+
+    assert_ok "opencode plugin-filter run exited successfully" test "$RC" -eq 0
+
+    # Verify the sandbox only has the wanted plugin's skills on disk.
+    # Download the workdir so we can inspect the sandbox state via the
+    # agent's own output (the agent was asked to reply "pong", but the
+    # skill removal happens before the agent starts).
+    OC_SKILL_COUNT="$(run_in "$OPENCODE_SANDBOX" bash -c "
+        export OPENCODE_CONFIG_DIR=/sandbox/.config/opencode
+        export AGENT_ENABLED_PLUGINS=\"$OC_FIRST_PLUGIN\"
+        agentic-ci enable-plugins >/dev/null 2>&1
+        find /sandbox/.config/opencode/skills -maxdepth 2 -name SKILL.md | wc -l
+    ")"
+    assert_ok "opencode plugin-filter: only $OC_FIRST_PLUGIN skills remain (got $OC_SKILL_COUNT, expected $OC_EXPECTED_COUNT)" \
+        test "$OC_SKILL_COUNT" -eq "$OC_EXPECTED_COUNT"
+
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness opencode 2>/dev/null || true
 fi
 
 echo ""

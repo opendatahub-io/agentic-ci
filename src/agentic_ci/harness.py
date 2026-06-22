@@ -152,6 +152,9 @@ class ClaudeCodeHarness(Harness):
             "--env",
             "DISABLE_AUTOUPDATER=1",
         ]
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            common.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
         if self.auth_mode == "api-key":
             return [
                 "--env",
@@ -251,6 +254,9 @@ class ClaudeCodeHarness(Harness):
             # -p sets sessionKind, breaking --continue lookup (claude-code#43013)
             "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
         }
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
         if self.auth_mode == "api-key":
             env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
         else:
@@ -328,6 +334,9 @@ class OpenCodeHarness(Harness):
             "--env",
             "OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            common.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
         if self.auth_mode == "api-key":
             return [
                 "--env",
@@ -414,6 +423,9 @@ class OpenCodeHarness(Harness):
             "AGENT_TOOL": "opencode",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
         }
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
         if self.auth_mode == "api-key":
             env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
         else:

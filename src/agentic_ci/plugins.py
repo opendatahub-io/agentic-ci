@@ -20,6 +20,7 @@ Runtime (called from entrypoint.sh / OpenShell env script via
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -177,7 +178,6 @@ def install_opencode_skills(
                     if candidate.is_dir():
                         _copy_tree(candidate, skills_dir)
                         skills_sources.append(candidate)
-                        break
 
             if not skills_sources:
                 print(f"  No skills found in {name}")
@@ -242,7 +242,6 @@ def _filter_claude(wanted: set[str]) -> None:
 
 def _filter_opencode(wanted: set[str]) -> None:
     config_dir = Path(os.environ.get("OPENCODE_CONFIG_DIR", Path.home() / ".config" / "opencode"))
-    config_path = config_dir / "opencode.json"
 
     manifest_path = _manifest_path()
     if not manifest_path.is_file():
@@ -265,29 +264,19 @@ def _filter_opencode(wanted: set[str]) -> None:
     matched = wanted & set(manifest.keys())
     _check_unmatched(wanted, matched)
 
-    unwanted_skills = []
+    wanted_skills: set[str] = set()
     for plugin_name, skills in manifest.items():
-        if plugin_name not in wanted:
-            unwanted_skills.extend(skills)
+        if plugin_name in wanted:
+            wanted_skills.update(skills)
 
-    if not unwanted_skills:
-        return
-
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, ValueError):
-        config = {}
-
-    permissions = config.setdefault("permission", {})
-    skill_perms = permissions.setdefault("skill", {})
-    for skill_name in unwanted_skills:
-        skill_perms[skill_name] = "deny"
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
-        f.write("\n")
+    skills_dir = config_dir / "skills"
+    if skills_dir.is_dir():
+        for entry in skills_dir.iterdir():
+            if entry.name not in wanted_skills:
+                if entry.is_symlink():
+                    entry.unlink()
+                elif entry.is_dir():
+                    shutil.rmtree(entry)
 
 
 def enable_plugins() -> None:
@@ -295,6 +284,13 @@ def enable_plugins() -> None:
     wanted_csv = os.environ.get("AGENT_ENABLED_PLUGINS", "")
     if not wanted_csv:
         return
+
+    if not re.match(r"^[a-zA-Z0-9_,. -]+$", wanted_csv):
+        print(
+            f"ERROR: AGENT_ENABLED_PLUGINS contains invalid characters: {wanted_csv!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     wanted = set(p.strip() for p in wanted_csv.split(",") if p.strip())
     if not wanted:
