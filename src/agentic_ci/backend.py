@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -88,10 +89,14 @@ class Backend(ABC):
                 sys.stdout.buffer.flush()
 
         try:
-            proc.kill()
+            proc.terminate()
         except OSError:
             pass
-        proc.wait()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
         stderr_thread.join(timeout=5)
         rc = proc.returncode
 
