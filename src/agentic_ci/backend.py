@@ -95,7 +95,12 @@ class Backend(ABC):
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            # Process may exit between wait() timeout and kill(), raising
+            # ProcessLookupError — catch it so cleanup can continue.
+            try:
+                proc.kill()
+            except OSError:
+                pass
             proc.wait()
         stderr_thread.join(timeout=5)
         rc = proc.returncode
