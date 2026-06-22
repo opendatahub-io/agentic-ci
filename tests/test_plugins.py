@@ -135,23 +135,49 @@ class TestEnablePluginsClaude:
 
 
 class TestEnablePluginsOpenCode:
-    def test_denies_unwanted_skills(self, monkeypatch, tmp_path):
+    def _setup_skills_on_disk(self, tmp_path, manifest_data):
+        """Create skill directories matching the manifest."""
+        skills_dir = tmp_path / "skills"
+        for skills in manifest_data.values():
+            for name in skills:
+                sd = skills_dir / name
+                sd.mkdir(parents=True, exist_ok=True)
+                (sd / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+
+    def test_removes_unwanted_skill_dirs(self, monkeypatch, tmp_path):
+        manifest_data = {"plugin-a": ["skill-a1", "skill-a2"], "plugin-b": ["skill-b1"]}
         manifest = tmp_path / "manifest.json"
-        manifest.write_text(
-            json.dumps({"plugin-a": ["skill-a1", "skill-a2"], "plugin-b": ["skill-b1"]})
-        )
+        manifest.write_text(json.dumps(manifest_data))
         config_path = tmp_path / "opencode.json"
         config_path.write_text(json.dumps({"permission": {"*": "allow"}}))
+        self._setup_skills_on_disk(tmp_path, manifest_data)
         monkeypatch.setenv("AGENT_TOOL", "opencode")
         monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "plugin-a")
         monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
         enable_plugins()
-        config = json.loads(config_path.read_text())
-        perms = config["permission"]["skill"]
-        assert perms["skill-b1"] == "deny"
-        assert "skill-a1" not in perms
-        assert "skill-a2" not in perms
+        assert not (tmp_path / "skills" / "skill-b1").exists()
+        assert (tmp_path / "skills" / "skill-a1" / "SKILL.md").is_file()
+        assert (tmp_path / "skills" / "skill-a2" / "SKILL.md").is_file()
+
+    def test_removes_orphan_skill_dirs(self, monkeypatch, tmp_path):
+        """Skill dirs not tracked by any manifest entry are also removed."""
+        manifest_data = {"plugin-a": ["skill-a1"]}
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text(json.dumps(manifest_data))
+        config_path = tmp_path / "opencode.json"
+        config_path.write_text(json.dumps({}))
+        self._setup_skills_on_disk(tmp_path, manifest_data)
+        orphan = tmp_path / "skills" / "orphan-skill"
+        orphan.mkdir(parents=True)
+        (orphan / "SKILL.md").write_text("---\nname: orphan-skill\n---\n")
+        monkeypatch.setenv("AGENT_TOOL", "opencode")
+        monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "plugin-a")
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+        enable_plugins()
+        assert not orphan.exists()
+        assert (tmp_path / "skills" / "skill-a1" / "SKILL.md").is_file()
 
     def test_missing_manifest_returns_ok(self, monkeypatch, tmp_path):
         monkeypatch.setenv("AGENT_TOOL", "opencode")
@@ -262,9 +288,7 @@ class TestInstallOpencodeSkills:
             "---\nname: debug-skill\n---\n"
         )
         (repo / "skills" / "main-skill").mkdir(parents=True)
-        (repo / "skills" / "main-skill" / "SKILL.md").write_text(
-            "---\nname: main-skill\n---\n"
-        )
+        (repo / "skills" / "main-skill" / "SKILL.md").write_text("---\nname: main-skill\n---\n")
 
         mkt = self._make_marketplace(tmp_path)
         skills_dir = tmp_path / "skills"
