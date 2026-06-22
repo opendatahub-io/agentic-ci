@@ -324,6 +324,8 @@ class OpenCodeHarness(Harness):
             "--env",
             "AGENT_TOOL=opencode",
             "--env",
+            f"OPENCODE_CONFIG_DIR={self._CONTAINER_CONFIG_DIR}",
+            "--env",
             "OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
         if self.auth_mode == "api-key":
@@ -447,7 +449,7 @@ class OpenCodeHarness(Harness):
     def autoupdater_env_var(self):
         return "OPENCODE_DISABLE_AUTOUPDATE"
 
-    _SANDBOX_CONFIG_DIR = "/sandbox/.config/opencode"
+    _CONTAINER_CONFIG_DIR = "/sandbox/.config/opencode"
 
     def write_sandbox_config(self, config_dir, otel_enabled=False):
         opencode_dir = os.path.join(config_dir, ".config", "opencode")
@@ -461,7 +463,7 @@ class OpenCodeHarness(Harness):
     def sandbox_config_mounts(self, config_dir):
         host_path = os.path.join(config_dir, ".config", "opencode", "opencode.json")
         if os.path.exists(host_path):
-            return [(host_path, f"{self._SANDBOX_CONFIG_DIR}/opencode.json")]
+            return [(host_path, f"{self._CONTAINER_CONFIG_DIR}/opencode.json")]
         return []
 
 
