@@ -391,3 +391,47 @@ class TestOpenCodeHarness:
 
     def test_default_model(self):
         assert OpenCodeHarness().default_model() == "google-vertex/claude-opus-4-6@default"
+
+    def test_build_env_script_lines_with_otel(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        harness = OpenCodeHarness()
+        lines = harness.build_env_script_lines(otel_port=4318)
+        assert any("OTEL_EXPORTER_OTLP_ENDPOINT=" in line for line in lines)
+        assert any("OTEL_EXPORTER_OTLP_PROTOCOL=http/json" in line for line in lines)
+        assert any("OTEL_BSP_SCHEDULE_DELAY=0" in line for line in lines)
+
+    def test_write_sandbox_config_otel_enabled(self, tmp_path):
+        harness = OpenCodeHarness()
+        harness.write_sandbox_config(str(tmp_path), otel_enabled=True)
+        config_file = tmp_path / ".config" / "opencode" / "opencode.json"
+        assert config_file.exists()
+        import json
+
+        config = json.loads(config_file.read_text())
+        assert config["$schema"] == "https://opencode.ai/config.json"
+        assert config["experimental"]["openTelemetry"] is True
+
+    def test_write_sandbox_config_otel_disabled(self, tmp_path):
+        harness = OpenCodeHarness()
+        harness.write_sandbox_config(str(tmp_path), otel_enabled=False)
+        config_file = tmp_path / ".config" / "opencode" / "opencode.json"
+        assert config_file.exists()
+        import json
+
+        config = json.loads(config_file.read_text())
+        assert config["$schema"] == "https://opencode.ai/config.json"
+        assert "experimental" not in config
+
+    def test_sandbox_config_mounts_with_config(self, tmp_path):
+        harness = OpenCodeHarness()
+        harness.write_sandbox_config(str(tmp_path), otel_enabled=True)
+        mounts = harness.sandbox_config_mounts(str(tmp_path))
+        assert len(mounts) == 1
+        host_path, container_path = mounts[0]
+        assert host_path.endswith("opencode.json")
+        assert container_path == "/sandbox/.config/opencode/opencode.json"
+
+    def test_sandbox_config_mounts_without_config(self, tmp_path):
+        harness = OpenCodeHarness()
+        mounts = harness.sandbox_config_mounts(str(tmp_path))
+        assert mounts == []
