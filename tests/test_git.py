@@ -211,3 +211,71 @@ class TestStripCommittedFiles:
         changed = get_changed_files(repo, base_ref="origin/HEAD")
         assert "fix.py" in changed
         assert "autofix-output/verdict.json" not in changed
+
+    def test_logs_git_rm_failure(self, tmp_path: Path, caplog):
+        """When git rm --cached fails, log the error with stderr details."""
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "autofix-output").mkdir()
+        (repo / "autofix-output" / "verdict.json").write_text("{}")
+        (repo / "fix.py").write_text("print('fix')\n")
+        subprocess.run(
+            ["git", "add", "-f", "autofix-output/verdict.json", "fix.py"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "fix"], cwd=str(repo), capture_output=True, check=True
+        )
+
+        original_run = subprocess.run
+
+        def _sabotage_rm(cmd, **kw):
+            if cmd[:3] == ["git", "rm", "--cached"] and "verdict.json" in cmd[-1]:
+                return subprocess.CompletedProcess(cmd, 128, "", "fatal: not removing")
+            return original_run(cmd, **kw)
+
+        with patch("agentic_ci.git.subprocess.run", side_effect=_sabotage_rm):
+            with caplog.at_level("ERROR", logger="agentic_ci.git"):
+                stripped = strip_committed_files(repo, ["autofix-output/*"])
+
+        assert stripped == []
+        assert any("git rm --cached failed" in r.message for r in caplog.records)
+        assert any("fatal: not removing" in r.message for r in caplog.records)
+
+    def test_strip_across_multiple_commits(self, tmp_path: Path):
+        """Artifact committed in an earlier commit is stripped by amending HEAD."""
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "autofix-output").mkdir()
+        (repo / "autofix-output" / "verdict.json").write_text('{"v":1}')
+        (repo / "fix.py").write_text("print('fix')\n")
+        subprocess.run(
+            ["git", "add", "-f", "autofix-output/verdict.json", "fix.py"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "commit 1"], cwd=str(repo), capture_output=True, check=True
+        )
+        (repo / "fix2.py").write_text("print('fix2')\n")
+        subprocess.run(["git", "add", "fix2.py"], cwd=str(repo), capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "commit 2"], cwd=str(repo), capture_output=True, check=True
+        )
+
+        stripped = strip_committed_files(repo, ["autofix-output/*"])
+
+        assert stripped == ["autofix-output/verdict.json"]
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "origin/HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        changed = [f for f in result.stdout.strip().split("\n") if f]
+        assert "autofix-output/verdict.json" not in changed
+        assert "fix.py" in changed
+        assert "fix2.py" in changed
+        assert (repo / "autofix-output" / "verdict.json").exists()
