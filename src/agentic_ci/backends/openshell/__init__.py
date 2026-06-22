@@ -132,13 +132,16 @@ class OpenShellBackend(Backend):
     def _upload_sandbox_config(self, otel_enabled=False):
         """Write harness-specific config and upload it to the sandbox."""
         config_dir = tempfile.mkdtemp(prefix="agentic-ci-config-")
-        self.harness.write_sandbox_config(config_dir, otel_enabled=otel_enabled)
-        for host_path, container_path in self.harness.sandbox_config_mounts(config_dir):
-            sandbox.upload(host_path)
-            fname = os.path.basename(host_path)
-            cmd = f"mkdir -p $(dirname {container_path}) && mv {fname} {container_path}"
-            sandbox.exec_cmd(["bash", "-c", cmd])
-        shutil.rmtree(config_dir, ignore_errors=True)
+        try:
+            self.harness.write_sandbox_config(config_dir, otel_enabled=otel_enabled)
+            for host_path, container_path in self.harness.sandbox_config_mounts(config_dir):
+                sandbox.upload(host_path)
+                fname = os.path.basename(host_path)
+                target_dir = os.path.dirname(container_path)
+                sandbox.exec_cmd(["mkdir", "-p", target_dir])
+                sandbox.exec_cmd(["mv", fname, container_path])
+        finally:
+            shutil.rmtree(config_dir, ignore_errors=True)
 
     def stop(self):
         try:
