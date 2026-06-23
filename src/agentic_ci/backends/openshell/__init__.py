@@ -213,6 +213,11 @@ class OpenShellBackend(Backend):
         gateway host address.
         """
         lines = self.harness.build_env_script_lines(otel_port=otel_port)
+        if otel_port:
+            # The harness sets the OTel endpoint to 10.200.0.1 (the gateway IP
+            # used by the Podman backend). OpenShell sandboxes can't reach that
+            # address — they resolve the host via host.openshell.internal.
+            lines.append(f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_HOST}:{otel_port}")
         if not otel_port and self.harness.name == "Claude Code":
             lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 
