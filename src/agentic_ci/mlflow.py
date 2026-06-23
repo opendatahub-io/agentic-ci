@@ -58,8 +58,11 @@ def _resolve_experiment_id(endpoint, name, headers):
         experiments = resp.json().get("experiments", [])
         if experiments:
             return experiments[0]["experiment_id"]
-    except requests.RequestException:
-        pass
+    except requests.RequestException as e:
+        detail = ""
+        if hasattr(e, "response") and e.response is not None:
+            detail = f" ({e.response.status_code}: {e.response.text[:200]})"
+        print(f"Experiment lookup failed{detail}: {e}", file=sys.stderr)
     return None
 
 
