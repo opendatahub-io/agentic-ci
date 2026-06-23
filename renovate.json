@@ -30,12 +30,6 @@
       "minimumReleaseAge": "0 days"
     }
   ],
-  "customDatasources": {
-    "claude-code": {
-      "defaultRegistryUrlTemplate": "https://downloads.claude.ai/claude-code-releases/latest",
-      "format": "plain"
-    }
-  },
   "customManagers": [
     {
       "customType": "regex",
@@ -123,8 +117,8 @@
         "^images/runner/claude-code/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ARG CLAUDE_VERSION=(?<currentValue>[^\\n]+)"],
-      "depNameTemplate": "claude-code",
-      "datasourceTemplate": "custom.claude-code",
+      "depNameTemplate": "@anthropic-ai/claude-code",
+      "datasourceTemplate": "npm",
       "versioningTemplate": "semver"
     },
     {
