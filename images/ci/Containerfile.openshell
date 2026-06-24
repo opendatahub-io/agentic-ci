@@ -22,6 +22,9 @@ ARG GLAB_SHA256=2e06f278bb1762126e9b695f67baf5e3210df431b2039c76c1991252bf9c0868
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
+ARG VALE_VERSION=3.15.1
+ARG VALE_SHA256=c024d9c157874fb043d4f24a055d60050d1bb18755251f590593eed5bace1857
+
 # System packages (podman is needed as the OpenShell compute driver)
 RUN dnf install -y --nodocs \
         podman \
@@ -80,6 +83,15 @@ RUN curl -fsSL -o /tmp/gitleaks.tar.gz \
     && mv /tmp/gitleaks/gitleaks /usr/local/bin/gitleaks \
     && chmod +x /usr/local/bin/gitleaks \
     && rm -rf /tmp/gitleaks.tar.gz /tmp/gitleaks
+
+# Vale (pinned)
+RUN curl -fsSL -o /tmp/vale.tar.gz \
+        "https://github.com/vale-cli/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" \
+    && echo "${VALE_SHA256}  /tmp/vale.tar.gz" | sha256sum -c - \
+    && mkdir /tmp/vale && tar -xzf /tmp/vale.tar.gz -C /tmp/vale \
+    && mv /tmp/vale/vale /usr/local/bin/vale \
+    && chmod +x /usr/local/bin/vale \
+    && rm -rf /tmp/vale.tar.gz /tmp/vale
 
 # Atlassian CLI (acli, pinned via RPM)
 ARG ACLI_VERSION=1.3.21~stable-1
