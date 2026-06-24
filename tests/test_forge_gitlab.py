@@ -477,6 +477,102 @@ class TestPipelineFailures:
         assert result["failed_jobs"] == []
 
 
+class TestPipelineMetadata:
+    def test_returns_metadata(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(
+            200,
+            {
+                "id": 100,
+                "status": "failed",
+                "ref": "main",
+                "sha": "abc123",
+                "source": "schedule",
+                "web_url": "https://gitlab.com/org/repo/-/pipelines/100",
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T01:00:00Z",
+                "duration": 3600,
+            },
+        )
+        mock_session.get.side_effect = [project_resp, pipeline_resp]
+
+        result = forge.pipeline_metadata("org/repo", 100)
+        assert result["id"] == 100
+        assert result["status"] == "failed"
+        assert result["ref"] == "main"
+        assert result["sha"] == "abc123"
+        assert result["source"] == "schedule"
+        assert result["web_url"] == "https://gitlab.com/org/repo/-/pipelines/100"
+        assert result["duration"] == 3600
+
+    def test_raises_on_http_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(404, text="Not found")
+        mock_session.get.side_effect = [project_resp, pipeline_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 404"):
+            forge.pipeline_metadata("org/repo", 999)
+
+
+class TestPipelineJobs:
+    def test_returns_all_jobs(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        jobs_resp = _make_response(
+            200,
+            [
+                {"id": 501, "name": "build", "stage": "build", "status": "success"},
+                {"id": 502, "name": "test", "stage": "test", "status": "failed"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, jobs_resp]
+
+        result = forge.pipeline_jobs("org/repo", 100)
+        assert len(result) == 2
+        assert result[0]["name"] == "build"
+        assert result[1]["name"] == "test"
+
+    def test_scope_filter(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        jobs_resp = _make_response(
+            200,
+            [{"id": 502, "name": "test", "stage": "test", "status": "failed"}],
+        )
+        mock_session.get.side_effect = [project_resp, jobs_resp]
+
+        result = forge.pipeline_jobs("org/repo", 100, scope="failed")
+        assert len(result) == 1
+        assert result[0]["status"] == "failed"
+        call_args = mock_session.get.call_args_list[1]
+        assert call_args[1]["params"]["scope[]"] == "failed"
+
+    def test_raises_on_http_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        jobs_resp = _make_response(500, text="Server error")
+        mock_session.get.side_effect = [project_resp, jobs_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 500"):
+            forge.pipeline_jobs("org/repo", 100)
+
+
+class TestJobTrace:
+    def test_returns_trace_text(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        trace_resp = _make_response(200)
+        trace_resp.text = "line1\nline2\nERROR: build failed"
+        mock_session.get.side_effect = [project_resp, trace_resp]
+
+        result = forge.job_trace("org/repo", 501)
+        assert "ERROR: build failed" in result
+
+    def test_raises_on_http_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        trace_resp = _make_response(403, text="Forbidden")
+        mock_session.get.side_effect = [project_resp, trace_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.job_trace("org/repo", 501)
+
+
 class TestMrDiffPosition:
     def test_finds_first_added_line(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
