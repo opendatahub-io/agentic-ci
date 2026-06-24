@@ -18,7 +18,7 @@ from agentic_ci.forge import (
     parse_gitlab_mr_url,
     repo_path_from_url,
 )
-from agentic_ci.forge.session import build_session, extract_api_error
+from agentic_ci.forge.session import GitLabHTTPAdapter, build_session, extract_api_error
 
 log = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ log = logging.getLogger(__name__)
 class GitLabForge(Forge):
     """GitLab REST API implementation of the ``Forge`` interface."""
 
-    def __init__(self) -> None:
-        self._session = build_session()
+    def __init__(self, *, adapter: GitLabHTTPAdapter | None = None) -> None:
+        self._session = build_session(gitlab_adapter=adapter)
 
     def project_id(self, project_path: str) -> int:
         """Look up the numeric GitLab project ID from a project path.
@@ -271,6 +271,60 @@ class GitLabForge(Forge):
                 log_text = "\n".join(lines[-200:])
             failed_jobs.append({"name": job_name, "id": job_id, "log": log_text})
         return {"pipeline_status": pipeline_status, "failed_jobs": failed_jobs}
+
+    def pipeline_metadata(self, project_path: str, pipeline_id: int) -> dict:
+        """Get pipeline metadata.
+
+        Returns the raw pipeline dict from the GitLab API.
+        """
+        pipeline_id = int(pipeline_id)
+        pid = self.project_id(project_path)
+        resp = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}",
+        )
+        if resp.status_code != 200:
+            raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def pipeline_jobs(
+        self, project_path: str, pipeline_id: int, *, scope: str | None = None
+    ) -> list[dict]:
+        """Get all jobs for a pipeline (paginated).
+
+        Args:
+            project_path: GitLab project path (e.g. ``"org/repo"``).
+            pipeline_id: Numeric pipeline ID.
+            scope: Optional job scope filter (e.g. ``"failed"``).
+
+        Returns a list of raw job dicts from the GitLab API.
+        """
+        pipeline_id = int(pipeline_id)
+        pid = self.project_id(project_path)
+        params: dict[str, str] = {}
+        if scope:
+            params["scope[]"] = scope
+        return self._paginate(
+            f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
+            params=params,
+        )
+
+    def job_trace(self, project_path: str, job_id: int) -> str:
+        """Get the full trace log for a job.
+
+        Args:
+            project_path: GitLab project path (e.g. ``"org/repo"``).
+            job_id: Numeric job ID.
+
+        Returns the trace text as a string.
+        """
+        job_id = int(job_id)
+        pid = self.project_id(project_path)
+        resp = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{pid}/jobs/{job_id}/trace",
+        )
+        if resp.status_code != 200:
+            raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
+        return resp.text
 
     def mr_diff_position(self, mr_url: str) -> dict:
         """Get the first changed line position and diff refs from a GitLab MR.

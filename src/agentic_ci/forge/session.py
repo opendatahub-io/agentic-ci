@@ -84,14 +84,23 @@ class GitHubHTTPAdapter(HTTPAdapter):
         return resp
 
 
-def build_session(github_token: str | None = None) -> requests.Session:
+def build_session(
+    *,
+    gitlab_adapter: GitLabHTTPAdapter | None = None,
+    github_token: str | None = None,
+) -> requests.Session:
     """Build a requests session with forge-specific auth adapters.
 
     The session automatically injects the correct auth headers based
     on the request URL prefix (``gitlab.com`` or ``api.github.com``).
+
+    Args:
+        gitlab_adapter: Custom GitLab HTTP adapter. Defaults to
+            ``GitLabHTTPAdapter()`` which uses ``BOT_PAT``.
+        github_token: Token for GitHub API authentication.
     """
     s = requests.Session()
-    s.mount("https://gitlab.com", GitLabHTTPAdapter())
+    s.mount("https://gitlab.com", gitlab_adapter or GitLabHTTPAdapter())
     s.mount(
         "https://api.github.com",
         GitHubHTTPAdapter(token=github_token),
