@@ -113,6 +113,18 @@
     {
       "customType": "regex",
       "fileMatch": [
+        "^images/ci/Containerfile\\.podman$",
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG VALE_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "vale-cli/vale",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
         "^images/runner/claude-code/Containerfile$",
         "^images/runner/claude-code/Containerfile\\.openshell$"
       ],

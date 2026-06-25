@@ -243,6 +243,23 @@ def bump_gitleaks(check_only):
     return result
 
 
+def bump_vale(check_only):
+    version = _github_latest("vale-cli/vale")
+    url = (
+        f"https://github.com/vale-cli/vale/releases/download/"
+        f"v{version}/vale_{version}_Linux_64-bit.tar.gz"
+    )
+    sha = _sha256_of_url(url)
+
+    result = {"tool": "vale", "version": version, "sha256": sha}
+    if not check_only:
+        for cf in [CI_CF, OPENSHELL_CI_CF]:
+            if cf.exists():
+                _update_arg(cf, "VALE_VERSION", version)
+                _update_arg(cf, "VALE_SHA256", sha)
+    return result
+
+
 def bump_ruff(check_only):
     data = _fetch_json("https://pypi.org/pypi/ruff/json")
     version = data["info"]["version"]
@@ -279,6 +296,7 @@ TOOLS = {
     "gh": bump_gh,
     "glab": bump_glab,
     "gitleaks": bump_gitleaks,
+    "vale": bump_vale,
     "claude": bump_claude,
     "opencode": bump_opencode,
     "acli": bump_acli,
@@ -403,6 +421,27 @@ def sync_gitleaks():
     return {"tool": "gitleaks", "versions": list(versions)}
 
 
+def sync_vale():
+    versions = {}
+    for cf in [CI_CF, OPENSHELL_CI_CF]:
+        if not cf.exists():
+            continue
+        version = _current_value(cf, "VALE_VERSION")
+        if version:
+            versions.setdefault(version, []).append(cf)
+    if not versions:
+        return {"tool": "vale", "skipped": "VALE_VERSION not found"}
+    for version, files in versions.items():
+        url = (
+            f"https://github.com/vale-cli/vale/releases/download/"
+            f"v{version}/vale_{version}_Linux_64-bit.tar.gz"
+        )
+        sha = _sha256_of_url(url)
+        for cf in files:
+            _update_arg(cf, "VALE_SHA256", sha)
+    return {"tool": "vale", "versions": list(versions)}
+
+
 def sync_claude():
     versions = {}
     for cf in [CLAUDE_CF, OPENSHELL_CLAUDE_CF]:
@@ -461,6 +500,7 @@ SYNC_TOOLS = {
     "gh": sync_gh,
     "glab": sync_glab,
     "gitleaks": sync_gitleaks,
+    "vale": sync_vale,
     "claude": sync_claude,
     "opencode": sync_opencode,
     "acli": sync_acli,
@@ -593,6 +633,7 @@ def main():
             "gh": "GH_VERSION",
             "glab": "GLAB_VERSION",
             "gitleaks": "GITLEAKS_VERSION",
+            "vale": "VALE_VERSION",
             "claude": "CLAUDE_VERSION",
             "opencode": "OPENCODE_VERSION",
             "acli": "ACLI_VERSION",
