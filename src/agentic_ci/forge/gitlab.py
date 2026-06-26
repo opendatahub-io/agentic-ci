@@ -326,6 +326,70 @@ class GitLabForge(Forge):
             raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
         return resp.text
 
+    def pipeline_schedules(self, project_path: str) -> list[dict]:
+        """List all pipeline schedules for a project (paginated).
+
+        Args:
+            project_path: GitLab project path (e.g. ``"org/repo"``).
+
+        Returns a list of raw schedule dicts from the GitLab API.
+        """
+        pid = self.project_id(project_path)
+        return self._paginate(
+            f"https://gitlab.com/api/v4/projects/{pid}/pipeline_schedules",
+        )
+
+    def pipeline_schedule(self, project_path: str, schedule_id: int) -> dict:
+        """Get details of a specific pipeline schedule.
+
+        The returned dict includes ``last_pipeline`` with the most recent
+        pipeline triggered by this schedule.
+
+        Args:
+            project_path: GitLab project path (e.g. ``"org/repo"``).
+            schedule_id: Numeric pipeline schedule ID.
+
+        Returns the raw schedule dict from the GitLab API.
+        """
+        schedule_id = int(schedule_id)
+        pid = self.project_id(project_path)
+        resp = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{pid}/pipeline_schedules/{schedule_id}",
+        )
+        if resp.status_code != 200:
+            raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def add_mr_block(self, blocked_mr_url: str, blocking_mr_url: str) -> None:
+        """Set MR dependency: *blocked_mr* cannot merge until *blocking_mr* merges.
+
+        Requires GitLab Premium.
+
+        Args:
+            blocked_mr_url: URL of the MR that should be blocked.
+            blocking_mr_url: URL of the MR that must merge first.
+
+        Raises ``ForgeError`` on failure.
+        """
+        blocked_path, blocked_iid = parse_gitlab_mr_url(blocked_mr_url)
+        blocking_path, blocking_iid = parse_gitlab_mr_url(blocking_mr_url)
+
+        blocking_pid = self.project_id(blocking_path)
+        resp = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{blocking_pid}/merge_requests/{blocking_iid}",
+        )
+        if resp.status_code != 200:
+            raise ForgeError(f"HTTP {resp.status_code} fetching blocking MR: {resp.text}")
+        blocking_internal_id = resp.json()["id"]
+
+        blocked_pid = self.project_id(blocked_path)
+        resp = self._session.post(
+            f"https://gitlab.com/api/v4/projects/{blocked_pid}/merge_requests/{blocked_iid}/blocks",
+            json={"blocking_merge_request_id": blocking_internal_id},
+        )
+        if resp.status_code not in (200, 201):
+            raise ForgeError(f"HTTP {resp.status_code} creating MR block: {resp.text}")
+
     def mr_diff_position(self, mr_url: str) -> dict:
         """Get the first changed line position and diff refs from a GitLab MR.
 

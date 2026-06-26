@@ -584,6 +584,115 @@ class TestJobTrace:
             forge.job_trace("org/repo", 501)
 
 
+class TestPipelineSchedules:
+    def test_returns_schedules(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        schedules_resp = _make_response(
+            200,
+            [
+                {"id": 10, "description": "Nightly", "cron": "0 0 * * *"},
+                {"id": 11, "description": "Weekly", "cron": "0 0 * * 0"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, schedules_resp]
+
+        result = forge.pipeline_schedules("org/repo")
+        assert len(result) == 2
+        assert result[0]["description"] == "Nightly"
+        assert result[1]["description"] == "Weekly"
+
+    def test_raises_on_http_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        schedules_resp = _make_response(403, text="Forbidden")
+        mock_session.get.side_effect = [project_resp, schedules_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.pipeline_schedules("org/repo")
+
+
+class TestPipelineSchedule:
+    def test_returns_schedule_with_last_pipeline(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        schedule_resp = _make_response(
+            200,
+            {
+                "id": 10,
+                "description": "Nightly",
+                "cron": "0 0 * * *",
+                "last_pipeline": {
+                    "id": 500,
+                    "status": "success",
+                },
+            },
+        )
+        mock_session.get.side_effect = [project_resp, schedule_resp]
+
+        result = forge.pipeline_schedule("org/repo", 10)
+        assert result["id"] == 10
+        assert result["description"] == "Nightly"
+        assert result["last_pipeline"]["id"] == 500
+        assert result["last_pipeline"]["status"] == "success"
+
+    def test_raises_on_http_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        schedule_resp = _make_response(404, text="Not found")
+        mock_session.get.side_effect = [project_resp, schedule_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 404"):
+            forge.pipeline_schedule("org/repo", 999)
+
+
+class TestAddMrBlock:
+    def test_creates_block(self, forge, mock_session):
+        blocking_project_resp = _make_response(200, {"id": 1})
+        blocking_mr_resp = _make_response(200, {"id": 7001, "iid": 42})
+        blocked_project_resp = _make_response(200, {"id": 2})
+        mock_session.get.side_effect = [
+            blocking_project_resp,
+            blocking_mr_resp,
+            blocked_project_resp,
+        ]
+        mock_session.post.return_value = _make_response(201)
+
+        forge.add_mr_block(
+            "https://gitlab.com/org/blocked/-/merge_requests/10",
+            "https://gitlab.com/org/blocking/-/merge_requests/42",
+        )
+
+        mock_session.post.assert_called_once()
+        call_args = mock_session.post.call_args
+        assert "/merge_requests/10/blocks" in call_args[0][0]
+        assert call_args[1]["json"]["blocking_merge_request_id"] == 7001
+
+    def test_raises_on_blocking_mr_fetch_error(self, forge, mock_session):
+        blocking_project_resp = _make_response(200, {"id": 1})
+        blocking_mr_resp = _make_response(404, text="Not found")
+        mock_session.get.side_effect = [blocking_project_resp, blocking_mr_resp]
+
+        with pytest.raises(ForgeError, match="HTTP 404"):
+            forge.add_mr_block(
+                "https://gitlab.com/org/blocked/-/merge_requests/10",
+                "https://gitlab.com/org/blocking/-/merge_requests/42",
+            )
+
+    def test_raises_on_block_post_error(self, forge, mock_session):
+        blocking_project_resp = _make_response(200, {"id": 1})
+        blocking_mr_resp = _make_response(200, {"id": 7001, "iid": 42})
+        blocked_project_resp = _make_response(200, {"id": 2})
+        mock_session.get.side_effect = [
+            blocking_project_resp,
+            blocking_mr_resp,
+            blocked_project_resp,
+        ]
+        mock_session.post.return_value = _make_response(403, text="Forbidden")
+
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.add_mr_block(
+                "https://gitlab.com/org/blocked/-/merge_requests/10",
+                "https://gitlab.com/org/blocking/-/merge_requests/42",
+            )
+
+
 class TestMrDiffPosition:
     def test_finds_first_added_line(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
