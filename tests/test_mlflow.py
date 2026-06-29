@@ -13,6 +13,8 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 
 from agentic_ci.mlflow import (
     _add_genai_token_usage,
+    _add_span_costs,
+    _cost_by_session,
     _fixup_ids,
     _hex_to_base64,
     _serialize_traces,
@@ -186,6 +188,114 @@ class TestAddGenAiTokenUsage:
         keys = {a.key for a in parsed.resource_spans[0].scope_spans[0].spans[0].attributes}
         assert "gen_ai.usage.input_tokens" in keys
         assert "gen_ai.usage.output_tokens" in keys
+
+
+class TestCostFromMetrics:
+    def _metric_rec(self, points):
+        return {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "claude_code.cost.usage",
+                                        "sum": {
+                                            "aggregationTemporality": 1,
+                                            "dataPoints": [
+                                                {
+                                                    "asDouble": v,
+                                                    "attributes": [
+                                                        {
+                                                            "key": "session.id",
+                                                            "value": {"stringValue": sid},
+                                                        }
+                                                    ],
+                                                }
+                                                for sid, v in points
+                                            ],
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+
+    def _span(self, sid, inp, out):
+        return {
+            "name": "claude_code.llm_request",
+            "attributes": [
+                {"key": "session.id", "value": {"stringValue": sid}},
+                {"key": "input_tokens", "value": {"intValue": str(inp)}},
+                {"key": "output_tokens", "value": {"intValue": str(out)}},
+            ],
+        }
+
+    def _payload(self, spans):
+        return {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+
+    def _costs(self, payload):
+        out = []
+        for sp in payload["resourceSpans"][0]["scopeSpans"][0]["spans"]:
+            c = next(
+                (
+                    a["value"]["stringValue"]
+                    for a in sp["attributes"]
+                    if a["key"] == "mlflow.llm.cost"
+                ),
+                None,
+            )
+            out.append(json.loads(c)["total_cost"] if c else None)
+        return out
+
+    def test_cost_by_session_sums_deltas(self):
+        rec = self._metric_rec([("S1", 0.10), ("S1", 0.30), ("S2", 1.0)])
+        result = _cost_by_session([rec])
+        assert abs(result["S1"] - 0.40) < 1e-9
+        assert abs(result["S2"] - 1.0) < 1e-9
+
+    def test_cost_by_session_ignores_other_metrics(self):
+        rec = {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {"scopeMetrics": [{"metrics": [{"name": "x.other.metric", "sum": {}}]}]}
+                ]
+            },
+        }
+        assert _cost_by_session([rec]) == {}
+
+    def test_distributes_cost_by_token_weight(self):
+        payload = self._payload([self._span("S1", 100, 0), self._span("S1", 0, 300)])
+        _add_span_costs([payload], {"S1": 0.40})
+        costs = self._costs(payload)
+        assert abs(costs[0] - 0.10) < 1e-9
+        assert abs(costs[1] - 0.30) < 1e-9
+        assert abs(sum(costs) - 0.40) < 1e-9
+
+    def test_does_not_override_existing_cost(self):
+        sp = self._span("S1", 100, 100)
+        sp["attributes"].append(
+            {"key": "mlflow.llm.cost", "value": {"stringValue": '{"total_cost": 9.9}'}}
+        )
+        payload = self._payload([sp])
+        _add_span_costs([payload], {"S1": 0.5})
+        assert self._costs(payload) == [9.9]
+
+    def test_noop_without_metrics(self):
+        payload = self._payload([self._span("S1", 1, 1)])
+        _add_span_costs([payload], {})
+        assert self._costs(payload) == [None]
+
+    def test_skips_session_without_cost(self):
+        payload = self._payload([self._span("S2", 10, 10)])
+        _add_span_costs([payload], {"S1": 1.0})
+        assert self._costs(payload) == [None]
 
 
 class TestPushTraces:
