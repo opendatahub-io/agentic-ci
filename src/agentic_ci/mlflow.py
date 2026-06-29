@@ -43,6 +43,71 @@ def _fixup_ids(payload):
     return payload
 
 
+# Claude Code emits bare token attributes (input_tokens, output_tokens,
+# cache_*_tokens) that match no OTEL semantic convention MLflow recognizes.
+# MLflow's OTLP ingestion derives per-span token usage — and from it the
+# trace-level mlflow.trace.tokenUsage and cost that feed the experiment
+# dashboard charts — only from namespaced conventions like these.
+_GENAI_INPUT_KEY = "gen_ai.usage.input_tokens"
+_GENAI_OUTPUT_KEY = "gen_ai.usage.output_tokens"
+# Components folded into the GenAI input count. Claude's bare input_tokens
+# excludes cached tokens, which usually dominate, so folding them in keeps the
+# token-usage chart representative of what the model actually processed.
+_INPUT_TOKEN_KEYS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+_OUTPUT_TOKEN_KEY = "output_tokens"
+
+
+def _attr_int(value):
+    """Extract an int from an OTLP JSON attribute value dict, or None."""
+    if not isinstance(value, dict):
+        return None
+    for key in ("intValue", "int_value", "stringValue", "string_value"):
+        if key in value:
+            try:
+                return int(value[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _add_genai_token_usage(payload):
+    """Map Claude Code's bare token attributes onto the OTEL GenAI semconv.
+
+    MLflow's OTLP translators recognize ``gen_ai.usage.input_tokens`` /
+    ``gen_ai.usage.output_tokens`` and use them to populate the per-span token
+    usage, the aggregated ``mlflow.trace.tokenUsage``, and the cost (via
+    MLflow's pricing table) that drive the experiment-level token and cost
+    charts. Claude Code instead emits bare ``input_tokens`` / ``output_tokens``
+    / ``cache_*_tokens``, which match nothing — so without this mapping those
+    charts stay empty even though the data is present on the spans.
+
+    The GenAI input count folds ``cache_read`` + ``cache_creation`` into
+    ``input_tokens`` so the chart reflects the total tokens processed. MLflow
+    then prices that whole amount at the standard input rate, so the derived
+    cost is approximate (it over-counts cheap cache reads); Claude's exact cost
+    is reported separately in the ``/v1/metrics`` stream.
+
+    Existing ``gen_ai.usage.*`` attributes are left untouched.
+    """
+    for rs in payload.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                attrs = span.get("attributes")
+                if not isinstance(attrs, list):
+                    continue
+                by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
+                if _GENAI_INPUT_KEY in by_key or _GENAI_OUTPUT_KEY in by_key:
+                    continue
+                inp = sum(_attr_int(by_key.get(k)) or 0 for k in _INPUT_TOKEN_KEYS)
+                out = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
+                # MLflow only records usage when both input and output are > 0.
+                if inp <= 0 or out <= 0:
+                    continue
+                attrs.append({"key": _GENAI_INPUT_KEY, "value": {"intValue": str(inp)}})
+                attrs.append({"key": _GENAI_OUTPUT_KEY, "value": {"intValue": str(out)}})
+    return payload
+
+
 def _resolve_experiment_id(endpoint, name, headers):
     """Look up an MLflow experiment by name. Returns ID or None."""
     url = f"{endpoint}/api/2.0/mlflow/experiments/search"
@@ -68,7 +133,7 @@ def _resolve_experiment_id(endpoint, name, headers):
 
 def _serialize_traces(payload):
     """Convert an OTLP JSON trace payload dict to protobuf bytes."""
-    payload = _fixup_ids(copy.deepcopy(payload))
+    payload = _add_genai_token_usage(_fixup_ids(copy.deepcopy(payload)))
     request = ExportTraceServiceRequest()
     json_format.ParseDict(payload, request)
     return request.SerializeToString()
