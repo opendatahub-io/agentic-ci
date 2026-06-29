@@ -96,19 +96,17 @@ class TestAssignAcli:
 
 class TestCommentAcli:
     @patch("agentic_ci.jira.client.acli_mod.run_acli")
-    def test_uses_acli_without_visibility(self, mock_run, acli_client):
+    @patch("agentic_ci.jira.client.requests")
+    def test_always_uses_rest_with_adf(self, mock_requests, mock_run, acli_client):
+        resp = MagicMock()
+        resp.status_code = 201
+        mock_requests.post.return_value = resp
+
         result = acli_client.add_comment("TEST-1", "Fixed it")
         assert result is True
-        mock_run.assert_called_once_with(
-            "jira",
-            "workitem",
-            "comment",
-            "create",
-            "--key",
-            "TEST-1",
-            "--body",
-            "Fixed it",
-        )
+        mock_run.assert_not_called()
+        call_json = mock_requests.post.call_args.kwargs["json"]
+        assert call_json["body"]["type"] == "doc"
 
     @patch("agentic_ci.jira.client.requests")
     def test_uses_rest_with_visibility(self, mock_requests, acli_client):

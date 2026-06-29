@@ -533,26 +533,10 @@ class JiraClient:
         """Post a comment, optionally restricted to a visibility group.
 
         The body is plain text (with optional markdown markup, converted
-        to ADF for the REST API).  Uses acli when no visibility
-        restriction is needed.  Returns True on success, False on failure.
+        to ADF for the REST API).  Always uses the REST API because acli
+        ``comment create`` does not support ``--body-adf``.  Returns True
+        on success, False on failure.
         """
-        if self._acli_available and not visibility_group:
-            try:
-                acli_mod.run_acli(
-                    "jira",
-                    "workitem",
-                    "comment",
-                    "create",
-                    "--key",
-                    key,
-                    "--body",
-                    body,
-                )
-                log.info("Commented on %s (via acli)", key)
-                return True
-            except acli_mod.AcliError as exc:
-                log.warning("acli comment failed, falling back to REST: %s", exc)
-
         payload: dict = {"body": text_to_adf(body)}
         if visibility_group:
             payload["visibility"] = {"type": "group", "value": visibility_group}
