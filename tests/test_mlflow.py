@@ -12,8 +12,8 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 
 from agentic_ci.mlflow import (
-    _add_genai_token_usage,
     _add_span_costs,
+    _add_token_usage,
     _cost_by_session,
     _fixup_ids,
     _hex_to_base64,
@@ -134,60 +134,104 @@ def _span_attrs(payload):
     return {a["key"]: a["value"] for a in span["attributes"]}
 
 
-class TestAddGenAiTokenUsage:
-    def test_maps_and_folds_cache_into_input(self):
+def _chat_usage(payload):
+    raw = _span_attrs(payload).get("mlflow.chat.tokenUsage")
+    return json.loads(raw["stringValue"]) if raw else None
+
+
+def _genai(payload, key):
+    raw = _span_attrs(payload).get(key)
+    return int(raw["intValue"]) if raw else None
+
+
+class TestAddTokenUsage:
+    def test_disjoint_breakdown_with_cache(self):
         payload = _llm_span(
             [
                 {"key": "input_tokens", "value": {"intValue": "3"}},
                 {"key": "output_tokens", "value": {"intValue": "148"}},
-                {"key": "cache_read_tokens", "value": {"intValue": "0"}},
+                {"key": "cache_read_tokens", "value": {"intValue": "1000"}},
                 {"key": "cache_creation_tokens", "value": {"intValue": "39565"}},
             ]
         )
-        _add_genai_token_usage(payload)
-        attrs = _span_attrs(payload)
-        # input folds 3 + 0 + 39565
-        assert int(attrs["gen_ai.usage.input_tokens"]["intValue"]) == 39568
-        assert int(attrs["gen_ai.usage.output_tokens"]["intValue"]) == 148
+        _add_token_usage(payload)
+        # MLflow native usage: disjoint, with cache
+        assert _chat_usage(payload) == {
+            "input_tokens": 3,
+            "output_tokens": 148,
+            "total_tokens": 151,  # cache excluded
+            "cache_read_input_tokens": 1000,
+            "cache_creation_input_tokens": 39565,
+        }
+        # OTEL GenAI standard: fresh input + output (no cache field)
+        assert _genai(payload, "gen_ai.usage.input_tokens") == 3
+        assert _genai(payload, "gen_ai.usage.output_tokens") == 148
 
-    def test_skips_span_without_output(self):
-        payload = _llm_span([{"key": "input_tokens", "value": {"intValue": "5"}}])
-        _add_genai_token_usage(payload)
-        assert "gen_ai.usage.input_tokens" not in _span_attrs(payload)
-
-    def test_skips_when_both_zero(self):
-        payload = _llm_span(
-            [
-                {"key": "input_tokens", "value": {"intValue": "0"}},
-                {"key": "output_tokens", "value": {"intValue": "0"}},
-            ]
-        )
-        _add_genai_token_usage(payload)
-        assert "gen_ai.usage.input_tokens" not in _span_attrs(payload)
-
-    def test_does_not_override_existing_genai_attrs(self):
-        payload = _llm_span(
-            [
-                {"key": "input_tokens", "value": {"intValue": "5"}},
-                {"key": "output_tokens", "value": {"intValue": "7"}},
-                {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "999"}},
-            ]
-        )
-        _add_genai_token_usage(payload)
-        assert int(_span_attrs(payload)["gen_ai.usage.input_tokens"]["intValue"]) == 999
-
-    def test_serialize_traces_emits_genai_attrs(self):
+    def test_omits_zero_cache_keys(self):
         payload = _llm_span(
             [
                 {"key": "input_tokens", "value": {"intValue": "10"}},
                 {"key": "output_tokens", "value": {"intValue": "20"}},
             ]
         )
+        _add_token_usage(payload)
+        usage = _chat_usage(payload)
+        assert usage == {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30}
+        assert "cache_read_input_tokens" not in usage
+
+    def test_sets_usage_for_cache_only_turn(self):
+        # all cache read (fresh input 0) still counts
+        payload = _llm_span(
+            [
+                {"key": "input_tokens", "value": {"intValue": "0"}},
+                {"key": "output_tokens", "value": {"intValue": "271"}},
+                {"key": "cache_read_tokens", "value": {"intValue": "39774"}},
+            ]
+        )
+        _add_token_usage(payload)
+        usage = _chat_usage(payload)
+        assert usage["cache_read_input_tokens"] == 39774
+        assert usage["total_tokens"] == 271
+
+    def test_skips_when_all_zero(self):
+        payload = _llm_span(
+            [
+                {"key": "input_tokens", "value": {"intValue": "0"}},
+                {"key": "output_tokens", "value": {"intValue": "0"}},
+            ]
+        )
+        _add_token_usage(payload)
+        assert "mlflow.chat.tokenUsage" not in _span_attrs(payload)
+
+    def test_does_not_override_existing(self):
+        usage_json = '{"input_tokens": 999}'
+        preset = {"key": "mlflow.chat.tokenUsage", "value": {"stringValue": usage_json}}
+        payload = _llm_span(
+            [
+                {"key": "input_tokens", "value": {"intValue": "5"}},
+                {"key": "output_tokens", "value": {"intValue": "7"}},
+                preset,
+            ]
+        )
+        _add_token_usage(payload)
+        assert _chat_usage(payload) == {"input_tokens": 999}
+
+    def test_serialize_traces_emits_chat_usage(self):
+        payload = _llm_span(
+            [
+                {"key": "input_tokens", "value": {"intValue": "10"}},
+                {"key": "output_tokens", "value": {"intValue": "20"}},
+                {"key": "cache_read_tokens", "value": {"intValue": "5"}},
+            ]
+        )
         parsed = ExportTraceServiceRequest()
         parsed.ParseFromString(_serialize_traces(payload))
-        keys = {a.key for a in parsed.resource_spans[0].scope_spans[0].spans[0].attributes}
-        assert "gen_ai.usage.input_tokens" in keys
-        assert "gen_ai.usage.output_tokens" in keys
+        span = parsed.resource_spans[0].scope_spans[0].spans[0]
+        attrs = {a.key: a.value for a in span.attributes}
+        assert "mlflow.chat.tokenUsage" in attrs
+        usage = json.loads(attrs["mlflow.chat.tokenUsage"].string_value)
+        assert usage["cache_read_input_tokens"] == 5
+        assert usage["total_tokens"] == 30
 
 
 class TestCostFromMetrics:
