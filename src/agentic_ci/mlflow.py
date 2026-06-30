@@ -43,18 +43,24 @@ def _fixup_ids(payload):
     return payload
 
 
-# Claude Code emits bare token attributes (input_tokens, output_tokens,
-# cache_*_tokens) that match no OTEL semantic convention MLflow recognizes.
-# MLflow's OTLP ingestion derives per-span token usage — and from it the
-# trace-level mlflow.trace.tokenUsage and cost that feed the experiment
-# dashboard charts — only from namespaced conventions like these.
+# Claude Code emits per-call token counts as bare span attributes
+# (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) — it
+# does not emit the gen_ai.usage.* convention nor MLflow's own usage attribute.
+# From those bare counts we write two things (see _add_token_usage):
+#   - gen_ai.usage.input_tokens / output_tokens — the OTEL GenAI standard, for
+#     any non-MLflow backend that reads the convention.
+#   - mlflow.chat.tokenUsage — MLflow's native attribute, which it aggregates
+#     into mlflow.trace.tokenUsage for the experiment Usage dashboard; this one
+#     carries the cache breakdown (Cache Read / Cache Write) that gen_ai can't.
 _GENAI_INPUT_KEY = "gen_ai.usage.input_tokens"
 _GENAI_OUTPUT_KEY = "gen_ai.usage.output_tokens"
-# Components folded into the GenAI input count. Claude's bare input_tokens
-# excludes cached tokens, which usually dominate, so folding them in keeps the
-# token-usage chart representative of what the model actually processed.
-_INPUT_TOKEN_KEYS = ("input_tokens", "cache_read_tokens", "cache_creation_tokens")
+_CHAT_USAGE_KEY = "mlflow.chat.tokenUsage"
+_INPUT_TOKEN_KEY = "input_tokens"
 _OUTPUT_TOKEN_KEY = "output_tokens"
+_CACHE_READ_KEY = "cache_read_tokens"
+_CACHE_CREATION_KEY = "cache_creation_tokens"
+# Token components that count toward a span's cost-distribution weight.
+_WEIGHT_INPUT_KEYS = (_INPUT_TOKEN_KEY, _CACHE_READ_KEY, _CACHE_CREATION_KEY)
 
 
 def _attr_int(value):
@@ -70,25 +76,35 @@ def _attr_int(value):
     return None
 
 
-def _add_genai_token_usage(payload):
-    """Map Claude Code's bare token attributes onto the OTEL GenAI semconv.
+def _add_token_usage(payload):
+    """Translate Claude's bare token counts into both the OTEL GenAI standard
+    and MLflow's native usage attribute.
 
-    MLflow's OTLP translators recognize ``gen_ai.usage.input_tokens`` /
-    ``gen_ai.usage.output_tokens`` and use them to populate the per-span token
-    usage, the aggregated ``mlflow.trace.tokenUsage``, and the cost (via
-    MLflow's pricing table) that drive the experiment-level token and cost
-    charts. Claude Code instead emits bare ``input_tokens`` / ``output_tokens``
-    / ``cache_*_tokens``, which match nothing — so without this mapping those
-    charts stay empty even though the data is present on the spans.
+    Claude Code emits bare input_tokens / output_tokens / cache_read_tokens /
+    cache_creation_tokens (input_tokens is *fresh*, non-cached) — never the
+    gen_ai.usage.* convention or MLflow's own attribute. We synthesize both per
+    LLM span:
 
-    The GenAI input count folds ``cache_read`` + ``cache_creation`` into
-    ``input_tokens`` so the chart reflects the total tokens processed. Cost is
-    driven separately by :func:`_add_span_costs` from Claude's reported
-    ``/v1/metrics`` spend; only when that is absent does MLflow fall back to
-    pricing the folded input at the standard rate (approximate, over-counting
-    cheap cache reads).
+    - ``gen_ai.usage.input_tokens`` / ``output_tokens`` — the OTEL GenAI
+      convention (fresh input + output), so non-MLflow backends see standard
+      usage. The convention has no cache field, so cache volume isn't there.
+    - ``mlflow.chat.tokenUsage`` — MLflow's native attribute in its disjoint
+      cache schema, which MLflow aggregates into ``mlflow.trace.tokenUsage``:
+          input_tokens                 fresh input
+          output_tokens                generated
+          total_tokens                 input + output (cache excluded)
+          cache_read_input_tokens      -> dashboard "Cache Read"
+          cache_creation_input_tokens  -> dashboard "Cache Write"
+      MLflow uses a pre-set value verbatim, so all four lines show on the
+      experiment Usage dashboard.
 
-    Existing ``gen_ai.usage.*`` attributes are left untouched.
+    Cost is set separately by :func:`_add_span_costs` from Claude's reported
+    /v1/metrics spend. We deliberately do not rely on MLflow's cache-aware
+    auto-cost: fed Anthropic's disjoint counts it assumes prompt_tokens
+    includes the cached tokens and can go negative. (That fallback only runs
+    when no cost metric is present, so mlflow.llm.cost is left unset.)
+
+    Existing values for any of these attributes are left untouched.
     """
     for rs in payload.get("resourceSpans", []):
         for ss in rs.get("scopeSpans", []):
@@ -97,15 +113,29 @@ def _add_genai_token_usage(payload):
                 if not isinstance(attrs, list):
                     continue
                 by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
-                if _GENAI_INPUT_KEY in by_key or _GENAI_OUTPUT_KEY in by_key:
-                    continue
-                inp = sum(_attr_int(by_key.get(k)) or 0 for k in _INPUT_TOKEN_KEYS)
+                inp = _attr_int(by_key.get(_INPUT_TOKEN_KEY)) or 0
                 out = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
-                # MLflow only records usage when both input and output are > 0.
-                if inp <= 0 or out <= 0:
+                cache_read = _attr_int(by_key.get(_CACHE_READ_KEY)) or 0
+                cache_creation = _attr_int(by_key.get(_CACHE_CREATION_KEY)) or 0
+                counts = (inp, out, cache_read, cache_creation)
+                # Skip malformed (negative) counts; require some positive usage.
+                if any(c < 0 for c in counts) or sum(counts) <= 0:
                     continue
-                attrs.append({"key": _GENAI_INPUT_KEY, "value": {"intValue": str(inp)}})
-                attrs.append({"key": _GENAI_OUTPUT_KEY, "value": {"intValue": str(out)}})
+                # OTEL GenAI standard (fresh input + output; no cache field).
+                if _GENAI_INPUT_KEY not in by_key:
+                    attrs.append({"key": _GENAI_INPUT_KEY, "value": {"intValue": str(inp)}})
+                if _GENAI_OUTPUT_KEY not in by_key:
+                    attrs.append({"key": _GENAI_OUTPUT_KEY, "value": {"intValue": str(out)}})
+                # MLflow native usage (disjoint, with cache lines).
+                if _CHAT_USAGE_KEY not in by_key:
+                    usage = {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out}
+                    if cache_read:
+                        usage["cache_read_input_tokens"] = cache_read
+                    if cache_creation:
+                        usage["cache_creation_input_tokens"] = cache_creation
+                    attrs.append(
+                        {"key": _CHAT_USAGE_KEY, "value": {"stringValue": json.dumps(usage)}}
+                    )
     return payload
 
 
@@ -182,8 +212,11 @@ def _add_span_costs(payloads, cost_by_session):
                     sid = _value_str(by_key.get(_SESSION_ID_KEY))
                     if sid is None or sid not in cost_by_session:
                         continue
-                    in_w = sum(_attr_int(by_key.get(k)) or 0 for k in _INPUT_TOKEN_KEYS)
+                    input_weights = [_attr_int(by_key.get(k)) or 0 for k in _WEIGHT_INPUT_KEYS]
                     out_w = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
+                    if any(w < 0 for w in (*input_weights, out_w)):
+                        continue
+                    in_w = sum(input_weights)
                     if in_w + out_w <= 0:
                         continue
                     buckets.setdefault(sid, []).append((attrs, in_w, out_w))
@@ -227,7 +260,7 @@ def _resolve_experiment_id(endpoint, name, headers):
 
 def _serialize_traces(payload):
     """Convert an OTLP JSON trace payload dict to protobuf bytes."""
-    payload = _add_genai_token_usage(_fixup_ids(copy.deepcopy(payload)))
+    payload = _add_token_usage(_fixup_ids(copy.deepcopy(payload)))
     request = ExportTraceServiceRequest()
     json_format.ParseDict(payload, request)
     return request.SerializeToString()
