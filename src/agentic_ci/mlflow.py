@@ -117,7 +117,9 @@ def _add_token_usage(payload):
                 out = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
                 cache_read = _attr_int(by_key.get(_CACHE_READ_KEY)) or 0
                 cache_creation = _attr_int(by_key.get(_CACHE_CREATION_KEY)) or 0
-                if inp + out + cache_read + cache_creation <= 0:
+                counts = (inp, out, cache_read, cache_creation)
+                # Skip malformed (negative) counts; require some positive usage.
+                if any(c < 0 for c in counts) or sum(counts) <= 0:
                     continue
                 # OTEL GenAI standard (fresh input + output; no cache field).
                 if _GENAI_INPUT_KEY not in by_key:
@@ -210,8 +212,11 @@ def _add_span_costs(payloads, cost_by_session):
                     sid = _value_str(by_key.get(_SESSION_ID_KEY))
                     if sid is None or sid not in cost_by_session:
                         continue
-                    in_w = sum(_attr_int(by_key.get(k)) or 0 for k in _WEIGHT_INPUT_KEYS)
+                    input_weights = [_attr_int(by_key.get(k)) or 0 for k in _WEIGHT_INPUT_KEYS]
                     out_w = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
+                    if any(w < 0 for w in (*input_weights, out_w)):
+                        continue
+                    in_w = sum(input_weights)
                     if in_w + out_w <= 0:
                         continue
                     buckets.setdefault(sid, []).append((attrs, in_w, out_w))

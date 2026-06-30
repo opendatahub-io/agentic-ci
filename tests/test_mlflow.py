@@ -206,15 +206,29 @@ class TestAddTokenUsage:
     def test_does_not_override_existing(self):
         usage_json = '{"input_tokens": 999}'
         preset = {"key": "mlflow.chat.tokenUsage", "value": {"stringValue": usage_json}}
+        genai_preset = {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "111"}}
         payload = _llm_span(
             [
                 {"key": "input_tokens", "value": {"intValue": "5"}},
                 {"key": "output_tokens", "value": {"intValue": "7"}},
                 preset,
+                genai_preset,
             ]
         )
         _add_token_usage(payload)
         assert _chat_usage(payload) == {"input_tokens": 999}
+        assert _genai(payload, "gen_ai.usage.input_tokens") == 111
+
+    def test_skips_negative_components(self):
+        payload = _llm_span(
+            [
+                {"key": "input_tokens", "value": {"intValue": "-10"}},
+                {"key": "output_tokens", "value": {"intValue": "20"}},
+            ]
+        )
+        _add_token_usage(payload)
+        assert _chat_usage(payload) is None
+        assert _genai(payload, "gen_ai.usage.input_tokens") is None
 
     def test_serialize_traces_emits_chat_usage(self):
         payload = _llm_span(
