@@ -49,6 +49,7 @@ class GitLabForge(Forge):
         target_branch: str,
         title: str,
         description: str,
+        draft: bool = False,
     ) -> tuple[str | None, str | None]:
         project_path = repo_path_from_url(repo_url)
         pid = self.project_id(project_path)
@@ -75,6 +76,8 @@ class GitLabForge(Forge):
             "description": description,
             "remove_source_branch": True,
         }
+        if draft:
+            payload["draft"] = True
         resp = self._session.post(
             f"https://gitlab.com/api/v4/projects/{pid}/merge_requests",
             json=payload,

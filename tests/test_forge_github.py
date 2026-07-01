@@ -79,6 +79,37 @@ class TestCreateMergeRequest:
         assert error is None
         mock_session.post.assert_not_called()
 
+    def test_draft_includes_draft_field(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, [])
+        mock_session.post.return_value = _make_response(
+            201, {"html_url": "https://github.com/owner/repo/pull/42"}
+        )
+        forge.create_merge_request(
+            "https://github.com/owner/repo",
+            "feature-branch",
+            "main",
+            "Draft PR",
+            "Description",
+            draft=True,
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload["draft"] is True
+
+    def test_non_draft_sends_draft_false(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, [])
+        mock_session.post.return_value = _make_response(
+            201, {"html_url": "https://github.com/owner/repo/pull/42"}
+        )
+        forge.create_merge_request(
+            "https://github.com/owner/repo",
+            "feature-branch",
+            "main",
+            "Normal PR",
+            "Description",
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload["draft"] is False
+
     def test_existing_pr_check_failure_falls_through(self, forge, mock_session):
         mock_session.get.return_value = _make_response(403, text="Forbidden")
         mock_session.post.return_value = _make_response(

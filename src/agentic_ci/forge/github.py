@@ -44,6 +44,7 @@ class GitHubForge(Forge):
         target_branch: str,
         title: str,
         description: str,
+        draft: bool = False,
     ) -> tuple[str | None, str | None]:
         repo_path = repo_path_from_url(repo_url)
 
@@ -63,11 +64,12 @@ class GitHubForge(Forge):
                 log.info("Found existing open PR: %s", existing_url)
                 return existing_url, None
 
-        payload = {
+        payload: dict[str, str | bool] = {
             "head": source_branch,
             "base": target_branch,
             "title": title,
             "body": description,
+            "draft": draft,
         }
         resp = self._session.post(
             f"https://api.github.com/repos/{repo_path}/pulls",

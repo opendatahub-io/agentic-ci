@@ -102,6 +102,41 @@ class TestCreateMergeRequest:
         assert error is None
         mock_session.post.assert_not_called()
 
+    def test_draft_includes_draft_field(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        no_existing = _make_response(200, [])
+        mock_session.get.side_effect = [project_resp, no_existing]
+        mock_session.post.return_value = _make_response(
+            201, {"web_url": "https://gitlab.com/org/repo/-/merge_requests/99"}
+        )
+        forge.create_merge_request(
+            "https://gitlab.com/org/repo",
+            "feature-branch",
+            "main",
+            "Draft MR",
+            "Description",
+            draft=True,
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload["draft"] is True
+
+    def test_non_draft_omits_draft_field(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        no_existing = _make_response(200, [])
+        mock_session.get.side_effect = [project_resp, no_existing]
+        mock_session.post.return_value = _make_response(
+            201, {"web_url": "https://gitlab.com/org/repo/-/merge_requests/99"}
+        )
+        forge.create_merge_request(
+            "https://gitlab.com/org/repo",
+            "feature-branch",
+            "main",
+            "Normal MR",
+            "Description",
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert "draft" not in payload
+
     def test_existing_mr_check_failure_falls_through(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
         check_fail = _make_response(403, text="Forbidden")
