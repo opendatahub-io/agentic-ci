@@ -62,6 +62,7 @@ class Forge(ABC):
         target_branch: str,
         title: str,
         description: str,
+        draft: bool = False,
     ) -> tuple[str | None, str | None]:
         """Create an MR/PR.
 
