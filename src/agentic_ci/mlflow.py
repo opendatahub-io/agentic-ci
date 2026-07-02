@@ -150,6 +150,13 @@ _COST_METRIC = "claude_code.cost.usage"
 _SESSION_ID_KEY = "session.id"
 _LLM_COST_KEY = "mlflow.llm.cost"
 
+# Claude tags each LLM call with a query_source (e.g. "sdk", "agent:custom",
+# "generate_session_title") in the /v1/logs api_request events, joinable to
+# spans by request_id. It's not on the spans, so surface it so the origin of a
+# trace/span is visible in MLflow (e.g. the standalone title-generation call).
+_QUERY_SOURCE_KEY = "query_source"
+_REQUEST_ID_KEY = "request_id"
+
 
 def _value_str(value):
     """Return the string content of an OTLP attribute value dict, or None."""
@@ -235,6 +242,48 @@ def _add_span_costs(payloads, cost_by_session):
             attrs.append({"key": _LLM_COST_KEY, "value": {"stringValue": json.dumps(cost)}})
 
 
+def _query_source_by_request(log_records):
+    """Map request_id -> query_source from the /v1/logs api_request events."""
+    mapping = {}
+    for rec in log_records:
+        payload = rec.get("payload") or {}
+        for rl in payload.get("resourceLogs", []):
+            for sl in rl.get("scopeLogs", []):
+                for lr in sl.get("logRecords", []):
+                    attrs = {
+                        a.get("key"): a.get("value")
+                        for a in lr.get("attributes", [])
+                        if isinstance(a, dict)
+                    }
+                    rid = _value_str(attrs.get(_REQUEST_ID_KEY))
+                    source = _value_str(attrs.get(_QUERY_SOURCE_KEY))
+                    if rid and source:
+                        mapping[rid] = source
+    return mapping
+
+
+def _add_query_source(payloads, source_by_request):
+    """Tag each LLM span with its query_source, joined from the logs by
+    request_id, so the call's origin (e.g. generate_session_title) is visible in
+    MLflow. Existing query_source attributes are left untouched."""
+    if not source_by_request:
+        return
+    for payload in payloads:
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    attrs = span.get("attributes")
+                    if not isinstance(attrs, list):
+                        continue
+                    by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
+                    if _QUERY_SOURCE_KEY in by_key:
+                        continue
+                    rid = _value_str(by_key.get(_REQUEST_ID_KEY))
+                    source = source_by_request.get(rid) if rid else None
+                    if source:
+                        attrs.append({"key": _QUERY_SOURCE_KEY, "value": {"stringValue": source}})
+
+
 def _resolve_experiment_id(endpoint, name, headers):
     """Look up an MLflow experiment by name. Returns ID or None."""
     url = f"{endpoint}/api/2.0/mlflow/experiments/search"
@@ -278,6 +327,7 @@ def push_traces(log_file, endpoint, experiment, token=None):
 
     trace_records = []
     metric_records = []
+    log_records = []
     try:
         with open(log_file) as f:
             for line in f:
@@ -293,6 +343,8 @@ def push_traces(log_file, endpoint, experiment, token=None):
                     trace_records.append(rec)
                 elif "/v1/metrics" in path:
                     metric_records.append(rec)
+                elif "/v1/logs" in path:
+                    log_records.append(rec)
     except FileNotFoundError:
         return 0, 0
 
@@ -308,8 +360,9 @@ def push_traces(log_file, endpoint, experiment, token=None):
         return 0, 0
 
     payloads = [rec["payload"] for rec in trace_records if rec.get("payload")]
-    # Annotate spans with Claude's reported cost before serialization.
+    # Annotate spans (from the metrics/logs streams) before serialization.
     _add_span_costs(payloads, _cost_by_session(metric_records))
+    _add_query_source(payloads, _query_source_by_request(log_records))
 
     traces_url = f"{endpoint}/v1/traces"
     ok, err = 0, 0
