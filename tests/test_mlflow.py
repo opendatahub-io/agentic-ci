@@ -12,11 +12,13 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 
 from agentic_ci.mlflow import (
+    _add_query_source,
     _add_span_costs,
     _add_token_usage,
     _cost_by_session,
     _fixup_ids,
     _hex_to_base64,
+    _query_source_by_request,
     _serialize_traces,
     push_traces,
 )
@@ -354,6 +356,88 @@ class TestCostFromMetrics:
         payload = self._payload([self._span("S2", 10, 10)])
         _add_span_costs([payload], {"S1": 1.0})
         assert self._costs(payload) == [None]
+
+
+def _log_rec(entries):
+    return {
+        "path": "/v1/logs",
+        "payload": {
+            "resourceLogs": [
+                {
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "attributes": [
+                                        {"key": "request_id", "value": {"stringValue": rid}},
+                                        {"key": "query_source", "value": {"stringValue": qs}},
+                                    ]
+                                }
+                                for rid, qs in entries
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+    }
+
+
+class TestQuerySource:
+    def test_maps_request_to_source(self):
+        recs = [_log_rec([("req-1", "sdk"), ("req-2", "generate_session_title")])]
+        assert _query_source_by_request(recs) == {
+            "req-1": "sdk",
+            "req-2": "generate_session_title",
+        }
+
+    def test_ignores_records_missing_fields(self):
+        rec = {
+            "path": "/v1/logs",
+            "payload": {
+                "resourceLogs": [
+                    {
+                        "scopeLogs": [
+                            {
+                                "logRecords": [
+                                    {
+                                        "attributes": [
+                                            {"key": "request_id", "value": {"stringValue": "req-x"}}
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+        assert _query_source_by_request([rec]) == {}
+
+    def test_tags_span_by_request_id(self):
+        payload = _llm_span([{"key": "request_id", "value": {"stringValue": "req-2"}}])
+        _add_query_source([payload], {"req-2": "generate_session_title"})
+        assert _span_attrs(payload)["query_source"]["stringValue"] == "generate_session_title"
+
+    def test_skips_span_without_match(self):
+        payload = _llm_span([{"key": "request_id", "value": {"stringValue": "req-unknown"}}])
+        _add_query_source([payload], {"req-2": "sdk"})
+        assert "query_source" not in _span_attrs(payload)
+
+    def test_does_not_override_existing(self):
+        payload = _llm_span(
+            [
+                {"key": "request_id", "value": {"stringValue": "req-2"}},
+                {"key": "query_source", "value": {"stringValue": "keep"}},
+            ]
+        )
+        _add_query_source([payload], {"req-2": "sdk"})
+        assert _span_attrs(payload)["query_source"]["stringValue"] == "keep"
+
+    def test_noop_without_logs(self):
+        payload = _llm_span([{"key": "request_id", "value": {"stringValue": "req-2"}}])
+        _add_query_source([payload], {})
+        assert "query_source" not in _span_attrs(payload)
 
 
 class TestPushTraces:
