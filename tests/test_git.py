@@ -9,6 +9,7 @@ from agentic_ci.git import (
     get_changed_files,
     get_default_branch,
     git_output,
+    rebase_branch,
     strip_committed_files,
 )
 
@@ -44,6 +45,137 @@ class TestCheckoutBranch:
             assert checkout_branch(tmp_path, "main") is True
             assert checkout_branch(tmp_path, "feature/my-branch") is True
             assert checkout_branch(tmp_path, "v1.0.0") is True
+
+
+class TestRebaseBranch:
+    def test_success(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            assert rebase_branch(tmp_path, "origin/main") is True
+            mock_run.assert_called_once()
+            args = mock_run.call_args
+            assert args[0][0] == ["git", "rebase", "origin/main"]
+            assert args[1]["cwd"] == str(tmp_path)
+
+    def test_failure_aborts(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CalledProcessError(1, "git", stderr="conflict"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert rebase_branch(tmp_path, "origin/main") is False
+            assert mock_run.call_count == 2
+            abort_args = mock_run.call_args_list[1]
+            assert abort_args[0][0] == ["git", "rebase", "--abort"]
+
+    def test_invalid_ref_rejected(self, tmp_path: Path):
+        assert rebase_branch(tmp_path, "--evil") is False
+        assert rebase_branch(tmp_path, "") is False
+        assert rebase_branch(tmp_path, "foo..bar") is False
+
+    def test_git_not_found(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("git not found")
+            assert rebase_branch(tmp_path, "origin/main") is False
+
+    def test_real_rebase(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        default = _default_branch(repo)
+        subprocess.run(
+            ["git", "checkout", "-b", "feature"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        (repo / "feature.txt").write_text("feature\n")
+        subprocess.run(["git", "add", "feature.txt"], cwd=str(repo), capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "feature commit"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", default],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        (repo / "main.txt").write_text("main\n")
+        subprocess.run(["git", "add", "main.txt"], cwd=str(repo), capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main commit"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "feature"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+
+        assert rebase_branch(repo, default) is True
+
+        log = subprocess.run(
+            ["git", "log", "--oneline"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "feature commit" in log.stdout
+        assert "main commit" in log.stdout
+
+    def test_real_rebase_conflict_aborts(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        default = _default_branch(repo)
+        subprocess.run(
+            ["git", "checkout", "-b", "feature"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        (repo / "README.md").write_text("feature change\n")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo), capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "feature edit"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", default],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        (repo / "README.md").write_text("conflicting change\n")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo), capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "main edit"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "feature"],
+            cwd=str(repo),
+            capture_output=True,
+            check=True,
+        )
+
+        assert rebase_branch(repo, default) is False
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert status.stdout.strip() == ""
 
 
 class TestGetDefaultBranch:
@@ -102,6 +234,18 @@ class TestGitOutput:
             git_output(tmp_path, "log", "--oneline", "-5")
             args = mock_run.call_args
             assert args[0][0] == ["git", "log", "--oneline", "-5"]
+
+
+def _default_branch(repo: Path) -> str:
+    """Return the current branch name of a repo."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
 
 
 def _init_repo(path: Path) -> Path:
