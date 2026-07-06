@@ -22,16 +22,50 @@ MAX_BODY_SIZE = 1_048_576
 
 
 class OTLPHandler(BaseHTTPRequestHandler):
+    def _read_chunked(self):
+        chunks = []
+        total = 0
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                break
+            try:
+                chunk_size = int(line.split(b";")[0].strip(), 16)
+            except ValueError:
+                break
+            if chunk_size == 0:
+                # Drain trailers until empty line
+                while True:
+                    trailer = self.rfile.readline()
+                    if not trailer or trailer in (b"\r\n", b"\n"):
+                        break
+                break
+            if chunk_size > MAX_BODY_SIZE:
+                return None
+            chunk = self.rfile.read(chunk_size)
+            self.rfile.readline()
+            total += len(chunk)
+            if total > MAX_BODY_SIZE:
+                return None
+            chunks.append(chunk)
+        return b"".join(chunks)
+
     def do_POST(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-        except ValueError:
-            self.send_error(400, "Invalid Content-Length")
-            return
-        if length > MAX_BODY_SIZE:
-            self.send_error(413, "Payload Too Large")
-            return
-        body = self.rfile.read(length) if length else b""
+        if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
+            body = self._read_chunked()
+            if body is None:
+                self.send_error(413, "Payload Too Large")
+                return
+        else:
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                self.send_error(400, "Invalid Content-Length")
+                return
+            if length > MAX_BODY_SIZE:
+                self.send_error(413, "Payload Too Large")
+                return
+            body = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(body) if body else {}
         except json.JSONDecodeError:
