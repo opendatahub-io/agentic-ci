@@ -188,12 +188,15 @@ class ClaudeCodeStreamProcessor:
     def _format_result(self, msg):
         subtype = msg.get("subtype", "unknown")
         stop = msg.get("stop_reason", "")
+        is_error = msg.get("is_error", False)
         duration_ms = msg.get("duration_ms", 0)
         api_ms = msg.get("duration_api_ms", 0)
         ttft_ms = msg.get("ttft_ms", 0)
         turns = msg.get("num_turns", 0)
         cost = msg.get("total_cost_usd", 0)
         label = f"{subtype} ({stop})" if stop else subtype
+        if is_error:
+            label = f"ERROR: {label}"
         log.section(f"Result: {label}")
         log.detail(
             "Duration",
@@ -201,6 +204,10 @@ class ClaudeCodeStreamProcessor:
         )
         log.detail("Turns", str(turns))
         log.detail("Cost", f"${cost:.4f}")
+        if is_error:
+            error_text = msg.get("result", "")
+            if error_text:
+                log.detail("Error", error_text)
 
     def flush_errors(self):
         # Claude Code reports errors inline; nothing to flush.
@@ -254,6 +261,8 @@ class ClaudeCodeStreamProcessor:
         if msg_type == "result":
             self._end_block()
             self._format_result(msg)
+            if msg.get("is_error"):
+                return False
             return True
 
         if msg_type != "stream_event":
