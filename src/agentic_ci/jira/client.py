@@ -290,6 +290,7 @@ class JiraClient:
                     "author_email": c.get("author", {}).get("emailAddress", ""),
                     "body": body,
                     "created": c.get("created", ""),
+                    "updated": c.get("updated", ""),
                     "visibility": c.get("visibility"),
                 }
             )
@@ -339,6 +340,7 @@ class JiraClient:
                             "author_email": c.get("author", {}).get("emailAddress", ""),
                             "body": body,
                             "created": c.get("created", ""),
+                            "updated": c.get("updated", ""),
                             "visibility": c.get("visibility"),
                         }
                     )

@@ -78,6 +78,45 @@ class TestGetIssue:
         assert result["reporter_email"] == "j@test.com"
         assert result["labels"] == ["autofix"]
 
+    @patch("agentic_ci.jira.client.requests")
+    def test_fetch_comments_includes_updated(self, mock_requests, client):
+        issue_resp = MagicMock()
+        issue_resp.status_code = 200
+        issue_resp.json.return_value = {
+            "key": "TEST-1",
+            "fields": {
+                "summary": "s",
+                "description": "",
+                "issuetype": {"name": "Bug"},
+                "labels": [],
+                "status": {"name": "Open"},
+                "reporter": {},
+                "components": [],
+                "project": {"key": "TEST"},
+            },
+        }
+
+        comment_resp = MagicMock()
+        comment_resp.status_code = 200
+        comment_resp.json.return_value = {
+            "comments": [
+                {
+                    "id": "100",
+                    "author": {"displayName": "Bot", "emailAddress": "bot@test.com"},
+                    "body": "initial comment",
+                    "created": "2026-07-06T18:00:00.000+0000",
+                    "updated": "2026-07-06T22:43:38.000+0000",
+                }
+            ]
+        }
+
+        mock_requests.get.side_effect = [issue_resp, comment_resp]
+
+        result = client.get_issue("TEST-1")
+        assert len(result["comments"]) == 1
+        assert result["comments"][0]["created"] == "2026-07-06T18:00:00.000+0000"
+        assert result["comments"][0]["updated"] == "2026-07-06T22:43:38.000+0000"
+
 
 class TestSearch:
     @patch("agentic_ci.jira.client.requests")
