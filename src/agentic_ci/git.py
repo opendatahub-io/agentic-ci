@@ -287,6 +287,39 @@ def checkout_branch(repo_dir: Path, branch: str) -> bool:
         return False
 
 
+def rebase_branch(repo_dir: Path, onto: str) -> bool:
+    """Rebase the current branch onto *onto*. Returns True on success.
+
+    On conflict the rebase is aborted so the worktree stays clean.
+    """
+    if not _validate_ref(onto):
+        log.error("rebase_branch: invalid ref: %s", onto)
+        return False
+    try:
+        subprocess.run(
+            ["git", "rebase", onto],
+            cwd=str(repo_dir),
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=_DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        log.error("git rebase failed: %s", exc.stderr)
+        subprocess.run(
+            ["git", "rebase", "--abort"],
+            cwd=str(repo_dir),
+            capture_output=True,
+            text=True,
+            stdin=_DEVNULL,
+        )
+        return False
+    except FileNotFoundError:
+        log.error("git binary not found")
+        return False
+
+
 def get_default_branch(repo_dir: Path) -> str:
     """Detect the default branch of the remote origin.
 
