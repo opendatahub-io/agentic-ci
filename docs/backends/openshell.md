@@ -58,9 +58,8 @@ bind_address = "0.0.0.0:17670"
 compute_drivers = ["podman"]
 
 # Only added when OPENSHELL_SUPERVISOR_IMAGE is set
-# TODO: to be replaced by an official image, or the default NVIDIA one
 [openshell.drivers.podman]
-supervisor_image = "quay.io/mprpic/openshell-supervisor:pr1763"
+supervisor_image = "custom-supervisor:latest"
 ```
 
 ### Provider Setup
@@ -230,12 +229,6 @@ The default supervisor image is
 the `OPENSHELL_SUPERVISOR_IMAGE` environment variable before running
 `agentic-ci`. This is written into the gateway's TOML config under
 `[openshell.drivers.podman] supervisor_image`.
-
-Currently, the `google-cloud` provider requires a supervisor built
-from [PR #1763](https://github.com/NVIDIA/OpenShell/pull/1763), which
-adds the GCE metadata emulator. A pre-built image is available at
-`quay.io/mprpic/openshell-supervisor:pr1763`. Once PR #1763 merges and
-`supervisor:latest` is rebuilt, the override will no longer be needed.
 
 ## Known Issues and Workarounds
 
