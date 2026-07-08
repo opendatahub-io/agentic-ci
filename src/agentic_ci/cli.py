@@ -38,7 +38,13 @@ def cmd_mlflow_push(args):
     log.detail("Endpoint", args.endpoint)
     log.detail("Experiment", args.experiment)
 
-    ok, err = mlflow.push_traces(args.jsonl, args.endpoint, args.experiment, args.token)
+    ok, err, trace_ids, session_ids = mlflow.push_traces(
+        args.jsonl, args.endpoint, args.experiment, args.token
+    )
+    if trace_ids:
+        log.detail("Trace IDs", ", ".join(trace_ids))
+    if session_ids:
+        log.detail("Session IDs", ", ".join(session_ids))
     if ok:
         log.info(f"Pushed {ok} trace(s) to MLflow ({err} failed)")
     elif err:
