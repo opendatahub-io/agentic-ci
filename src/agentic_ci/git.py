@@ -124,6 +124,45 @@ def extract_repo_url(text: str) -> str | None:
     return None
 
 
+def _dedup_gitlab_prefixes(urls: list[str]) -> list[str]:
+    """Remove GitLab URLs that are strict prefixes of other GitLab URLs.
+
+    GitLab nested-group URLs (e.g. ``gitlab.com/group``) can be strict
+    prefixes of actual repo URLs (``gitlab.com/group/project``).  Keep
+    only the longest match when one URL is a prefix of another.
+    """
+    if len(urls) <= 1:
+        return urls
+    longest_first = sorted(urls, key=len, reverse=True)
+    kept: list[str] = []
+    for url in longest_first:
+        if not any(longer.startswith(url + "/") for longer in kept):
+            kept.append(url)
+    kept_set = set(kept)
+    return [u for u in urls if u in kept_set]
+
+
+def extract_all_repo_urls(text: str) -> list[str]:
+    """Extract all distinct repo root URLs from text.
+
+    Scans for both GitLab and GitHub URLs, filters out subpaths, file
+    extensions, and placeholder URLs.  GitLab URLs that are strict
+    prefixes of other GitLab URLs are collapsed (nested group dedup).
+
+    Unlike :func:`extract_repo_url`, this does **not** validate URLs
+    against forge APIs -- it returns all plausible candidates.
+    """
+    gitlab_urls = _dedup_gitlab_prefixes(_collect_candidates(text, _GITLAB_URL_RE))
+    github_urls = _collect_candidates(text, _GITHUB_URL_RE)
+    seen: set[str] = set()
+    result: list[str] = []
+    for url in gitlab_urls + github_urls:
+        if url not in seen:
+            seen.add(url)
+            result.append(url)
+    return result
+
+
 def validate_repo_url(url: str) -> bool:
     """Check that a repo URL points to an allowed host with no path traversal."""
     if not url:
