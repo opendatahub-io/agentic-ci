@@ -39,6 +39,7 @@ RUN dnf install -y --nodocs \
     && dnf clean all
 
 # OpenShell gateway + CLI from Copr (manual repo config for UBI10)
+ARG OPENSHELL_VERSION=0.0.79
 RUN printf '[copr:maxamillion:nvidia-openshell]\n\
 name=Copr repo for nvidia-openshell owned by maxamillion\n\
 baseurl=https://download.copr.fedorainfracloud.org/results/maxamillion/nvidia-openshell/rhel+epel-10-$basearch/\n\
@@ -48,14 +49,9 @@ gpgcheck=0\n\
 repo_gpgcheck=0\n\
 enabled=1\n' > /etc/yum.repos.d/copr-nvidia-openshell.repo \
     && dnf install -y --nodocs \
-        openshell-gateway-0.0.55-1.20260605134545513516.devrobertsturlagce.metadata.emulator.11.gaada3da8.el10 \
-        openshell-0.0.55-1.20260605134545513516.devrobertsturlagce.metadata.emulator.11.gaada3da8.el10 \
+        "openshell-gateway-${OPENSHELL_VERSION}" \
+        "openshell-${OPENSHELL_VERSION}" \
     && dnf clean all
-# Pinned to 0.0.55 (Copr build from PR #1763 branch). The upstream
-# supervisor image doesn't have google-cloud provider support yet, so
-# we build a custom supervisor in e2e tests. Bump to >= 0.0.56 once
-# PR #1763 merges and remove the custom supervisor build.
-# Tracking: https://github.com/NVIDIA/OpenShell/pull/1763
 
 # GitHub CLI (pinned)
 RUN curl -fsSL -o /tmp/gh.tar.gz \

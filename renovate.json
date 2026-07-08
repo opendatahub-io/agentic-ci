@@ -101,6 +101,17 @@
     {
       "customType": "regex",
       "fileMatch": [
+        "^images/ci/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG OPENSHELL_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "openshell",
+      "datasourceTemplate": "rpm",
+      "registryUrlTemplate": "https://download.copr.fedorainfracloud.org/results/maxamillion/nvidia-openshell/rhel+epel-10-x86_64/repodata/",
+      "versioningTemplate": "rpm"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
       ],

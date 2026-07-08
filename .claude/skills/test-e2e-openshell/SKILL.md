@@ -18,7 +18,6 @@ to confirm or override each one before proceeding:
 | Role               | Default image                                          | Variable                    |
 |--------------------|--------------------------------------------------------|-----------------------------|
 | CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
-| Supervisor         | `quay.io/mprpic/openshell-supervisor:pr1763`           | `$SUPERVISOR_IMAGE`         |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
 
@@ -281,7 +280,6 @@ Should print `red`.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
-  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -337,7 +335,6 @@ Run cleanup first.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
-  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     cd /tmp/e2e-workdir && \
