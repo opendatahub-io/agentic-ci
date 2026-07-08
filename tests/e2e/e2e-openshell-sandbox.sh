@@ -104,14 +104,6 @@ else
     OPENCODE_SANDBOX="localhost/opencode-sandbox:latest"
 fi
 
-# Pre-built supervisor from PR #1763 (google-cloud provider + GCE metadata
-# emulator). The upstream supervisor image doesn't include these changes
-# yet. Remove this override once PR #1763 merges and the openshell RPM
-# is upgraded past 0.0.55.
-# Tracking: https://github.com/NVIDIA/OpenShell/pull/1763
-export OPENSHELL_SUPERVISOR_IMAGE=quay.io/mprpic/openshell-supervisor:pr1763
-print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
-
 # Helper: run a command inside a sandbox image as the sandbox user
 run_in() {
     local image="$1"; shift

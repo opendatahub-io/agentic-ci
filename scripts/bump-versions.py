@@ -14,11 +14,13 @@ Usage:
 
 import argparse
 import datetime
+import gzip
 import hashlib
 import json
 import re
 import subprocess
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -226,6 +228,66 @@ def bump_opencode(check_only):
     return result
 
 
+def _copr_latest_openshell():
+    """Return the latest openshell version from the Copr RPM repo."""
+    base = (
+        "https://download.copr.fedorainfracloud.org/results/"
+        "maxamillion/nvidia-openshell/rhel+epel-10-x86_64/repodata"
+    )
+    ns = {"r": "http://linux.duke.edu/metadata/repo"}
+    repomd = ET.fromstring(_fetch_text(f"{base}/repomd.xml"))
+    primary_href = None
+    for data in repomd.findall(".//r:data", ns):
+        if data.get("type") == "primary":
+            loc = data.find("r:location", ns)
+            if loc is not None:
+                primary_href = loc.get("href")
+    if not primary_href:
+        raise RuntimeError("primary metadata not found in Copr repodata")
+
+    url = f"{base}/../{primary_href}"
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", "bump-versions/1.0")
+    with urllib.request.urlopen(req) as resp:
+        xml_bytes = gzip.decompress(resp.read())
+
+    ns_common = {"c": "http://linux.duke.edu/metadata/common"}
+    tree = ET.fromstring(xml_bytes)
+    best = None
+    for pkg in tree.findall(".//c:package", ns_common):
+        name = pkg.find("c:name", ns_common)
+        if name is None or name.text != "openshell":
+            continue
+        ver = pkg.find("c:version", ns_common)
+        if ver is None:
+            continue
+        v = ver.get("ver", "")
+        if best is None or _rpm_ver_cmp(v, best) > 0:
+            best = v
+    if not best:
+        raise RuntimeError("openshell package not found in Copr repo")
+    return best
+
+
+def _rpm_ver_cmp(a, b):
+    """Compare two dotted version strings numerically."""
+    for x, y in zip(a.split("."), b.split(".")):
+        xi, yi = int(x), int(y)
+        if xi != yi:
+            return 1 if xi > yi else -1
+    return len(a.split(".")) - len(b.split("."))
+
+
+def bump_openshell(check_only):
+    version = _copr_latest_openshell()
+    result = {"tool": "openshell", "version": version}
+    if not check_only:
+        for cf in [OPENSHELL_CI_CF]:
+            if cf.exists():
+                _update_arg(cf, "OPENSHELL_VERSION", version)
+    return result
+
+
 def bump_gitleaks(check_only):
     version = _github_latest("gitleaks/gitleaks")
     url = (
@@ -299,6 +361,7 @@ TOOLS = {
     "vale": bump_vale,
     "claude": bump_claude,
     "opencode": bump_opencode,
+    "openshell": bump_openshell,
     "acli": bump_acli,
     "ruff": bump_ruff,
     "agentic-ci": bump_agentic_ci,
@@ -482,6 +545,10 @@ def sync_opencode():
     return {"tool": "opencode", "versions": list(versions)}
 
 
+def sync_openshell():
+    return {"tool": "openshell", "skipped": "rpm-based, no checksum to sync"}
+
+
 def sync_acli():
     return {"tool": "acli", "skipped": "rpm-based, no checksum to sync"}
 
@@ -503,6 +570,7 @@ SYNC_TOOLS = {
     "vale": sync_vale,
     "claude": sync_claude,
     "opencode": sync_opencode,
+    "openshell": sync_openshell,
     "acli": sync_acli,
     "ruff": sync_ruff,
     "agentic-ci": sync_agentic_ci,
@@ -636,6 +704,7 @@ def main():
             "vale": "VALE_VERSION",
             "claude": "CLAUDE_VERSION",
             "opencode": "OPENCODE_VERSION",
+            "openshell": "OPENSHELL_VERSION",
             "acli": "ACLI_VERSION",
         }
         pip_packages = {"agentic-ci", "ruff"}
