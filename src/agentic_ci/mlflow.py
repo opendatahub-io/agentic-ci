@@ -4,14 +4,57 @@ import base64
 import copy
 import json
 import sys
+from typing import NamedTuple
 
 import requests
 from google.protobuf import json_format
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
+from opentelemetry.proto.trace.v1.trace_pb2 import Status
 
 _ID_KEYS = ("traceId", "spanId", "parentSpanId")
+
+_SPAN_STATUS_ERROR = Status.StatusCode.STATUS_CODE_ERROR
+
+
+def _latest_end_in_payload(payload):
+    """Find the latest endTimeUnixNano across all complete spans in a payload."""
+    latest = 0
+    for rs in payload.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                end = span.get("endTimeUnixNano")
+                if end and str(end) != "0":
+                    latest = max(latest, int(end))
+    return latest
+
+
+def _close_incomplete_spans(payload):
+    """Close spans that have no end time (killed agent, OOM, timeout).
+
+    When Claude Code is killed mid-run, the OTEL batch processor cannot flush
+    the root span. MLflow marks such traces "In Progress" permanently.
+
+    For each incomplete span, endTimeUnixNano is set to the latest end time
+    of any complete sibling/descendant span in the payload (best approximation
+    of when the agent was still alive), falling back to startTimeUnixNano if
+    no complete spans exist. Status is set to ERROR.
+    """
+    latest_end = _latest_end_in_payload(payload)
+    for rs in payload.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                end = span.get("endTimeUnixNano")
+                if not end or str(end) == "0":
+                    start = int(span.get("startTimeUnixNano", "0"))
+                    best_end = str(max(start, latest_end) if latest_end else start)
+                    span["endTimeUnixNano"] = best_end
+                    span["status"] = {
+                        "code": _SPAN_STATUS_ERROR,
+                        "message": "end time missing at push; span marked as error",
+                    }
+    return payload
 
 
 def _hex_to_base64(value):
@@ -309,17 +352,71 @@ def _resolve_experiment_id(endpoint, name, headers):
 
 def _serialize_traces(payload):
     """Convert an OTLP JSON trace payload dict to protobuf bytes."""
-    payload = _add_token_usage(_fixup_ids(copy.deepcopy(payload)))
+    payload = _close_incomplete_spans(_add_token_usage(_fixup_ids(copy.deepcopy(payload))))
     request = ExportTraceServiceRequest()
     json_format.ParseDict(payload, request)
     return request.SerializeToString()
 
 
-def push_traces(log_file, endpoint, experiment, token=None):
-    """Push /v1/traces records from a JSONL log to an MLflow OTLP endpoint.
+def _extract_trace_ids(payloads):
+    """Extract unique trace IDs from OTLP trace payloads.
 
-    Returns (ok_count, error_count).
+    Returns IDs in MLflow's ``tr-<hex>`` format so they are directly
+    grep-able against MLflow UI URLs and dashboard links.
     """
+    trace_ids = set()
+    for payload in payloads:
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    tid = span.get("traceId")
+                    if tid:
+                        trace_ids.add(f"tr-{tid}")
+    return sorted(trace_ids)
+
+
+_METRIC_KINDS = ("sum", "gauge", "histogram", "exponentialHistogram", "summary")
+
+
+def _extract_session_ids(payloads, metric_records):
+    """Extract unique session IDs from span attributes and metric records."""
+    session_ids = set()
+    for payload in payloads:
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    attrs = span.get("attributes")
+                    if not isinstance(attrs, list):
+                        continue
+                    for a in attrs:
+                        if isinstance(a, dict) and a.get("key") == _SESSION_ID_KEY:
+                            sid = _value_str(a.get("value"))
+                            if sid:
+                                session_ids.add(sid)
+    for rec in metric_records:
+        payload = rec.get("payload") or {}
+        for rm in payload.get("resourceMetrics", []):
+            for sm in rm.get("scopeMetrics", []):
+                for metric in sm.get("metrics", []):
+                    for kind in _METRIC_KINDS:
+                        for dp in metric.get(kind, {}).get("dataPoints", []):
+                            for a in dp.get("attributes", []):
+                                if isinstance(a, dict) and a.get("key") == _SESSION_ID_KEY:
+                                    sid = _value_str(a.get("value"))
+                                    if sid:
+                                        session_ids.add(sid)
+    return sorted(session_ids)
+
+
+class PushResult(NamedTuple):
+    ok: int
+    err: int
+    trace_ids: list[str]
+    session_ids: list[str]
+
+
+def push_traces(log_file, endpoint, experiment, token=None):
+    """Push /v1/traces records from a JSONL log to an MLflow OTLP endpoint."""
     endpoint = endpoint.rstrip("/")
     headers = {}
     if token:
@@ -346,10 +443,10 @@ def push_traces(log_file, endpoint, experiment, token=None):
                 elif "/v1/logs" in path:
                     log_records.append(rec)
     except FileNotFoundError:
-        return 0, 0
+        return PushResult(0, 0, [], [])
 
     if not trace_records:
-        return 0, 0
+        return PushResult(0, 0, [], [])
 
     experiment_id = _resolve_experiment_id(endpoint, experiment, headers)
     if not experiment_id:
@@ -357,9 +454,13 @@ def push_traces(log_file, endpoint, experiment, token=None):
             f"MLflow experiment '{experiment}' not found — skipping trace push.",
             file=sys.stderr,
         )
-        return 0, 0
+        return PushResult(0, 0, [], [])
 
     payloads = [rec["payload"] for rec in trace_records if rec.get("payload")]
+
+    trace_ids = _extract_trace_ids(payloads)
+    session_ids = _extract_session_ids(payloads, metric_records)
+
     # Annotate spans (from the metrics/logs streams) before serialization.
     _add_span_costs(payloads, _cost_by_session(metric_records))
     _add_query_source(payloads, _query_source_by_request(log_records))
@@ -389,4 +490,4 @@ def push_traces(log_file, endpoint, experiment, token=None):
             print(f"Trace push failed{detail}: {e}", file=sys.stderr)
             err += 1
 
-    return ok, err
+    return PushResult(ok, err, trace_ids, session_ids)

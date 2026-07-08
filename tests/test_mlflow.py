@@ -12,10 +12,14 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 
 from agentic_ci.mlflow import (
+    PushResult,
     _add_query_source,
     _add_span_costs,
     _add_token_usage,
+    _close_incomplete_spans,
     _cost_by_session,
+    _extract_session_ids,
+    _extract_trace_ids,
     _fixup_ids,
     _hex_to_base64,
     _query_source_by_request,
@@ -449,13 +453,13 @@ class TestPushTraces:
         return f.name
 
     def test_missing_file_returns_zero(self):
-        ok, err = push_traces("/nonexistent.jsonl", "http://mlflow:5000", "exp")
+        ok, err, _, _ = push_traces("/nonexistent.jsonl", "http://mlflow:5000", "exp")
         assert (ok, err) == (0, 0)
 
     def test_no_trace_records_returns_zero(self):
         path = self._write_jsonl([{"path": "/v1/metrics", "payload": {}}])
         try:
-            ok, err = push_traces(path, "http://mlflow:5000", "exp")
+            ok, err, _, _ = push_traces(path, "http://mlflow:5000", "exp")
             assert (ok, err) == (0, 0)
         finally:
             os.unlink(path)
@@ -471,7 +475,7 @@ class TestPushTraces:
             [{"path": "/v1/traces", "payload": copy.deepcopy(HEX_TRACE_PAYLOAD)}]
         )
         try:
-            ok, err = push_traces(path, "http://mlflow:5000", "exp")
+            ok, err, _, _ = push_traces(path, "http://mlflow:5000", "exp")
         finally:
             os.unlink(path)
 
@@ -507,3 +511,294 @@ class TestPushTraces:
         assert parsed.resource_spans[0].scope_spans[0].spans[0].trace_id == bytes.fromhex(
             "0af7651916cd43dd8448eb211c80319c"
         )
+
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_returns_trace_and_session_ids(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"experiments": [{"experiment_id": "1"}]}
+        mock_post.return_value = mock_resp
+
+        payload = copy.deepcopy(HEX_TRACE_PAYLOAD)
+        payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"].append(
+            {"key": "session.id", "value": {"stringValue": "sess-abc"}}
+        )
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": payload}])
+        try:
+            ok, err, trace_ids, session_ids = push_traces(path, "http://mlflow:5000", "exp")
+        finally:
+            os.unlink(path)
+
+        assert ok == 1
+        assert err == 0
+        assert "tr-0af7651916cd43dd8448eb211c80319c" in trace_ids
+        assert "sess-abc" in session_ids
+
+    def test_missing_file_returns_empty_ids(self):
+        ok, err, trace_ids, session_ids = push_traces(
+            "/nonexistent.jsonl", "http://mlflow:5000", "exp"
+        )
+        assert (ok, err) == (0, 0)
+        assert trace_ids == []
+        assert session_ids == []
+
+
+class TestCloseIncompleteSpans:
+    def _make_payload(self, spans):
+        return {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+
+    def _span(self, start="1000000000", end="2000000000"):
+        return {
+            "name": "test-span",
+            "startTimeUnixNano": start,
+            "endTimeUnixNano": end,
+            "status": {},
+        }
+
+    def test_closes_span_with_zero_end_time(self):
+        payload = self._make_payload([self._span(end="0")])
+        result = _close_incomplete_spans(payload)
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "1000000000"
+        assert span["status"]["code"] == 2
+        assert "missing" in span["status"]["message"]
+
+    def test_closes_span_with_missing_end_time(self):
+        span_data = self._span()
+        del span_data["endTimeUnixNano"]
+        payload = self._make_payload([span_data])
+        result = _close_incomplete_spans(payload)
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "1000000000"
+        assert span["status"]["code"] == 2
+
+    def test_closes_span_with_integer_zero_end_time(self):
+        span_data = self._span()
+        span_data["endTimeUnixNano"] = 0
+        payload = self._make_payload([span_data])
+        result = _close_incomplete_spans(payload)
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "1000000000"
+        assert span["status"]["code"] == 2
+
+    def test_leaves_complete_span_unchanged(self):
+        payload = self._make_payload([self._span(end="2000000000")])
+        result = _close_incomplete_spans(payload)
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "2000000000"
+        assert span["status"] == {}
+
+    def test_uses_latest_descendant_end_time(self):
+        child = self._span(start="1000000000", end="8000000000")
+        parent = self._span(start="500000000", end="0")
+        payload = self._make_payload([parent, child])
+        result = _close_incomplete_spans(payload)
+        parent_span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert parent_span["endTimeUnixNano"] == "8000000000"
+
+    def test_falls_back_to_start_when_no_complete_spans(self):
+        span_data = self._span(start="3000000000", end="0")
+        payload = self._make_payload([span_data])
+        result = _close_incomplete_spans(payload)
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "3000000000"
+
+    def test_serialize_traces_closes_incomplete_spans(self):
+        payload = self._make_payload([self._span(start="5000000000", end="0")])
+        serialized = _serialize_traces(payload)
+        parsed = ExportTraceServiceRequest()
+        parsed.ParseFromString(serialized)
+        span = parsed.resource_spans[0].scope_spans[0].spans[0]
+        assert span.end_time_unix_nano == 5000000000
+        assert span.status.code == 2
+
+
+class TestExtractTraceIds:
+    def test_extracts_unique_trace_ids_with_prefix(self):
+        payloads = [
+            {
+                "resourceSpans": [
+                    {
+                        "scopeSpans": [
+                            {
+                                "spans": [
+                                    {"traceId": "abc123"},
+                                    {"traceId": "abc123"},
+                                    {"traceId": "def456"},
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        result = _extract_trace_ids(payloads)
+        assert result == ["tr-abc123", "tr-def456"]
+
+    def test_empty_payloads(self):
+        assert _extract_trace_ids([]) == []
+        assert _extract_trace_ids([{}]) == []
+
+
+class TestExtractSessionIds:
+    def test_extracts_from_span_attributes(self):
+        payloads = [
+            {
+                "resourceSpans": [
+                    {
+                        "scopeSpans": [
+                            {
+                                "spans": [
+                                    {
+                                        "attributes": [
+                                            {
+                                                "key": "session.id",
+                                                "value": {"stringValue": "sess-1"},
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        result = _extract_session_ids(payloads, [])
+        assert result == ["sess-1"]
+
+    def test_extracts_from_metric_records(self):
+        metric_rec = {
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "claude_code.cost.usage",
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "attributes": [
+                                                        {
+                                                            "key": "session.id",
+                                                            "value": {"stringValue": "sess-m1"},
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        result = _extract_session_ids([], [metric_rec])
+        assert result == ["sess-m1"]
+
+    def test_deduplicates_across_sources(self):
+        payloads = [
+            {
+                "resourceSpans": [
+                    {
+                        "scopeSpans": [
+                            {
+                                "spans": [
+                                    {
+                                        "attributes": [
+                                            {
+                                                "key": "session.id",
+                                                "value": {"stringValue": "sess-x"},
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+        metric_rec = {
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "attributes": [
+                                                        {
+                                                            "key": "session.id",
+                                                            "value": {"stringValue": "sess-x"},
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+        result = _extract_session_ids(payloads, [metric_rec])
+        assert result == ["sess-x"]
+
+    def test_extracts_from_histogram_metric(self):
+        metric_rec = {
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "claude_code.session.token.total",
+                                        "histogram": {
+                                            "dataPoints": [
+                                                {
+                                                    "attributes": [
+                                                        {
+                                                            "key": "session.id",
+                                                            "value": {"stringValue": "sess-hist"},
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        result = _extract_session_ids([], [metric_rec])
+        assert result == ["sess-hist"]
+
+
+class TestPushResult:
+    def test_attribute_access(self):
+        r = PushResult(ok=1, err=2, trace_ids=["t1"], session_ids=["s1"])
+        assert r.ok == 1
+        assert r.err == 2
+        assert r.trace_ids == ["t1"]
+        assert r.session_ids == ["s1"]
+
+    def test_tuple_unpacking(self):
+        ok, err, tids, sids = PushResult(3, 0, ["a", "b"], ["x"])
+        assert ok == 3
+        assert err == 0
+        assert tids == ["a", "b"]
+        assert sids == ["x"]
