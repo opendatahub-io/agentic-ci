@@ -5,7 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agentic_ci.git import (
+    _GITHUB_URL_RE,
+    _GITLAB_URL_RE,
+    _collect_candidates,
+    _dedup_gitlab_prefixes,
     checkout_branch,
+    extract_all_repo_urls,
     get_changed_files,
     get_default_branch,
     git_output,
@@ -423,3 +428,152 @@ class TestStripCommittedFiles:
         assert "fix.py" in changed
         assert "fix2.py" in changed
         assert (repo / "autofix-output" / "verdict.json").exists()
+
+
+class TestCollectCandidates:
+    def test_extracts_gitlab_url(self):
+        text = "See https://gitlab.com/group/project for details."
+        assert _collect_candidates(text, _GITLAB_URL_RE) == ["https://gitlab.com/group/project"]
+
+    def test_extracts_github_url(self):
+        text = "See https://github.com/org/repo for details."
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
+
+    def test_filters_gitlab_subpaths(self):
+        text = "Blob https://gitlab.com/group/project/-/blob/main/f.py"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+
+    def test_github_subpath_extracts_root(self):
+        text = "PR at https://github.com/org/repo/pull/42"
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
+
+    def test_filters_file_extensions(self):
+        text = "See https://github.com/org/repo.md for docs."
+        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+
+    def test_filters_placeholders(self):
+        text = "Use https://github.com/your-org/your-repo as a template."
+        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+
+    def test_strips_trailing_slash_and_git_suffix(self):
+        text = "Clone https://github.com/org/repo.git/ now."
+        result = _collect_candidates(text, _GITHUB_URL_RE)
+        assert result == ["https://github.com/org/repo"]
+
+    def test_deduplicates(self):
+        text = "https://github.com/org/repo and also https://github.com/org/repo again"
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
+
+    def test_preserves_order(self):
+        text = "https://github.com/org/beta then https://github.com/org/alpha"
+        result = _collect_candidates(text, _GITHUB_URL_RE)
+        assert result == [
+            "https://github.com/org/beta",
+            "https://github.com/org/alpha",
+        ]
+
+    def test_empty_text(self):
+        assert _collect_candidates("", _GITHUB_URL_RE) == []
+        assert _collect_candidates("", _GITLAB_URL_RE) == []
+
+
+class TestDedupGitlabPrefixes:
+    def test_removes_prefix_url(self):
+        urls = [
+            "https://gitlab.com/group",
+            "https://gitlab.com/group/project",
+        ]
+        assert _dedup_gitlab_prefixes(urls) == ["https://gitlab.com/group/project"]
+
+    def test_no_dedup_when_not_prefix(self):
+        urls = [
+            "https://gitlab.com/org-a/repo",
+            "https://gitlab.com/org-b/repo",
+        ]
+        assert _dedup_gitlab_prefixes(urls) == urls
+
+    def test_does_not_collapse_partial_name_match(self):
+        urls = [
+            "https://gitlab.com/group/repo",
+            "https://gitlab.com/group/repo-v2",
+        ]
+        assert _dedup_gitlab_prefixes(urls) == urls
+
+    def test_empty_list(self):
+        assert _dedup_gitlab_prefixes([]) == []
+
+    def test_single_url(self):
+        urls = ["https://gitlab.com/group/repo"]
+        assert _dedup_gitlab_prefixes(urls) == urls
+
+    def test_three_level_nesting(self):
+        urls = [
+            "https://gitlab.com/a",
+            "https://gitlab.com/a/b",
+            "https://gitlab.com/a/b/c",
+        ]
+        assert _dedup_gitlab_prefixes(urls) == ["https://gitlab.com/a/b/c"]
+
+    def test_preserves_original_order(self):
+        urls = [
+            "https://gitlab.com/org/other",
+            "https://gitlab.com/group/project",
+            "https://gitlab.com/group",
+        ]
+        result = _dedup_gitlab_prefixes(urls)
+        assert result == [
+            "https://gitlab.com/org/other",
+            "https://gitlab.com/group/project",
+        ]
+
+
+class TestExtractAllRepoUrls:
+    def test_no_urls(self):
+        assert extract_all_repo_urls("No repo here.") == []
+
+    def test_single_github_url(self):
+        text = "Bug in https://github.com/org/repo"
+        assert extract_all_repo_urls(text) == ["https://github.com/org/repo"]
+
+    def test_single_gitlab_url(self):
+        text = "Bug in https://gitlab.com/group/project"
+        assert extract_all_repo_urls(text) == ["https://gitlab.com/group/project"]
+
+    def test_multiple_github_urls(self):
+        text = "See https://github.com/org/repo-a and https://github.com/org/repo-b"
+        assert extract_all_repo_urls(text) == [
+            "https://github.com/org/repo-a",
+            "https://github.com/org/repo-b",
+        ]
+
+    def test_mixed_forges(self):
+        text = "Frontend: https://github.com/org/ui Backend: https://gitlab.com/group/api"
+        assert extract_all_repo_urls(text) == [
+            "https://gitlab.com/group/api",
+            "https://github.com/org/ui",
+        ]
+
+    def test_deduplicates_across_text(self):
+        text = "https://github.com/org/repo mentioned twice: https://github.com/org/repo"
+        assert extract_all_repo_urls(text) == ["https://github.com/org/repo"]
+
+    def test_filters_subpaths(self):
+        text = "https://github.com/org/repo is the repo. PR: https://github.com/org/repo/pull/42"
+        assert extract_all_repo_urls(text) == ["https://github.com/org/repo"]
+
+    def test_gitlab_prefix_dedup(self):
+        text = "https://gitlab.com/redhat/rhel-ai and https://gitlab.com/redhat/rhel-ai/core/images"
+        result = extract_all_repo_urls(text)
+        assert result == ["https://gitlab.com/redhat/rhel-ai/core/images"]
+
+    def test_preserves_order(self):
+        text = "https://gitlab.com/group/beta then https://github.com/org/alpha"
+        result = extract_all_repo_urls(text)
+        assert result[0] == "https://gitlab.com/group/beta"
+        assert result[1] == "https://github.com/org/alpha"
+
+    def test_gitlab_nested_group_url(self):
+        text = "Repo at https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix"
+        assert extract_all_repo_urls(text) == [
+            "https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix"
+        ]
