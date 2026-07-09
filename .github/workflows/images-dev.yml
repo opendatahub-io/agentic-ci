@@ -1,0 +1,286 @@
+# Periodic dev image rebuild.
+#
+# Rebuilds all container images every 6 hours with --no-cache to pick up
+# the latest unpinned dependencies (skills from skills-registry, RPM
+# updates). Tags images as <next-patch>.dev (e.g. 0.3.20.dev) so dev
+# builds are clearly distinguishable from releases.
+#
+# Ref: RHAIFIRST-219
+name: Dev Image Rebuild
+
+on:
+  schedule:
+    # Every 6 hours: midnight, 6am, noon, 6pm UTC
+    - cron: '0 0,6,12,18 * * *'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "rebuild" to confirm'
+        required: true
+        type: string
+
+concurrency:
+  group: images-dev
+  cancel-in-progress: true
+
+env:
+  REGISTRY: quay.io
+  IMAGE_PREFIX: quay.io/aipcc/agentic-ci
+
+jobs:
+  # Compute the dev tag once, share across all build jobs.
+  compute-tag:
+    name: Compute dev tag
+    if: github.event_name == 'schedule' || inputs.confirm == 'rebuild'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      dev_tag: ${{ steps.tag.outputs.dev_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Compute dev tag
+        id: tag
+        run: |
+          DEV_TAG=$(python3 scripts/dev-tag.py)
+          echo "dev_tag=${DEV_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Dev tag: ${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # claude-runner
+  # --------------------------------------------------------------------------
+  build-claude-runner:
+    name: Build claude-runner (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build base image
+        run: |
+          podman build --no-cache -t localhost/base:latest \
+            -f images/runner/shared/Containerfile.base \
+            .
+
+      - name: Build and push claude-runner
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/claude-runner"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/claude-code/Containerfile \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # opencode-runner
+  # --------------------------------------------------------------------------
+  build-opencode-runner:
+    name: Build opencode-runner (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build base image
+        run: |
+          podman build --no-cache -t localhost/base:latest \
+            -f images/runner/shared/Containerfile.base \
+            .
+
+      - name: Build and push opencode-runner
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/opencode-runner"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/opencode/Containerfile \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # ci-podman
+  # --------------------------------------------------------------------------
+  build-ci-podman:
+    name: Build ci-podman (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push ci-podman
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/podman"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/ci/Containerfile.podman \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # claude-sandbox (OpenShell)
+  # --------------------------------------------------------------------------
+  build-claude-sandbox:
+    name: Build claude-sandbox (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build openshell-base
+        run: |
+          podman build --no-cache -t localhost/openshell-base:latest \
+            -f images/runner/shared/Containerfile.openshell-base \
+            .
+
+      - name: Build and push claude-sandbox
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/claude-sandbox"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/claude-code/Containerfile.openshell \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # opencode-sandbox (OpenShell)
+  # --------------------------------------------------------------------------
+  build-opencode-sandbox:
+    name: Build opencode-sandbox (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build openshell-base
+        run: |
+          podman build --no-cache -t localhost/openshell-base:latest \
+            -f images/runner/shared/Containerfile.openshell-base \
+            .
+
+      - name: Build and push opencode-sandbox
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/opencode-sandbox"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/opencode/Containerfile.openshell \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # ci-openshell
+  # --------------------------------------------------------------------------
+  build-ci-openshell:
+    name: Build ci-openshell (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push ci-openshell
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/openshell"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/ci/Containerfile.openshell \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
