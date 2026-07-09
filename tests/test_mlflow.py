@@ -1,34 +1,28 @@
-"""Tests for agentic_ci.mlflow — protobuf serialization and trace push."""
+"""Tests for agentic_ci.mlflow -- OTLP JSON trace push to MLflow."""
 
-import base64
 import copy
 import json
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
-from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-    ExportTraceServiceRequest,
-)
+import requests
 
 from agentic_ci.mlflow import (
     PushResult,
     _add_query_source,
     _add_span_costs,
     _add_token_usage,
-    _close_incomplete_spans,
     _cost_by_session,
     _extract_session_ids,
     _extract_trace_ids,
-    _fixup_ids,
-    _hex_to_base64,
+    _finalize_traces,
+    _prepare_payload,
     _query_source_by_request,
-    _serialize_traces,
     push_traces,
 )
 
-# Hex-encoded IDs (what Claude Code / OTLP JSON exporters produce)
-HEX_TRACE_PAYLOAD = {
+TRACE_PAYLOAD = {
     "resourceSpans": [
         {
             "resource": {
@@ -41,7 +35,6 @@ HEX_TRACE_PAYLOAD = {
                         {
                             "traceId": "0af7651916cd43dd8448eb211c80319c",
                             "spanId": "b7ad6b7169203331",
-                            "parentSpanId": "00f067aa0ba902b7",
                             "name": "test-span",
                             "kind": 1,
                             "startTimeUnixNano": "1000000000",
@@ -62,69 +55,41 @@ HEX_TRACE_PAYLOAD = {
 }
 
 
-class TestHexToBase64:
-    def test_converts_32char_trace_id(self):
-        result = _hex_to_base64("0af7651916cd43dd8448eb211c80319c")
-        assert result != "0af7651916cd43dd8448eb211c80319c"
-        assert bytes.fromhex("0af7651916cd43dd8448eb211c80319c") == base64.b64decode(result)
-
-    def test_converts_16char_span_id(self):
-        result = _hex_to_base64("b7ad6b7169203331")
-        assert result != "b7ad6b7169203331"
-
-    def test_passes_through_base64(self):
-        b64 = "CvdlGRbNQ92ESOshHIAxnA=="
-        assert _hex_to_base64(b64) == b64
-
-    def test_passes_through_non_hex(self):
-        assert _hex_to_base64("not-hex-string") == "not-hex-string"
-        assert _hex_to_base64("") == ""
-        assert _hex_to_base64(123) == 123
-
-
-class TestFixupIds:
-    def test_converts_all_id_fields(self):
-        payload = copy.deepcopy(HEX_TRACE_PAYLOAD)
-        fixed = _fixup_ids(payload)
-        span = fixed["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["traceId"] != "0af7651916cd43dd8448eb211c80319c"
-        assert span["spanId"] != "b7ad6b7169203331"
-        assert span["parentSpanId"] != "00f067aa0ba902b7"
-
-
-class TestSerializeTraces:
-    def test_round_trip_with_hex_ids(self):
-        serialized = _serialize_traces(copy.deepcopy(HEX_TRACE_PAYLOAD))
-        assert isinstance(serialized, bytes)
-        assert len(serialized) > 0
-
-        deserialized = ExportTraceServiceRequest()
-        deserialized.ParseFromString(serialized)
-        assert len(deserialized.resource_spans) == 1
-        span = deserialized.resource_spans[0].scope_spans[0].spans[0]
-        assert span.name == "test-span"
-        assert span.trace_id == bytes.fromhex("0af7651916cd43dd8448eb211c80319c")
-        assert span.span_id == bytes.fromhex("b7ad6b7169203331")
-
-    def test_does_not_mutate_input(self):
-        payload = copy.deepcopy(HEX_TRACE_PAYLOAD)
+class TestPreparePayload:
+    def test_deep_copies(self):
+        payload = copy.deepcopy(TRACE_PAYLOAD)
         original_id = payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"]
-        _serialize_traces(payload)
+        result = _prepare_payload(payload)
+        assert result is not payload
         assert payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"] == original_id
 
-    def test_empty_payload(self):
-        serialized = _serialize_traces({})
-        assert isinstance(serialized, bytes)
-        deserialized = ExportTraceServiceRequest()
-        deserialized.ParseFromString(serialized)
-        assert len(deserialized.resource_spans) == 0
-
-    def test_preserves_attributes(self):
-        serialized = _serialize_traces(copy.deepcopy(HEX_TRACE_PAYLOAD))
-        deserialized = ExportTraceServiceRequest()
-        deserialized.ParseFromString(serialized)
-        resource_attrs = deserialized.resource_spans[0].resource.attributes
-        assert any(a.key == "service.name" for a in resource_attrs)
+    def test_adds_token_usage(self):
+        payload = {
+            "resourceSpans": [
+                {
+                    "scopeSpans": [
+                        {
+                            "spans": [
+                                {
+                                    "name": "claude_code.llm_request",
+                                    "attributes": [
+                                        {"key": "input_tokens", "value": {"intValue": "10"}},
+                                        {"key": "output_tokens", "value": {"intValue": "20"}},
+                                    ],
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        result = _prepare_payload(payload)
+        attrs = {
+            a["key"]: a["value"]
+            for a in result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
+        assert "mlflow.chat.tokenUsage" in attrs
+        assert "gen_ai.usage.input_tokens" in attrs
 
 
 def _llm_span(attrs):
@@ -161,15 +126,13 @@ class TestAddTokenUsage:
             ]
         )
         _add_token_usage(payload)
-        # MLflow native usage: disjoint, with cache
         assert _chat_usage(payload) == {
             "input_tokens": 3,
             "output_tokens": 148,
-            "total_tokens": 151,  # cache excluded
+            "total_tokens": 151,
             "cache_read_input_tokens": 1000,
             "cache_creation_input_tokens": 39565,
         }
-        # OTEL GenAI standard: fresh input + output (no cache field)
         assert _genai(payload, "gen_ai.usage.input_tokens") == 3
         assert _genai(payload, "gen_ai.usage.output_tokens") == 148
 
@@ -186,7 +149,6 @@ class TestAddTokenUsage:
         assert "cache_read_input_tokens" not in usage
 
     def test_sets_usage_for_cache_only_turn(self):
-        # all cache read (fresh input 0) still counts
         payload = _llm_span(
             [
                 {"key": "input_tokens", "value": {"intValue": "0"}},
@@ -235,23 +197,6 @@ class TestAddTokenUsage:
         _add_token_usage(payload)
         assert _chat_usage(payload) is None
         assert _genai(payload, "gen_ai.usage.input_tokens") is None
-
-    def test_serialize_traces_emits_chat_usage(self):
-        payload = _llm_span(
-            [
-                {"key": "input_tokens", "value": {"intValue": "10"}},
-                {"key": "output_tokens", "value": {"intValue": "20"}},
-                {"key": "cache_read_tokens", "value": {"intValue": "5"}},
-            ]
-        )
-        parsed = ExportTraceServiceRequest()
-        parsed.ParseFromString(_serialize_traces(payload))
-        span = parsed.resource_spans[0].scope_spans[0].spans[0]
-        attrs = {a.key: a.value for a in span.attributes}
-        assert "mlflow.chat.tokenUsage" in attrs
-        usage = json.loads(attrs["mlflow.chat.tokenUsage"].string_value)
-        assert usage["cache_read_input_tokens"] == 5
-        assert usage["total_tokens"] == 30
 
 
 class TestCostFromMetrics:
@@ -464,16 +409,19 @@ class TestPushTraces:
         finally:
             os.unlink(path)
 
+    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_sends_protobuf_content_type(self, mock_post):
+    def test_sends_json_content_type(self, mock_post, mock_get):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "123"}]}
         mock_post.return_value = mock_resp
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {"traces": []}
+        mock_get.return_value = mock_get_resp
 
-        path = self._write_jsonl(
-            [{"path": "/v1/traces", "payload": copy.deepcopy(HEX_TRACE_PAYLOAD)}]
-        )
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
         try:
             ok, err, _, _ = push_traces(path, "http://mlflow:5000", "exp")
         finally:
@@ -483,43 +431,48 @@ class TestPushTraces:
         assert err == 0
 
         trace_call = mock_post.call_args_list[1]
-        assert trace_call.kwargs["headers"]["Content-Type"] == "application/x-protobuf"
         assert trace_call.kwargs["headers"]["x-mlflow-experiment-id"] == "123"
-        assert isinstance(trace_call.kwargs["data"], bytes)
-        assert "json" not in trace_call.kwargs
+        assert "json" in trace_call.kwargs
+        assert "data" not in trace_call.kwargs
 
+    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_sends_valid_protobuf_body(self, mock_post):
+    def test_sends_valid_json_body(self, mock_post, mock_get):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "42"}]}
         mock_post.return_value = mock_resp
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {"traces": []}
+        mock_get.return_value = mock_get_resp
 
-        path = self._write_jsonl(
-            [{"path": "/v1/traces", "payload": copy.deepcopy(HEX_TRACE_PAYLOAD)}]
-        )
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
         try:
             push_traces(path, "http://mlflow:5000", "exp")
         finally:
             os.unlink(path)
 
         trace_call = mock_post.call_args_list[1]
-        body = trace_call.kwargs["data"]
-        parsed = ExportTraceServiceRequest()
-        parsed.ParseFromString(body)
-        assert parsed.resource_spans[0].scope_spans[0].spans[0].name == "test-span"
-        assert parsed.resource_spans[0].scope_spans[0].spans[0].trace_id == bytes.fromhex(
-            "0af7651916cd43dd8448eb211c80319c"
-        )
+        body = trace_call.kwargs["json"]
+        assert "resourceSpans" in body
+        span = body["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["name"] == "test-span"
+        assert span["traceId"] == "0af7651916cd43dd8448eb211c80319c"
 
+    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_returns_trace_and_session_ids(self, mock_post):
+    def test_returns_trace_and_session_ids(self, mock_post, mock_get):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "1"}]}
         mock_post.return_value = mock_resp
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {"traces": []}
+        mock_get.return_value = mock_get_resp
 
-        payload = copy.deepcopy(HEX_TRACE_PAYLOAD)
+        payload = copy.deepcopy(TRACE_PAYLOAD)
         payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"].append(
             {"key": "session.id", "value": {"stringValue": "sess-abc"}}
         )
@@ -543,74 +496,55 @@ class TestPushTraces:
         assert session_ids == []
 
 
-class TestCloseIncompleteSpans:
-    def _make_payload(self, spans):
-        return {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
-
-    def _span(self, start="1000000000", end="2000000000"):
-        return {
-            "name": "test-span",
-            "startTimeUnixNano": start,
-            "endTimeUnixNano": end,
-            "status": {},
+class TestFinalizeTraces:
+    @patch("agentic_ci.mlflow.requests.patch")
+    @patch("agentic_ci.mlflow.requests.get")
+    def test_finalizes_in_progress_trace(self, mock_get, mock_patch):
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {
+            "traces": [{"request_id": "tr-abc", "status": "IN_PROGRESS"}]
         }
+        mock_get.return_value = mock_get_resp
+        mock_patch_resp = MagicMock()
+        mock_patch_resp.raise_for_status = MagicMock()
+        mock_patch.return_value = mock_patch_resp
 
-    def test_closes_span_with_zero_end_time(self):
-        payload = self._make_payload([self._span(end="0")])
-        result = _close_incomplete_spans(payload)
-        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["endTimeUnixNano"] == "1000000000"
-        assert span["status"]["code"] == 2
-        assert "missing" in span["status"]["message"]
+        count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
+        assert count == 1
+        mock_patch.assert_called_once()
+        call_json = mock_patch.call_args.kwargs["json"]
+        assert call_json["status"] == "ERROR"
 
-    def test_closes_span_with_missing_end_time(self):
-        span_data = self._span()
-        del span_data["endTimeUnixNano"]
-        payload = self._make_payload([span_data])
-        result = _close_incomplete_spans(payload)
-        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["endTimeUnixNano"] == "1000000000"
-        assert span["status"]["code"] == 2
+    @patch("agentic_ci.mlflow.requests.get")
+    def test_skips_ok_trace(self, mock_get):
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {"traces": [{"request_id": "tr-abc", "status": "OK"}]}
+        mock_get.return_value = mock_get_resp
 
-    def test_closes_span_with_integer_zero_end_time(self):
-        span_data = self._span()
-        span_data["endTimeUnixNano"] = 0
-        payload = self._make_payload([span_data])
-        result = _close_incomplete_spans(payload)
-        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["endTimeUnixNano"] == "1000000000"
-        assert span["status"]["code"] == 2
+        count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
+        assert count == 0
 
-    def test_leaves_complete_span_unchanged(self):
-        payload = self._make_payload([self._span(end="2000000000")])
-        result = _close_incomplete_spans(payload)
-        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["endTimeUnixNano"] == "2000000000"
-        assert span["status"] == {}
+    @patch("agentic_ci.mlflow.requests.get")
+    def test_skips_missing_trace(self, mock_get):
+        mock_get_resp = MagicMock()
+        mock_get_resp.raise_for_status = MagicMock()
+        mock_get_resp.json.return_value = {"traces": []}
+        mock_get.return_value = mock_get_resp
 
-    def test_uses_latest_descendant_end_time(self):
-        child = self._span(start="1000000000", end="8000000000")
-        parent = self._span(start="500000000", end="0")
-        payload = self._make_payload([parent, child])
-        result = _close_incomplete_spans(payload)
-        parent_span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert parent_span["endTimeUnixNano"] == "8000000000"
+        count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
+        assert count == 0
 
-    def test_falls_back_to_start_when_no_complete_spans(self):
-        span_data = self._span(start="3000000000", end="0")
-        payload = self._make_payload([span_data])
-        result = _close_incomplete_spans(payload)
-        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["endTimeUnixNano"] == "3000000000"
+    @patch("agentic_ci.mlflow.requests.get")
+    def test_handles_request_error(self, mock_get):
+        mock_get.side_effect = requests.RequestException("timeout")
+        count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
+        assert count == 0
 
-    def test_serialize_traces_closes_incomplete_spans(self):
-        payload = self._make_payload([self._span(start="5000000000", end="0")])
-        serialized = _serialize_traces(payload)
-        parsed = ExportTraceServiceRequest()
-        parsed.ParseFromString(serialized)
-        span = parsed.resource_spans[0].scope_spans[0].spans[0]
-        assert span.end_time_unix_nano == 5000000000
-        assert span.status.code == 2
+    def test_empty_trace_ids(self):
+        count = _finalize_traces("http://mlflow:5000", {}, [])
+        assert count == 0
 
 
 class TestExtractTraceIds:
