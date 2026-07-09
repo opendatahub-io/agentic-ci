@@ -1,98 +1,20 @@
 """Push OTel trace payloads from a JSONL log to an MLflow OTLP endpoint."""
 
-import base64
 import copy
 import json
 import sys
 from typing import NamedTuple
+from urllib.parse import quote
 
 import requests
-from google.protobuf import json_format
-from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
-    ExportTraceServiceRequest,
-)
-from opentelemetry.proto.trace.v1.trace_pb2 import Status
-
-_ID_KEYS = ("traceId", "spanId", "parentSpanId")
-
-_SPAN_STATUS_ERROR = Status.StatusCode.STATUS_CODE_ERROR
-
-
-def _latest_end_in_payload(payload):
-    """Find the latest endTimeUnixNano across all complete spans in a payload."""
-    latest = 0
-    for rs in payload.get("resourceSpans", []):
-        for ss in rs.get("scopeSpans", []):
-            for span in ss.get("spans", []):
-                end = span.get("endTimeUnixNano")
-                if end and str(end) != "0":
-                    latest = max(latest, int(end))
-    return latest
-
-
-def _close_incomplete_spans(payload):
-    """Close spans that have no end time (killed agent, OOM, timeout).
-
-    When Claude Code is killed mid-run, the OTEL batch processor cannot flush
-    the root span. MLflow marks such traces "In Progress" permanently.
-
-    For each incomplete span, endTimeUnixNano is set to the latest end time
-    of any complete sibling/descendant span in the payload (best approximation
-    of when the agent was still alive), falling back to startTimeUnixNano if
-    no complete spans exist. Status is set to ERROR.
-    """
-    latest_end = _latest_end_in_payload(payload)
-    for rs in payload.get("resourceSpans", []):
-        for ss in rs.get("scopeSpans", []):
-            for span in ss.get("spans", []):
-                end = span.get("endTimeUnixNano")
-                if not end or str(end) == "0":
-                    start = int(span.get("startTimeUnixNano", "0"))
-                    best_end = str(max(start, latest_end) if latest_end else start)
-                    span["endTimeUnixNano"] = best_end
-                    span["status"] = {
-                        "code": _SPAN_STATUS_ERROR,
-                        "message": "end time missing at push; span marked as error",
-                    }
-    return payload
-
-
-def _hex_to_base64(value):
-    """Convert a hex string to base64 for protobuf bytes fields."""
-    if not isinstance(value, str) or len(value) not in (16, 32):
-        return value
-    try:
-        return base64.b64encode(bytes.fromhex(value)).decode()
-    except ValueError:
-        return value
-
-
-def _fixup_ids(payload):
-    """Convert hex-encoded traceId/spanId/parentSpanId to base64.
-
-    OTLP JSON spec uses lowercase hex for bytes fields, but protobuf's
-    ParseDict expects base64 encoding.
-    """
-    for rs in payload.get("resourceSpans", []):
-        for ss in rs.get("scopeSpans", []):
-            for span in ss.get("spans", []):
-                for key in _ID_KEYS:
-                    if key in span:
-                        span[key] = _hex_to_base64(span[key])
-                for link in span.get("links", []):
-                    for key in _ID_KEYS:
-                        if key in link:
-                            link[key] = _hex_to_base64(link[key])
-    return payload
-
 
 # Claude Code emits per-call token counts as bare span attributes
-# (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) — it
+# (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) -- it
 # does not emit the gen_ai.usage.* convention nor MLflow's own usage attribute.
 # From those bare counts we write two things (see _add_token_usage):
-#   - gen_ai.usage.input_tokens / output_tokens — the OTEL GenAI standard, for
+#   - gen_ai.usage.input_tokens / output_tokens -- the OTEL GenAI standard, for
 #     any non-MLflow backend that reads the convention.
-#   - mlflow.chat.tokenUsage — MLflow's native attribute, which it aggregates
+#   - mlflow.chat.tokenUsage -- MLflow's native attribute, which it aggregates
 #     into mlflow.trace.tokenUsage for the experiment Usage dashboard; this one
 #     carries the cache breakdown (Cache Read / Cache Write) that gen_ai can't.
 _GENAI_INPUT_KEY = "gen_ai.usage.input_tokens"
@@ -124,14 +46,14 @@ def _add_token_usage(payload):
     and MLflow's native usage attribute.
 
     Claude Code emits bare input_tokens / output_tokens / cache_read_tokens /
-    cache_creation_tokens (input_tokens is *fresh*, non-cached) — never the
+    cache_creation_tokens (input_tokens is *fresh*, non-cached) -- never the
     gen_ai.usage.* convention or MLflow's own attribute. We synthesize both per
     LLM span:
 
-    - ``gen_ai.usage.input_tokens`` / ``output_tokens`` — the OTEL GenAI
+    - ``gen_ai.usage.input_tokens`` / ``output_tokens`` -- the OTEL GenAI
       convention (fresh input + output), so non-MLflow backends see standard
       usage. The convention has no cache field, so cache volume isn't there.
-    - ``mlflow.chat.tokenUsage`` — MLflow's native attribute in its disjoint
+    - ``mlflow.chat.tokenUsage`` -- MLflow's native attribute in its disjoint
       cache schema, which MLflow aggregates into ``mlflow.trace.tokenUsage``:
           input_tokens                 fresh input
           output_tokens                generated
@@ -183,7 +105,7 @@ def _add_token_usage(payload):
 
 
 # Claude reports exact spend as a delta-temporality OTEL metric
-# (claude_code.cost.usage, tagged session.id) in the /v1/metrics records —
+# (claude_code.cost.usage, tagged session.id) in the /v1/metrics records --
 # never as a span attribute. To drive MLflow's experiment cost chart, that
 # total is distributed across the session's LLM spans as mlflow.llm.cost,
 # which MLflow aggregates into mlflow.trace.cost. A pre-set mlflow.llm.cost is
@@ -350,12 +272,9 @@ def _resolve_experiment_id(endpoint, name, headers):
     return None
 
 
-def _serialize_traces(payload):
-    """Convert an OTLP JSON trace payload dict to protobuf bytes."""
-    payload = _close_incomplete_spans(_add_token_usage(_fixup_ids(copy.deepcopy(payload))))
-    request = ExportTraceServiceRequest()
-    json_format.ParseDict(payload, request)
-    return request.SerializeToString()
+def _prepare_payload(payload):
+    """Deep-copy a payload and add token-usage attributes for MLflow."""
+    return _add_token_usage(copy.deepcopy(payload))
 
 
 def _extract_trace_ids(payloads):
@@ -408,6 +327,50 @@ def _extract_session_ids(payloads, metric_records):
     return sorted(session_ids)
 
 
+def _finalize_traces(endpoint, headers, trace_ids):
+    """Mark any IN_PROGRESS traces as ERROR via the MLflow REST API.
+
+    After pushing OTLP payloads, traces whose root span was never flushed
+    (killed agent, OOM, timeout) remain IN_PROGRESS in MLflow. This does a
+    batch lookup of the pushed traces and finalizes any that are still
+    incomplete.
+    """
+    if not trace_ids:
+        return 0
+
+    # Batch-fetch trace info for all pushed trace IDs.
+    in_progress = []
+    try:
+        resp = requests.get(
+            f"{endpoint}/api/2.0/mlflow/traces",
+            params=[("request_ids", tid) for tid in trace_ids],
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        for trace in resp.json().get("traces", []):
+            if trace.get("status") == "IN_PROGRESS":
+                in_progress.append(trace["request_id"])
+    except requests.RequestException as e:
+        print(f"Trace status lookup failed: {e}", file=sys.stderr)
+        return 0
+
+    finalized = 0
+    for tid in in_progress:
+        try:
+            resp = requests.patch(
+                f"{endpoint}/api/2.0/mlflow/traces/{quote(tid, safe='')}",
+                json={"status": "ERROR", "request_metadata": []},
+                headers=headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            finalized += 1
+        except requests.RequestException as e:
+            print(f"Trace finalization failed for {tid}: {e}", file=sys.stderr)
+    return finalized
+
+
 class PushResult(NamedTuple):
     ok: int
     err: int
@@ -451,7 +414,7 @@ def push_traces(log_file, endpoint, experiment, token=None):
     experiment_id = _resolve_experiment_id(endpoint, experiment, headers)
     if not experiment_id:
         print(
-            f"MLflow experiment '{experiment}' not found — skipping trace push.",
+            f"MLflow experiment '{experiment}' not found -- skipping trace push.",
             file=sys.stderr,
         )
         return PushResult(0, 0, [], [])
@@ -461,7 +424,7 @@ def push_traces(log_file, endpoint, experiment, token=None):
     trace_ids = _extract_trace_ids(payloads)
     session_ids = _extract_session_ids(payloads, metric_records)
 
-    # Annotate spans (from the metrics/logs streams) before serialization.
+    # Annotate spans (from the metrics/logs streams) before push.
     _add_span_costs(payloads, _cost_by_session(metric_records))
     _add_query_source(payloads, _query_source_by_request(log_records))
 
@@ -470,13 +433,12 @@ def push_traces(log_file, endpoint, experiment, token=None):
 
     for payload in payloads:
         try:
-            data = _serialize_traces(payload)
+            data = _prepare_payload(payload)
             resp = requests.post(
                 traces_url,
-                data=data,
+                json=data,
                 headers={
                     **headers,
-                    "Content-Type": "application/x-protobuf",
                     "x-mlflow-experiment-id": experiment_id,
                 },
                 timeout=30,
@@ -489,5 +451,11 @@ def push_traces(log_file, endpoint, experiment, token=None):
                 detail = f" ({e.response.status_code})"
             print(f"Trace push failed{detail}: {e}", file=sys.stderr)
             err += 1
+
+    # Finalize any traces stuck as IN_PROGRESS (missing root span).
+    if ok and trace_ids:
+        finalized = _finalize_traces(endpoint, headers, trace_ids)
+        if finalized:
+            print(f"Finalized {finalized} incomplete trace(s).", file=sys.stderr)
 
     return PushResult(ok, err, trace_ids, session_ids)

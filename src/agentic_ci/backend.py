@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import threading
-import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -88,6 +87,15 @@ class Backend(ABC):
                 sys.stdout.buffer.write(line)
                 sys.stdout.buffer.flush()
 
+        if stream_complete:
+            # Stream processor detected the run is done but the process is
+            # still alive.  Give it time to flush the OTEL batch exporter
+            # before terminating; without this the root span is often lost.
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+
         try:
             proc.terminate()
         except OSError:
@@ -96,7 +104,7 @@ class Backend(ABC):
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             # Process may exit between wait() timeout and kill(), raising
-            # ProcessLookupError — catch it so cleanup can continue.
+            # ProcessLookupError -- catch it so cleanup can continue.
             try:
                 proc.kill()
             except OSError:
@@ -148,6 +156,8 @@ class Backend(ABC):
         return "".join(filtered).encode("utf-8") if filtered else b""
 
     def _wait_for_otel_flush(self, otel_port):
-        """Wait for OTEL metrics to flush after Claude exits."""
-        if otel_port:
-            time.sleep(7)
+        """Legacy hook kept for backend subclass compatibility.
+
+        OTEL flush is now handled in _process_stream by waiting for the
+        process to exit naturally after stream completion.
+        """
