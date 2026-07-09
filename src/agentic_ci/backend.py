@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -156,8 +157,12 @@ class Backend(ABC):
         return "".join(filtered).encode("utf-8") if filtered else b""
 
     def _wait_for_otel_flush(self, otel_port):
-        """Legacy hook kept for backend subclass compatibility.
+        """Wait for OTEL metrics to flush after the agent stream ends.
 
-        OTEL flush is now handled in _process_stream by waiting for the
-        process to exit naturally after stream completion.
+        For containerized backends (OpenShell), _process_stream terminates
+        the local exec wrapper, not the remote Claude Code process.  The
+        OTEL batch exporter inside the container may still be flushing to
+        the host collector, so we give it time.
         """
+        if otel_port:
+            time.sleep(7)

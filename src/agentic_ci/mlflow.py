@@ -341,16 +341,17 @@ def _finalize_traces(endpoint, headers, trace_ids):
     # Batch-fetch trace info for all pushed trace IDs.
     in_progress = []
     try:
-        resp = requests.get(
-            f"{endpoint}/api/2.0/mlflow/traces",
-            params=[("request_ids", tid) for tid in trace_ids],
+        resp = requests.post(
+            f"{endpoint}/api/3.0/mlflow/traces/batchGetInfos",
+            json={"trace_ids": trace_ids},
             headers=headers,
             timeout=10,
         )
         resp.raise_for_status()
-        for trace in resp.json().get("traces", []):
-            if trace.get("status") == "IN_PROGRESS":
-                in_progress.append(trace["request_id"])
+        for trace in resp.json().get("trace_infos", []):
+            tid = trace.get("trace_id")
+            if tid and trace.get("state") == "IN_PROGRESS":
+                in_progress.append(tid)
     except requests.RequestException as e:
         print(f"Trace status lookup failed: {e}", file=sys.stderr)
         return 0

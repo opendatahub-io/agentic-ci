@@ -409,17 +409,12 @@ class TestPushTraces:
         finally:
             os.unlink(path)
 
-    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_sends_json_content_type(self, mock_post, mock_get):
+    def test_sends_json_content_type(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "123"}]}
         mock_post.return_value = mock_resp
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {"traces": []}
-        mock_get.return_value = mock_get_resp
 
         path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
         try:
@@ -435,17 +430,12 @@ class TestPushTraces:
         assert "json" in trace_call.kwargs
         assert "data" not in trace_call.kwargs
 
-    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_sends_valid_json_body(self, mock_post, mock_get):
+    def test_sends_valid_json_body(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "42"}]}
         mock_post.return_value = mock_resp
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {"traces": []}
-        mock_get.return_value = mock_get_resp
 
         path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
         try:
@@ -460,17 +450,12 @@ class TestPushTraces:
         assert span["name"] == "test-span"
         assert span["traceId"] == "0af7651916cd43dd8448eb211c80319c"
 
-    @patch("agentic_ci.mlflow.requests.get")
     @patch("agentic_ci.mlflow.requests.post")
-    def test_returns_trace_and_session_ids(self, mock_post, mock_get):
+    def test_returns_trace_and_session_ids(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
         mock_resp.json.return_value = {"experiments": [{"experiment_id": "1"}]}
         mock_post.return_value = mock_resp
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {"traces": []}
-        mock_get.return_value = mock_get_resp
 
         payload = copy.deepcopy(TRACE_PAYLOAD)
         payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"].append(
@@ -498,14 +483,14 @@ class TestPushTraces:
 
 class TestFinalizeTraces:
     @patch("agentic_ci.mlflow.requests.patch")
-    @patch("agentic_ci.mlflow.requests.get")
-    def test_finalizes_in_progress_trace(self, mock_get, mock_patch):
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {
-            "traces": [{"request_id": "tr-abc", "status": "IN_PROGRESS"}]
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_finalizes_in_progress_trace(self, mock_post, mock_patch):
+        mock_post_resp = MagicMock()
+        mock_post_resp.raise_for_status = MagicMock()
+        mock_post_resp.json.return_value = {
+            "trace_infos": [{"trace_id": "tr-abc", "state": "IN_PROGRESS"}]
         }
-        mock_get.return_value = mock_get_resp
+        mock_post.return_value = mock_post_resp
         mock_patch_resp = MagicMock()
         mock_patch_resp.raise_for_status = MagicMock()
         mock_patch.return_value = mock_patch_resp
@@ -516,29 +501,29 @@ class TestFinalizeTraces:
         call_json = mock_patch.call_args.kwargs["json"]
         assert call_json["status"] == "ERROR"
 
-    @patch("agentic_ci.mlflow.requests.get")
-    def test_skips_ok_trace(self, mock_get):
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {"traces": [{"request_id": "tr-abc", "status": "OK"}]}
-        mock_get.return_value = mock_get_resp
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_skips_ok_trace(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"trace_infos": [{"trace_id": "tr-abc", "state": "OK"}]}
+        mock_post.return_value = mock_resp
 
         count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
         assert count == 0
 
-    @patch("agentic_ci.mlflow.requests.get")
-    def test_skips_missing_trace(self, mock_get):
-        mock_get_resp = MagicMock()
-        mock_get_resp.raise_for_status = MagicMock()
-        mock_get_resp.json.return_value = {"traces": []}
-        mock_get.return_value = mock_get_resp
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_skips_missing_trace(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"trace_infos": []}
+        mock_post.return_value = mock_resp
 
         count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
         assert count == 0
 
-    @patch("agentic_ci.mlflow.requests.get")
-    def test_handles_request_error(self, mock_get):
-        mock_get.side_effect = requests.RequestException("timeout")
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_handles_request_error(self, mock_post):
+        mock_post.side_effect = requests.RequestException("timeout")
         count = _finalize_traces("http://mlflow:5000", {}, ["tr-abc"])
         assert count == 0
 
