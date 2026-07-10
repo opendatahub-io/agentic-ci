@@ -443,8 +443,27 @@ class TestCollectCandidates:
         text = "Blob https://gitlab.com/group/project/-/blob/main/f.py"
         assert _collect_candidates(text, _GITLAB_URL_RE) == []
 
-    def test_github_subpath_extracts_root(self):
+    def test_github_pr_url_filtered(self):
         text = "PR at https://github.com/org/repo/pull/42"
+        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+
+    def test_github_issues_url_filtered(self):
+        text = "Bug at https://github.com/org/repo/issues/10"
+        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+
+    def test_github_actions_url_filtered(self):
+        text = "CI run https://github.com/org/repo/actions/runs/123"
+        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+
+    def test_plain_github_repo_url_kept(self):
+        text = "Clone https://github.com/org/repo to get started."
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
+
+    def test_mixed_pr_and_plain_repo_urls(self):
+        text = (
+            "See PR https://github.com/other-org/other-repo/pull/7 "
+            "and clone https://github.com/org/repo for the fix."
+        )
         assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
 
     def test_filters_file_extensions(self):
