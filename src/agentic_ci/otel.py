@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -17,8 +18,24 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 _token_samples: list[tuple[float, int]] = []
 _WINDOW_SECS = 60
 
+_trace_roots: dict[str, bool] = {}
 
 MAX_BODY_SIZE = 1_048_576
+
+
+def _track_root_spans(payload):
+    """Update _trace_roots for each trace in a /v1/traces payload."""
+    if not isinstance(payload, dict):
+        return
+    for rs in payload.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                tid = span.get("traceId")
+                if not tid:
+                    continue
+                _trace_roots.setdefault(tid, False)
+                if not span.get("parentSpanId"):
+                    _trace_roots[tid] = True
 
 
 class OTLPHandler(BaseHTTPRequestHandler):
@@ -82,11 +99,29 @@ class OTLPHandler(BaseHTTPRequestHandler):
 
         if "/v1/metrics" in self.path:
             _update_token_rate(payload)
+        elif "/v1/traces" in self.path:
+            _track_root_spans(payload)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(b'{"partialSuccess":{}}')
+
+    def do_GET(self):
+        if self.path == "/otel-status":
+            all_complete = bool(_trace_roots) and all(_trace_roots.values())
+            body = json.dumps(
+                {
+                    "traces": _trace_roots,
+                    "all_complete": all_complete,
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_error(404)
 
     def log_message(self, format, *args):
         pass
@@ -172,6 +207,28 @@ def stop_collector(proc):
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
+
+
+def wait_for_otel_complete(port, agent_proc=None, timeout=15, poll_interval=0.5):
+    """Poll the collector until all traces have root spans or the agent is dead.
+
+    Returns True if all traces are complete, False if we timed out or the
+    agent process died (meaning any unflushed spans are lost).
+    """
+    url = f"http://127.0.0.1:{port}/otel-status"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if agent_proc is not None and agent_proc.poll() is not None:
+            return False
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                data = json.loads(resp.read())
+                if data.get("all_complete"):
+                    return True
+        except Exception:
+            pass
+        time.sleep(poll_interval)
+    return False
 
 
 def parse_metrics(records):

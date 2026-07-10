@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
+from agentic_ci.otel import wait_for_otel_complete
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -61,6 +62,7 @@ class LocalBackend(Backend):
         )
 
         rc, stream_complete = self._process_stream(proc, streaming)
+        if otel_port:
+            wait_for_otel_complete(otel_port, agent_proc=proc)
         rc = self._resolve_exit_code(rc, stream_complete)
-        self._wait_for_otel_flush(otel_port)
         return rc

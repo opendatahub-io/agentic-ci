@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.otel import wait_for_otel_complete
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -192,7 +193,8 @@ class OpenShellBackend(Backend):
             proc = sandbox.exec_cmd_streaming(cmd)
 
             rc, stream_complete = self._process_stream(proc, streaming)
-            self._wait_for_otel_flush(otel_port)
+            if otel_port:
+                wait_for_otel_complete(otel_port, agent_proc=proc)
 
             log.section("Downloading workdir")
             sandbox.download(sandbox_workdir, self.workdir)

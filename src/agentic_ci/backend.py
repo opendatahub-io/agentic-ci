@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 import threading
-import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -88,15 +87,6 @@ class Backend(ABC):
                 sys.stdout.buffer.write(line)
                 sys.stdout.buffer.flush()
 
-        if stream_complete:
-            # Stream processor detected the run is done but the process is
-            # still alive.  Give it time to flush the OTEL batch exporter
-            # before terminating; without this the root span is often lost.
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                pass
-
         try:
             proc.terminate()
         except OSError:
@@ -155,14 +145,3 @@ class Backend(ABC):
         lines = buf.decode("utf-8", errors="replace").splitlines(keepends=True)
         filtered = [line for line in lines if not any(p in line for p in cls._STDERR_NOISE)]
         return "".join(filtered).encode("utf-8") if filtered else b""
-
-    def _wait_for_otel_flush(self, otel_port):
-        """Wait for OTEL metrics to flush after the agent stream ends.
-
-        For containerized backends (OpenShell), _process_stream terminates
-        the local exec wrapper, not the remote Claude Code process.  The
-        OTEL batch exporter inside the container may still be flushing to
-        the host collector, so we give it time.
-        """
-        if otel_port:
-            time.sleep(7)

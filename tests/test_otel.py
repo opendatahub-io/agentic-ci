@@ -5,7 +5,7 @@ import urllib.request
 
 import pytest
 
-from agentic_ci.otel import start_collector, stop_collector
+from agentic_ci.otel import start_collector, stop_collector, wait_for_otel_complete
 
 
 @pytest.fixture()
@@ -164,3 +164,119 @@ class TestOTLPCollector:
         assert records[0]["payload"]["resourceMetrics"][0]["mode"] == "content-length"
         assert records[1]["payload"]["resourceLogs"][0]["mode"] == "chunked"
         assert records[2]["payload"]["resourceMetrics"][0]["mode"] == "content-length-2"
+
+
+def _get_status(port):
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/otel-status", timeout=2) as resp:
+        return json.loads(resp.read())
+
+
+def _trace_payload(spans):
+    return {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+
+
+class TestRootSpanTracking:
+    def test_status_empty_before_traces(self, collector):
+        port, _log = collector
+        data = _get_status(port)
+        assert data["traces"] == {}
+        assert data["all_complete"] is False
+
+    def test_tracks_root_span(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload([{"traceId": "aabb", "spanId": "0001", "name": "root"}]),
+        )
+        data = _get_status(port)
+        assert data["traces"]["aabb"] is True
+        assert data["all_complete"] is True
+
+    def test_tracks_orphan_span(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload(
+                [{"traceId": "ccdd", "spanId": "0002", "parentSpanId": "missing", "name": "child"}]
+            ),
+        )
+        data = _get_status(port)
+        assert data["traces"]["ccdd"] is False
+        assert data["all_complete"] is False
+
+    def test_root_completes_after_orphan(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload(
+                [{"traceId": "eeff", "spanId": "0003", "parentSpanId": "0004", "name": "child"}]
+            ),
+        )
+        assert _get_status(port)["traces"]["eeff"] is False
+
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload([{"traceId": "eeff", "spanId": "0004", "name": "root"}]),
+        )
+        assert _get_status(port)["traces"]["eeff"] is True
+        assert _get_status(port)["all_complete"] is True
+
+    def test_mixed_traces(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload([{"traceId": "t1", "spanId": "s1", "name": "root"}]),
+        )
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload(
+                [{"traceId": "t2", "spanId": "s2", "parentSpanId": "missing", "name": "orphan"}]
+            ),
+        )
+        data = _get_status(port)
+        assert data["traces"]["t1"] is True
+        assert data["traces"]["t2"] is False
+        assert data["all_complete"] is False
+
+
+class TestWaitForOtelComplete:
+    def test_returns_true_when_complete(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload([{"traceId": "t1", "spanId": "s1", "name": "root"}]),
+        )
+        assert wait_for_otel_complete(port, timeout=2) is True
+
+    def test_returns_false_on_timeout(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload(
+                [{"traceId": "t1", "spanId": "s1", "parentSpanId": "missing", "name": "orphan"}]
+            ),
+        )
+        assert wait_for_otel_complete(port, timeout=1, poll_interval=0.2) is False
+
+    def test_returns_false_when_proc_dead(self, collector):
+        port, _log = collector
+        _post(
+            port,
+            "/v1/traces",
+            _trace_payload(
+                [{"traceId": "t1", "spanId": "s1", "parentSpanId": "missing", "name": "orphan"}]
+            ),
+        )
+        import subprocess
+
+        dead_proc = subprocess.Popen(["true"])
+        dead_proc.wait()
+        assert wait_for_otel_complete(port, agent_proc=dead_proc, timeout=2) is False
