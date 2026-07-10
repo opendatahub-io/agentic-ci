@@ -61,6 +61,10 @@ def _collect_candidates(text: str, pattern: re.Pattern) -> list[str]:
             continue
         if _SUBPATH_RE.search(url):
             continue
+        # Check text after the match for subpath indicators the regex didn't capture
+        tail = text[m.end() :]
+        if _SUBPATH_RE.match(tail):
+            continue
         if _FILE_EXT_RE.search(url):
             continue
         if _is_placeholder(url):
