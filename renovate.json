@@ -101,7 +101,8 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^images/ci/Containerfile\\.openshell$"
+        "^images/ci/Containerfile\\.openshell$",
+        "^images/openshell-supervisor/Containerfile$"
       ],
       "matchStrings": ["ARG OPENSHELL_VERSION=(?<currentValue>[^\\n]+)"],
       "depNameTemplate": "openshell",

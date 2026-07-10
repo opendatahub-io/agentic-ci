@@ -76,7 +76,7 @@ images/
     Containerfile.podman            — CI environment image (podman + tools)
     Containerfile.openshell         — CI environment image (OpenShell + podman)
   openshell-supervisor/
-    Containerfile                   — Custom OpenShell supervisor (temporary)
+    Containerfile                   — OpenShell supervisor (built from source)
 scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
@@ -96,6 +96,7 @@ make ci-build                # build CI podman image
 make openshell-base-build    # build OpenShell sandbox base image
 make openshell-claude-build  # build Claude sandbox (includes openshell-base)
 make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
+make openshell-supervisor-build # build OpenShell supervisor image
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests
