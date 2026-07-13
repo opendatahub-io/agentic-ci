@@ -1,0 +1,42 @@
+# OpenShell supervisor image built from source.
+#
+# The supervisor binary (openshell-sandbox) runs inside each OpenShell
+# sandbox container and enforces network policies and process isolation.
+# Building from source ensures the supervisor version matches the
+# gateway and CLI RPMs installed in the CI image via OPENSHELL_VERSION.
+#
+# x86_64 only.
+
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.2 AS builder
+
+ARG OPENSHELL_VERSION=0.0.79
+ARG RUST_VERSION=1.95.0
+
+RUN microdnf install -y \
+        gcc \
+        gcc-c++ \
+        make \
+        cmake \
+        openssl-devel \
+        git-core \
+    && microdnf clean all
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain "${RUST_VERSION}"
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /src
+RUN git clone --depth 1 --branch "v${OPENSHELL_VERSION}" \
+        https://github.com/NVIDIA/OpenShell.git .
+
+RUN sed -i 's/^version = "0.0.0"/version = "'"${OPENSHELL_VERSION}"'"/' Cargo.toml \
+    && grep -q "version = \"${OPENSHELL_VERSION}\"" Cargo.toml
+
+RUN cargo build --release --package openshell-sandbox --bin openshell-sandbox \
+    && strip target/release/openshell-sandbox
+
+RUN target/release/openshell-sandbox --version
+
+FROM registry.access.redhat.com/ubi10/ubi-micro:10.2
+COPY --from=builder --chmod=0550 /src/target/release/openshell-sandbox /openshell-sandbox
+ENTRYPOINT ["/openshell-sandbox"]

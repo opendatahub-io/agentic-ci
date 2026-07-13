@@ -29,6 +29,7 @@
 #     - Build claude-sandbox
 #     - Build opencode-sandbox
 #     - Build ci-openshell
+#     - Build openshell-supervisor
 #     - Lint image scripts
 #     - Test image scripts
 #     - E2E claude-runner        (skipped on fork PRs, no secrets)
@@ -72,6 +73,7 @@ merge_protections:
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
       - check-success = Build ci-openshell
+      - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
       - check-success = Lint image scripts
       - check-success = Test image scripts
@@ -145,6 +147,7 @@ merge_protections:
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
       - check-success = Build ci-openshell
+      - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
       - check-success = Lint image scripts
       - check-success = Test image scripts
@@ -210,6 +213,7 @@ merge_protections:
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
       - check-success = Build ci-openshell
+      - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
       - check-success = Lint image scripts
       - check-success = Test image scripts
@@ -273,6 +277,7 @@ merge_protections:
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
       - check-success = Build ci-openshell
+      - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
       - check-success = Lint image scripts
       - check-success = Test image scripts
@@ -336,6 +341,7 @@ merge_protections:
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
       - check-success = Build ci-openshell
+      - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
       - check-success = Lint image scripts
       - check-success = Test image scripts

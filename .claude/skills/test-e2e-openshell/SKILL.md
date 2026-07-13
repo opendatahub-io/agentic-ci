@@ -18,6 +18,7 @@ to confirm or override each one before proceeding:
 | Role               | Default image                                          | Variable                    |
 |--------------------|--------------------------------------------------------|-----------------------------|
 | CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
+| Supervisor         | `quay.io/aipcc/agentic-ci/openshell-supervisor`        | `$SUPERVISOR_IMAGE`         |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
 
@@ -133,6 +134,7 @@ Requires GCP ADC credentials and `ANTHROPIC_VERTEX_PROJECT_ID`.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -167,6 +169,7 @@ Run cleanup first.
 ```bash
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -200,6 +203,7 @@ Run cleanup first.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$OPENCODE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -228,6 +232,7 @@ Run cleanup first.
 ```bash
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$OPENCODE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -280,6 +285,7 @@ Should print `red`.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -335,6 +341,7 @@ Run cleanup first.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     cd /tmp/e2e-workdir && \
@@ -403,6 +410,7 @@ Run cleanup first.
 podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \
@@ -437,6 +445,7 @@ Run cleanup first.
 ```bash
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
+  -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \

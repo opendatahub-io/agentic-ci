@@ -32,6 +32,10 @@ openshell-claude-build: openshell-base-build ## Build the OpenShell Claude sandb
 openshell-opencode-build: openshell-base-build ## Build the OpenShell OpenCode sandbox image locally
 	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
 
+.PHONY: openshell-supervisor-build
+openshell-supervisor-build: ## Build the OpenShell supervisor image locally
+	podman build -t localhost/openshell-supervisor:latest -f images/openshell-supervisor/Containerfile .
+
 .PHONY: openshell-ci-build
 openshell-ci-build: ## Build the OpenShell CI image locally
 	podman build -t openshell:latest -f images/ci/Containerfile.openshell .
@@ -48,6 +52,12 @@ check-versions: ## Check for available dependency updates
 image-lint: ## Run linting checks on image scripts
 	shellcheck --severity=warning images/runner/shared/*.sh tests/images/*.sh tests/e2e/*.sh
 	@uv run --with ruff ruff check --select=E,F,W scripts/bump-versions.py
+	@ci_ver=$$(grep -oP 'ARG OPENSHELL_VERSION=\K\S+' images/ci/Containerfile.openshell) && \
+	 sv_ver=$$(grep -oP 'ARG OPENSHELL_VERSION=\K\S+' images/openshell-supervisor/Containerfile) && \
+	 if [ "$$ci_ver" != "$$sv_ver" ]; then \
+	   echo "ERROR: OPENSHELL_VERSION mismatch: ci=$$ci_ver supervisor=$$sv_ver" >&2; \
+	   exit 1; \
+	 fi
 
 .PHONY: image-test
 image-test: ## Run image unit tests

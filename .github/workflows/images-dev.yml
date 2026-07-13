@@ -251,6 +251,41 @@ jobs:
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
+  # openshell-supervisor
+  # --------------------------------------------------------------------------
+  build-openshell-supervisor:
+    name: Build openshell-supervisor (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build and push openshell-supervisor
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/openshell-supervisor"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/openshell-supervisor/Containerfile \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
   # ci-openshell
   # --------------------------------------------------------------------------
   build-ci-openshell:

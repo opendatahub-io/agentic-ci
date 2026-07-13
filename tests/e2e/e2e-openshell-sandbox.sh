@@ -104,6 +104,14 @@ else
     OPENCODE_SANDBOX="localhost/opencode-sandbox:latest"
 fi
 
+# --- Resolve supervisor image ---
+if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
+    export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
+elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
+    export OPENSHELL_SUPERVISOR_IMAGE="quay.io/aipcc/agentic-ci/openshell-supervisor:latest"
+fi
+print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
+
 # Helper: run a command inside a sandbox image as the sandbox user
 run_in() {
     local image="$1"; shift
