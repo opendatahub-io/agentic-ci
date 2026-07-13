@@ -7,7 +7,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Run all envs
-        uses: fedora-python/tox-github-action@ef3bf5f921db3dbf26adf106f8015a7abf485445 # main
+        uses: fedora-python/tox-github-action@c25c758f96dfb07b749a1034846f449166fd4979 # main
         with:
           tox_env: ${{ matrix.tox_env }}
     strategy:
