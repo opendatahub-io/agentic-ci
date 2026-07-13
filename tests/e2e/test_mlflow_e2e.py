@@ -18,6 +18,7 @@ import mlflow
 import pytest
 
 from agentic_ci.mlflow import push_traces
+from agentic_ci.otel import inject_root_spans
 
 _EXPERIMENT = "mlflow-e2e-test"
 
@@ -427,3 +428,74 @@ class TestOTLPJsonAccepted:
         trace = client.get_trace(f"tr-{tid}")
         assert trace is not None
         assert len(trace.data.spans) == 1
+
+
+class TestSyntheticRootSpan:
+    """Orchestrator-injected synthetic root spans should produce
+    complete traces in MLflow without relying on _finalize_traces."""
+
+    def test_synthetic_root_makes_trace_ok(self, mlflow_server, client, tmp_path):
+        """Orphan spans + inject_root_spans -> push -> trace is OK."""
+        tid = "00000000000000080000000000000008"
+        child = {
+            "spanId": "0000000000000010",
+            "parentSpanId": "aaaa000000000001",
+            "name": "claude_code.llm_request",
+            "traceId": tid,
+        }
+        path = _write_jsonl(tmp_path, [_trace_record([child], trace_id=tid)])
+
+        injected = inject_root_spans(
+            path,
+            start_ns=500_000_000,
+            end_ns=3_000_000_000,
+            exit_code=0,
+            attributes={"agent.backend": "podman"},
+        )
+        assert injected == 1
+
+        result = push_traces(path, mlflow_server, _EXPERIMENT)
+        assert result.ok == 2
+        assert result.err == 0
+
+        trace = client.get_trace(f"tr-{tid}")
+        assert str(trace.info.status) == "TraceStatus.OK"
+        assert len(trace.data.spans) == 2
+
+        root_spans = [s for s in trace.data.spans if s.name == "agentic-ci-run"]
+        assert len(root_spans) == 1
+        assert root_spans[0].attributes.get("agentic_ci.synthetic_root") is True
+
+    def test_synthetic_root_with_error_exit(self, mlflow_server, client, tmp_path):
+        """Container crash (exit 137) produces an ERROR trace."""
+        tid = "00000000000000090000000000000009"
+        child = {
+            "spanId": "0000000000000011",
+            "parentSpanId": "aaaa000000000002",
+            "name": "claude_code.tool",
+            "traceId": tid,
+        }
+        path = _write_jsonl(tmp_path, [_trace_record([child], trace_id=tid)])
+
+        inject_root_spans(path, 500_000_000, 3_000_000_000, exit_code=137)
+
+        result = push_traces(path, mlflow_server, _EXPERIMENT)
+        assert result.ok == 2
+
+        trace = client.get_trace(f"tr-{tid}")
+        assert str(trace.info.status) == "TraceStatus.ERROR"
+
+    def test_fallback_root_on_zero_spans(self, mlflow_server, client, tmp_path):
+        """Total crash (no spans at all) still produces a trace via fallback."""
+        tid = "0000000000000a000000000000000a00"
+        path = _write_jsonl(tmp_path, [])
+
+        inject_root_spans(path, 1_000_000_000, 2_000_000_000, exit_code=1, fallback_trace_id=tid)
+
+        result = push_traces(path, mlflow_server, _EXPERIMENT)
+        assert result.ok == 1
+
+        trace = client.get_trace(f"tr-{tid}")
+        assert str(trace.info.status) == "TraceStatus.ERROR"
+        assert len(trace.data.spans) == 1
+        assert trace.data.spans[0].name == "agentic-ci-run"

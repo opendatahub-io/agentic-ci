@@ -162,8 +162,9 @@ class OpenShellBackend(Backend):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        traceparent=None,
     ):
-        self._write_env_script(model, otel_port, otel_rate_file)
+        self._write_env_script(model, otel_port, otel_rate_file, traceparent=traceparent)
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         workdir_name = os.path.basename(self.workdir)
@@ -204,7 +205,7 @@ class OpenShellBackend(Backend):
             if keepalive:
                 keepalive.join(timeout=5)
 
-    def _write_env_script(self, model, otel_port=None, otel_rate_file=None):
+    def _write_env_script(self, model, otel_port=None, otel_rate_file=None, traceparent=None):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
         Uses the harness's native env script (Vertex AI vars, API key, and
@@ -212,7 +213,7 @@ class OpenShellBackend(Backend):
         directly. The harness handles OTEL endpoint configuration using the
         gateway host address.
         """
-        lines = self.harness.build_env_script_lines(otel_port=otel_port)
+        lines = self.harness.build_env_script_lines(otel_port=otel_port, traceparent=traceparent)
         if otel_port:
             # The harness sets the OTel endpoint to 10.200.0.1 (the gateway IP
             # used by the Podman backend). OpenShell sandboxes can't reach that
