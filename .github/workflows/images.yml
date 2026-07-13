@@ -424,6 +424,76 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/opencode-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
+  # openshell-supervisor: built from OpenShell source at pinned version
+  # --------------------------------------------------------------------------
+  build-openshell-supervisor:
+    name: Build openshell-supervisor
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Image metadata
+        id: meta
+        run: echo "image=${IMAGE_PREFIX}/openshell-supervisor:${CI_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to quay.io
+        if: env.HAS_SECRETS == 'true'
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build openshell-supervisor
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${IMAGE_PREFIX}/openshell-supervisor"
+          EPOCH=$(date +%s)
+
+          LABEL_ARGS=()
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            LABEL_ARGS=(--label "quay.expires-after=3d")
+          fi
+
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
+          podman build \
+            "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
+            -t "${IMAGE_NAME}:${CI_TAG}" \
+            -t "${IMAGE_NAME}:latest" \
+            -t "${IMAGE_NAME}:${EPOCH}" \
+            -f images/openshell-supervisor/Containerfile \
+            .
+
+          echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
+
+      - name: Push ci-sha tag
+        if: env.HAS_SECRETS == 'true'
+        run: podman push "${IMAGE_PREFIX}/openshell-supervisor:${CI_TAG}"
+
+      - name: Push release tags
+        if: env.PUSH_RELEASE_TAGS == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/openshell-supervisor"
+          podman push "${IMAGE_NAME}:latest"
+          podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/openshell-supervisor:${VERSION_TAG}"
+
+  # --------------------------------------------------------------------------
   # ci-openshell: standalone CI image with OpenShell gateway
   # --------------------------------------------------------------------------
   build-ci-openshell:
@@ -587,7 +657,7 @@ jobs:
 
   e2e-openshell-sandbox:
     name: E2E openshell-sandbox
-    needs: [build-claude-sandbox, build-opencode-sandbox, build-ci-openshell]
+    needs: [build-claude-sandbox, build-opencode-sandbox, build-ci-openshell, build-openshell-supervisor]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     container:
@@ -611,4 +681,5 @@ jobs:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           CLAUDE_SANDBOX_IMAGE: ${{ needs.build-claude-sandbox.outputs.image }}
           OPENCODE_SANDBOX_IMAGE: ${{ needs.build-opencode-sandbox.outputs.image }}
+          SUPERVISOR_IMAGE: ${{ needs.build-openshell-supervisor.outputs.image }}
         run: bash tests/e2e/e2e-openshell-sandbox.sh

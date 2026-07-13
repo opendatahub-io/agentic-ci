@@ -224,11 +224,19 @@ The sandbox supervisor runs inside each sandbox container and enforces
 policies. It is mounted as a read-only image volume by the gateway's
 podman driver.
 
-The default supervisor image is
-`ghcr.io/nvidia/openshell/supervisor:latest`. To override it, set
-the `OPENSHELL_SUPERVISOR_IMAGE` environment variable before running
-`agentic-ci`. This is written into the gateway's TOML config under
-`[openshell.drivers.podman] supervisor_image`.
+This repository builds a custom supervisor image from the OpenShell
+source at the same version as the gateway and CLI RPMs
+(`OPENSHELL_VERSION` in `images/openshell-supervisor/Containerfile`).
+The image is published to
+`quay.io/aipcc/agentic-ci/openshell-supervisor` and set as the default
+via `OPENSHELL_SUPERVISOR_IMAGE` in the CI image. Renovate bumps both
+the RPM version and the supervisor source tag in a single PR to keep
+them in sync.
+
+To override the supervisor image, set the `OPENSHELL_SUPERVISOR_IMAGE`
+environment variable before running `agentic-ci`. This is written into
+the gateway's TOML config under `[openshell.drivers.podman]
+supervisor_image`.
 
 ## Known Issues and Workarounds
 

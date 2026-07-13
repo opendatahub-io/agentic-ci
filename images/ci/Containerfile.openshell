@@ -53,6 +53,8 @@ enabled=1\n' > /etc/yum.repos.d/copr-nvidia-openshell.repo \
         "openshell-${OPENSHELL_VERSION}" \
     && dnf clean all
 
+ENV OPENSHELL_SUPERVISOR_IMAGE=quay.io/aipcc/agentic-ci/openshell-supervisor:latest
+
 # GitHub CLI (pinned)
 RUN curl -fsSL -o /tmp/gh.tar.gz \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
