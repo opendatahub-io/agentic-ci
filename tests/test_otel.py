@@ -239,6 +239,30 @@ class TestFindOrphanTraces:
         assert "aaaa" * 8 not in orphans
         assert "bbbb" * 8 in orphans
 
+    def test_returns_dangling_parent_id(self):
+        child1 = _make_span("aaaa" * 8, "1111" * 4, parent_span_id="dddd" * 4)
+        child2 = _make_span("aaaa" * 8, "2222" * 4, parent_span_id="dddd" * 4)
+        records = [_make_trace_record(child1, child2)]
+        orphans = _find_orphan_traces(records)
+        _, _, dangling = orphans["aaaa" * 8]
+        assert dangling == "dddd" * 4
+
+    def test_dangling_parent_most_common(self):
+        child1 = _make_span("aaaa" * 8, "1111" * 4, parent_span_id="dddd" * 4)
+        child2 = _make_span("aaaa" * 8, "2222" * 4, parent_span_id="dddd" * 4)
+        child3 = _make_span("aaaa" * 8, "3333" * 4, parent_span_id="eeee" * 4)
+        records = [_make_trace_record(child1, child2, child3)]
+        orphans = _find_orphan_traces(records)
+        _, _, dangling = orphans["aaaa" * 8]
+        assert dangling == "dddd" * 4
+
+    def test_malformed_timestamp_skipped(self):
+        child = _make_span("aaaa" * 8, "cccc" * 4, parent_span_id="bbbb" * 4)
+        child["startTimeUnixNano"] = "not-a-number"
+        records = [_make_trace_record(child)]
+        orphans = _find_orphan_traces(records)
+        assert "aaaa" * 8 in orphans
+
     def test_ignores_non_trace_records(self):
         records = [
             {"ts": "2024-01-01T00:00:00+00:00", "path": "/v1/metrics", "payload": {}},
@@ -320,6 +344,7 @@ class TestInjectRootSpans:
         assert len(records) == 2
         new_span = records[1]["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert new_span["traceId"] == "aaaa" * 8
+        assert new_span["spanId"] == "bbbb" * 4
         assert new_span["status"]["code"] == 2
 
     def test_no_injection_for_complete_trace(self, tmp_path):
@@ -462,3 +487,19 @@ class TestInjectRootSpans:
         span = records[1]["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert int(span["startTimeUnixNano"]) == 1000
         assert int(span["endTimeUnixNano"]) == 9000
+
+    def test_timing_expands_to_cover_child(self, tmp_path):
+        log_file = str(tmp_path / "otel.jsonl")
+        child = _make_span("aaaa" * 8, "cccc" * 4, parent_span_id="bbbb" * 4)
+        child["startTimeUnixNano"] = "500"
+        child["endTimeUnixNano"] = "12000"
+        record = _make_trace_record(child)
+        with open(log_file, "w") as f:
+            f.write(json.dumps(record) + "\n")
+
+        inject_root_spans(log_file, 1000, 9000, exit_code=0)
+
+        records = _read_log(log_file)
+        span = records[1]["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert int(span["startTimeUnixNano"]) == 500
+        assert int(span["endTimeUnixNano"]) == 12000

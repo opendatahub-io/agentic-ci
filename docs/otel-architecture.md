@@ -178,16 +178,20 @@ agentic-ci-run (synthetic root, span_id=orchestrator)
         └── ...
 ```
 
-If the agent does not respect `TRACEPARENT` (it creates its own trace
-ID), the synthetic root is still injected into the agent's trace using
-the agent's trace ID. The hierarchy is flat but the trace is complete:
+If the agent does not respect `TRACEPARENT` (e.g. OpenCode, which
+creates its own trace ID), the synthetic root is injected into the
+agent's trace using the agent's trace ID. The scanner detects the
+most common dangling `parentSpanId` among orphan children and reuses
+it as the synthetic root's `spanId`, reconnecting the span tree:
 
 ```text
-agentic-ci-run (synthetic root, injected into agent's trace)
-claude_code.session (agent root, different parentSpanId)
-  ├── claude_code.llm_request
+agentic-ci-run (synthetic root, spanId = dangling parentSpanId)
+  ├── opencode.llm_request (parentSpanId matches synthetic root)
+  ├── opencode.tool (parentSpanId matches synthetic root)
   └── ...
 ```
+
+If the agent's root span was flushed (no orphan), no injection occurs.
 
 ### BSP schedule delay
 

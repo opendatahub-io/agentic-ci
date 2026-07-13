@@ -176,21 +176,24 @@ def cmd_run(args, backend, harness):
             os.environ.pop("OTEL_RATE_FILE", None)
 
             if start_ns and otel_log:
-                injected = otel.inject_root_spans(
-                    otel_log,
-                    start_ns,
-                    end_ns,
-                    rc,
-                    fallback_trace_id=trace_id,
-                    fallback_span_id=span_id,
-                    attributes={
-                        "agent.backend": args.backend,
-                        "agent.harness": harness.name,
-                        "agent.model": model,
-                    },
-                )
-                if injected:
-                    log.info(f"Injected {injected} synthetic root span(s)")
+                try:
+                    injected = otel.inject_root_spans(
+                        otel_log,
+                        start_ns,
+                        end_ns,
+                        rc,
+                        fallback_trace_id=trace_id,
+                        fallback_span_id=span_id,
+                        attributes={
+                            "agent.backend": args.backend,
+                            "agent.harness": harness.name,
+                            "agent.model": model,
+                        },
+                    )
+                    if injected:
+                        log.info(f"Injected {injected} synthetic root span(s)")
+                except Exception as exc:
+                    print(f"Root span injection failed (non-fatal): {exc}", file=sys.stderr)
 
             log.section("Token/Cost Summary (OpenTelemetry)")
             otel.print_summary(otel_log)
