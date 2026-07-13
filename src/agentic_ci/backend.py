@@ -49,6 +49,7 @@ class Backend(ABC):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        traceparent=None,
     ) -> int:
         """Execute the agent with the given prompt. Returns the exit code."""
 

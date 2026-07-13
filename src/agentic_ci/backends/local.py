@@ -40,12 +40,13 @@ class LocalBackend(Backend):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        traceparent=None,
     ):
         log.section(f"Executing {self.harness.name} locally")
 
         env = {
             **os.environ,
-            **self.harness.build_local_env(otel_port, otel_rate_file),
+            **self.harness.build_local_env(otel_port, otel_rate_file, traceparent=traceparent),
             "AGENT_MODEL": model,
             **self._extra_env,
         }

@@ -48,6 +48,7 @@ class Harness(ABC):
         self,
         otel_port: int | None = None,
         otel_rate_file: str | None = None,
+        traceparent: str | None = None,
     ) -> list[str]:
         """Return ``export K=V`` lines for the env script (OpenShellBackend only).
 
@@ -57,7 +58,9 @@ class Harness(ABC):
         """
 
     @abstractmethod
-    def build_otel_exec_env(self, otel_port: int | None = None) -> list[str]:
+    def build_otel_exec_env(
+        self, otel_port: int | None = None, traceparent: str | None = None
+    ) -> list[str]:
         """Return ['--env', 'K=V', ...] pairs for podman exec when OTEL is enabled."""
 
     @abstractmethod
@@ -85,6 +88,7 @@ class Harness(ABC):
         self,
         otel_port: int | None = None,
         otel_rate_file: str | None = None,
+        traceparent: str | None = None,
     ) -> dict[str, str]:
         """Return env vars as a plain dict for direct (local) execution.
 
@@ -174,7 +178,7 @@ class ClaudeCodeHarness(Harness):
             *common,
         ]
 
-    def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
+    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
         common = [
             "export AGENT_TOOL=claude",
             "export CLAUDE_CONFIG_DIR=/sandbox/.claude",
@@ -210,6 +214,7 @@ class ClaudeCodeHarness(Harness):
                     "export OTEL_TRACES_EXPORTER=otlp",
                     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
                     f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_GATEWAY_HOST}:{otel_port}",
+                    "export OTEL_BSP_SCHEDULE_DELAY=1000",
                     "export OTEL_METRIC_EXPORT_INTERVAL=10000",
                     "export CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
                     "export OTEL_LOG_USER_PROMPTS=1",
@@ -217,12 +222,14 @@ class ClaudeCodeHarness(Harness):
                     "export OTEL_LOG_TOOL_CONTENT=1",
                 ]
             )
+        if traceparent:
+            lines.append(f"export TRACEPARENT={shlex.quote(traceparent)}")
         return lines
 
-    def build_otel_exec_env(self, otel_port=None):
+    def build_otel_exec_env(self, otel_port=None, traceparent=None):
         if not otel_port:
             return []
-        return [
+        env = [
             "--env",
             "CLAUDE_CODE_ENABLE_TELEMETRY=1",
             "--env",
@@ -236,6 +243,8 @@ class ClaudeCodeHarness(Harness):
             "--env",
             f"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:{otel_port}",
             "--env",
+            "OTEL_BSP_SCHEDULE_DELAY=1000",
+            "--env",
             "OTEL_METRIC_EXPORT_INTERVAL=10000",
             "--env",
             "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1",
@@ -246,8 +255,11 @@ class ClaudeCodeHarness(Harness):
             "--env",
             "OTEL_LOG_TOOL_CONTENT=1",
         ]
+        if traceparent:
+            env.extend(["--env", f"TRACEPARENT={traceparent}"])
+        return env
 
-    def build_local_env(self, otel_port=None, otel_rate_file=None):
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
         env = {
             "AGENT_TOOL": "claude",
             "DISABLE_AUTOUPDATER": "1",
@@ -275,12 +287,15 @@ class ClaudeCodeHarness(Harness):
                     "OTEL_TRACES_EXPORTER": "otlp",
                     "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
                     "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{otel_port}",
+                    "OTEL_BSP_SCHEDULE_DELAY": "1000",
                     "OTEL_METRIC_EXPORT_INTERVAL": "10000",
                     "OTEL_LOG_USER_PROMPTS": "1",
                     "OTEL_LOG_TOOL_DETAILS": "1",
                     "OTEL_LOG_TOOL_CONTENT": "1",
                 }
             )
+        if traceparent:
+            env["TRACEPARENT"] = traceparent
         return env
 
     def credential_mount_target(self):
@@ -362,7 +377,7 @@ class OpenCodeHarness(Harness):
             *common,
         ]
 
-    def build_env_script_lines(self, otel_port=None, otel_rate_file=None):
+    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
         common = [
             "export AGENT_TOOL=opencode",
             "export OPENCODE_CONFIG_DIR=/sandbox/.config/opencode",
@@ -398,27 +413,32 @@ class OpenCodeHarness(Harness):
                     "export OTEL_BSP_SCHEDULE_DELAY=0",
                 ]
             )
+        if traceparent:
+            lines.append(f"export TRACEPARENT={shlex.quote(traceparent)}")
         return lines
 
-    def build_otel_exec_env(self, otel_port=None):
+    def build_otel_exec_env(self, otel_port=None, traceparent=None):
         """Return OTel env vars for OpenCode.
 
         See docs/otel-configuration.md for why these differ from Claude Code.
         """
         if not otel_port:
             return []
-        return [
+        env = [
             "--env",
             f"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:{otel_port}",
             "--env",
             "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
             "--env",
-            # Flush spans immediately — OpenCode's process.exit() kills the
+            # Flush spans immediately -- OpenCode's process.exit() kills the
             # Node.js process before the batch processor can drain its queue.
             "OTEL_BSP_SCHEDULE_DELAY=0",
         ]
+        if traceparent:
+            env.extend(["--env", f"TRACEPARENT={traceparent}"])
+        return env
 
-    def build_local_env(self, otel_port=None, otel_rate_file=None):
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
         env = {
             "AGENT_TOOL": "opencode",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
@@ -436,6 +456,8 @@ class OpenCodeHarness(Harness):
             env["VERTEX_LOCATION"] = os.environ.get(
                 "VERTEX_LOCATION", os.environ.get("CLOUD_ML_REGION", "global")
             )
+        if traceparent:
+            env["TRACEPARENT"] = traceparent
         return env
 
     def credential_mount_target(self):

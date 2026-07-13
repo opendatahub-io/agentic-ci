@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 from importlib.metadata import version
 from pathlib import Path
 
@@ -111,6 +112,10 @@ def cmd_run(args, backend, harness):
     otel_log = None
     otel_rate = None
     otel_proc = None
+    traceparent = None
+    trace_id = None
+    span_id = None
+    start_ns = None
     rc = 1
 
     try:
@@ -123,8 +128,11 @@ def cmd_run(args, backend, harness):
             log.detail("pid", str(otel_proc.pid))
             log.detail("port", str(otel_port))
 
+            trace_id, span_id, traceparent = otel.generate_trace_context()
+
         backend.setup(otel_port=otel_port)
 
+        start_ns = time.time_ns()
         log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
         rc = backend.run(
             prompt=args.prompt,
@@ -133,18 +141,11 @@ def cmd_run(args, backend, harness):
             otel_rate_file=otel_rate,
             extra_args=args.extra_args,
             streaming=not args.no_streaming,
+            traceparent=traceparent,
         )
 
-        if otel_proc:
-            otel.stop_collector(otel_proc)
-            otel_proc = None
-            print(flush=True)
-            log.section(f"Agent exit code: {rc}")
-            log.section("Token/Cost Summary (OpenTelemetry)")
-            otel.print_summary(otel_log)
-        else:
-            print(flush=True)
-            log.section(f"Agent exit code: {rc}")
+        print(flush=True)
+        log.section(f"Agent exit code: {rc}")
 
         if rc == 0 and post_gate_names:
             log.section("Running post-gates")
@@ -161,6 +162,39 @@ def cmd_run(args, backend, harness):
             if gate_errors:
                 rc = 1
 
+    except KeyboardInterrupt:
+        print(flush=True)
+        log.section("Interrupted")
+        rc = 130
+
+    finally:
+        end_ns = time.time_ns()
+
+        if otel_proc:
+            otel.stop_collector(otel_proc)
+            otel_proc = None
+            os.environ.pop("OTEL_RATE_FILE", None)
+
+            if start_ns and otel_log:
+                injected = otel.inject_root_spans(
+                    otel_log,
+                    start_ns,
+                    end_ns,
+                    rc,
+                    fallback_trace_id=trace_id,
+                    fallback_span_id=span_id,
+                    attributes={
+                        "agent.backend": args.backend,
+                        "agent.harness": harness.name,
+                        "agent.model": model,
+                    },
+                )
+                if injected:
+                    log.info(f"Injected {injected} synthetic root span(s)")
+
+            log.section("Token/Cost Summary (OpenTelemetry)")
+            otel.print_summary(otel_log)
+
         artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
         if artifact_dir and otel_log:
             try:
@@ -168,15 +202,6 @@ def cmd_run(args, backend, harness):
             except (OSError, FileNotFoundError):
                 pass
 
-    except KeyboardInterrupt:
-        print(flush=True)
-        log.section("Interrupted")
-        rc = 130
-
-    finally:
-        if otel_proc:
-            otel.stop_collector(otel_proc)
-            os.environ.pop("OTEL_RATE_FILE", None)
         if not args.keep:
             backend.stop()
 

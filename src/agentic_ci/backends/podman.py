@@ -115,12 +115,13 @@ class PodmanBackend(Backend):
         otel_port=None,
         otel_rate_file=None,
         extra_args=None,
+        traceparent=None,
     ):
         if not self.is_running():
             self.setup()
 
         log.section(f"Executing {self.harness.name} in container")
-        otel_env = self.harness.build_otel_exec_env(otel_port)
+        otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         proc = subprocess.Popen(

@@ -2,14 +2,40 @@
 
 Push OTel traces from agent runs to an MLflow instance for observability, cost tracking, and debugging.
 
+For the full telemetry architecture (collector, trace completeness,
+span enrichment details), see [OTEL Architecture](otel-architecture.md).
+
 ## How it works
 
 1. **During the agent run**, the local OTLP collector captures all telemetry (metrics, logs, and traces) to a JSONL file
-2. **After the run**, a separate CI job reads that JSONL file and forwards the `/v1/traces` records to MLflow's OTLP endpoint
+2. **After the run**, the orchestrator injects synthetic root spans into the JSONL for any incomplete traces (container crash, OOM, timeout)
+3. **In a separate CI job**, `agentic-ci mlflow-push` reads the JSONL, enriches spans with token usage and cost attributes, and pushes to MLflow's OTLP endpoint
 
-The trace push is intentionally decoupled from the agent run — it runs as a follow-up job with `allow_failure: true` so trace push failures never block the pipeline.
+The trace push is intentionally decoupled from the agent run -- it runs as a follow-up job with `allow_failure: true` so trace push failures never block the pipeline.
 
-**Security note:** Traces include user prompts, tool inputs, and tool outputs (`OTEL_LOG_USER_PROMPTS=1`, `OTEL_LOG_TOOL_DETAILS=1`, `OTEL_LOG_TOOL_CONTENT=1`). Avoid including API keys, passwords, or PII in prompts when trace export is enabled — they will be logged to the JSONL file and forwarded to MLflow.
+**Security note:** Traces include user prompts, tool inputs, and tool outputs (`OTEL_LOG_USER_PROMPTS=1`, `OTEL_LOG_TOOL_DETAILS=1`, `OTEL_LOG_TOOL_CONTENT=1`). Avoid including API keys, passwords, or PII in prompts when trace export is enabled -- they will be logged to the JSONL file and forwarded to MLflow.
+
+## Trace completeness guarantees
+
+Every agent run produces a complete trace in MLflow, regardless of how
+the run ended:
+
+- **Normal exit**: The agent flushes its root span. No intervention needed.
+- **Container crash / OOM / timeout**: The orchestrator detects orphan traces (child spans with no root) in the JSONL and injects a synthetic root span with `status=ERROR` and the exit code.
+- **Immediate crash (zero spans)**: A fallback root span is created using the orchestrator's pre-generated trace ID. MLflow shows a single `agentic-ci-run` span with `status=ERROR`.
+
+Synthetic root spans carry `agentic_ci.synthetic_root=true` so they can
+be identified in the MLflow trace viewer. They also include agent
+metadata (`agent.backend`, `agent.harness`, `agent.model`).
+
+## Span enrichment
+
+Before pushing to MLflow, spans are enriched with attributes that MLflow
+needs but the agent does not natively emit:
+
+- **Token usage**: Claude's bare `input_tokens`/`output_tokens`/`cache_*` attributes are translated into `gen_ai.usage.*` (OTEL standard) and `mlflow.chat.tokenUsage` (MLflow native with cache breakdown).
+- **Cost attribution**: Session-level cost from `claude_code.cost.usage` metrics is distributed across LLM spans weighted by token volume, written as `mlflow.llm.cost`.
+- **Query source**: The `query_source` from `/v1/logs` API request events is joined to spans by `request_id`, making call origins visible in MLflow.
 
 ## Prerequisites
 
