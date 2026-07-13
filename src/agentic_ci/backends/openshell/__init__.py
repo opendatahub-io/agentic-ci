@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.config import load_config
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -124,6 +125,8 @@ class OpenShellBackend(Backend):
             approval_mode=self.approval_mode,
         )
 
+        self._run_setup_steps()
+
         log.section("Uploading workdir")
         sandbox.upload(self.workdir)
 
@@ -142,6 +145,22 @@ class OpenShellBackend(Backend):
                 sandbox.exec_cmd(["mv", fname, container_path])
         finally:
             shutil.rmtree(config_dir, ignore_errors=True)
+
+    def _run_setup_steps(self):
+        """Run repo-defined setup commands on the host before uploading the workdir.
+
+        Setup steps execute with full network access outside the sandbox,
+        allowing dependency installation (e.g. ``npm ci``) whose outputs
+        are then included in the workdir upload.
+        """
+        config = load_config(self.workdir)
+        if not config.setup:
+            return
+
+        log.section("Running setup steps")
+        for step in config.setup:
+            log.info(f"  {step.name}: {step.run}")
+            subprocess.run(step.run, shell=True, cwd=self.workdir, check=True)
 
     def stop(self):
         try:
