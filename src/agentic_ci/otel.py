@@ -304,14 +304,26 @@ def generate_trace_context():
     return trace_id, span_id, traceparent
 
 
+def _safe_int(value, default=0):
+    """Parse an int from an OTLP field, returning default on failure."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _find_orphan_traces(records):
     """Find traces in JSONL records that have spans but no root span.
 
-    Returns a dict mapping trace_id to (min_start_ns, max_end_ns) for
-    traces missing a root span (a span with no parentSpanId).
+    Returns a dict mapping trace_id to (min_start_ns, max_end_ns,
+    dangling_parent_id) for traces missing a root span. The
+    dangling_parent_id is the most common parentSpanId among the orphan
+    children, so the synthetic root can reuse it and reconnect the span
+    tree even when the agent ignored TRACEPARENT.
     """
     has_root = set()
     trace_bounds = {}
+    parent_counts: dict[str, dict[str, int]] = {}
 
     for rec in records:
         if "/v1/traces" not in rec.get("path", ""):
@@ -326,9 +338,12 @@ def _find_orphan_traces(records):
                     parent = span.get("parentSpanId", "")
                     if not parent:
                         has_root.add(tid)
+                    else:
+                        counts = parent_counts.setdefault(tid, {})
+                        counts[parent] = counts.get(parent, 0) + 1
 
-                    start = int(span.get("startTimeUnixNano", 0))
-                    end = int(span.get("endTimeUnixNano", 0))
+                    start = _safe_int(span.get("startTimeUnixNano", 0))
+                    end = _safe_int(span.get("endTimeUnixNano", 0))
                     if tid in trace_bounds:
                         prev_start, prev_end = trace_bounds[tid]
                         trace_bounds[tid] = (
@@ -338,7 +353,16 @@ def _find_orphan_traces(records):
                     else:
                         trace_bounds[tid] = (start, end)
 
-    return {tid: bounds for tid, bounds in trace_bounds.items() if tid not in has_root}
+    result = {}
+    for tid, (bstart, bend) in trace_bounds.items():
+        if tid in has_root:
+            continue
+        dangling = None
+        counts = parent_counts.get(tid, {})
+        if counts:
+            dangling = max(counts, key=lambda k: counts[k])
+        result[tid] = (bstart, bend, dangling)
+    return result
 
 
 def _build_root_span_record(trace_id, span_id, start_ns, end_ns, exit_code, attributes=None):
@@ -431,8 +455,13 @@ def inject_root_spans(
 
     injected = 0
 
-    for trace_id, (child_start, child_end) in orphans.items():
-        span_id = fallback_span_id if fallback_span_id else uuid.uuid4().hex[:16]
+    for trace_id, (child_start, child_end, dangling_parent) in orphans.items():
+        if dangling_parent:
+            span_id = dangling_parent
+        elif fallback_span_id:
+            span_id = fallback_span_id
+        else:
+            span_id = uuid.uuid4().hex[:16]
         span_start = min(start_ns, child_start) if child_start else start_ns
         span_end = max(end_ns, child_end) if child_end else end_ns
         record = _build_root_span_record(
