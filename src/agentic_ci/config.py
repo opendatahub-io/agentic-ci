@@ -5,10 +5,13 @@ Loads ``.agentic-ci/config.yml`` from the target repository's workdir.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 REPO_CONFIG_PATH = ".agentic-ci/config.yml"
 
@@ -38,8 +41,10 @@ def _parse_setup_steps(raw: list) -> list[SetupStep]:
     for i, entry in enumerate(raw):
         if isinstance(entry, str):
             steps.append(SetupStep(name=f"step-{i}", run=entry))
-        elif isinstance(entry, dict) and "run" in entry:
+        elif isinstance(entry, dict) and isinstance(entry.get("run"), str):
             steps.append(SetupStep(name=entry.get("name", f"step-{i}"), run=entry["run"]))
+        else:
+            log.warning("setup[%d]: skipping invalid entry (expected string or {run: ...})", i)
     return steps
 
 

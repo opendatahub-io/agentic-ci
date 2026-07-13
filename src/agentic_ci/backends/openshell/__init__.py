@@ -160,7 +160,7 @@ class OpenShellBackend(Backend):
         log.section("Running setup steps")
         for step in config.setup:
             log.info(f"  {step.name}: {step.run}")
-            subprocess.run(step.run, shell=True, cwd=self.workdir, check=True)
+            subprocess.run(step.run, shell=True, cwd=self.workdir, check=True, timeout=600)
 
     def stop(self):
         try:

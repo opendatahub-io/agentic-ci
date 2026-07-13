@@ -99,3 +99,21 @@ def test_config_not_a_dict(tmp_path):
     (config_dir / "config.yml").write_text("- just a list\n")
     config = load_config(str(tmp_path))
     assert config.setup == []
+
+
+def test_setup_run_non_string_skipped(tmp_path):
+    config_dir = tmp_path / ".agentic-ci"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("setup:\n  - run: 123\n  - run: npm ci\n")
+    config = load_config(str(tmp_path))
+    assert len(config.setup) == 1
+    assert config.setup[0].run == "npm ci"
+
+
+def test_setup_run_null_skipped(tmp_path):
+    config_dir = tmp_path / ".agentic-ci"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("setup:\n  - run: null\n  - run: valid\n")
+    config = load_config(str(tmp_path))
+    assert len(config.setup) == 1
+    assert config.setup[0].run == "valid"
