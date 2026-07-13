@@ -56,6 +56,9 @@ backend.stop()
 
 ## Learn more
 
+- [OTEL Architecture](otel-architecture.md) -- collector, trace completeness, MLflow pipeline
+- [OTEL Configuration](otel-configuration.md) -- per-harness env var reference
+- [MLflow Trace Export](mlflow-traces.md) -- CI setup and enrichment details
 - [API Reference](api/index.md) -- auto-generated from source docstrings
 - [GitHub Repository](https://github.com/opendatahub-io/agentic-ci)
 - [PyPI Package](https://pypi.org/project/agentic-ci/)

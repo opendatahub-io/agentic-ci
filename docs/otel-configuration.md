@@ -2,8 +2,11 @@
 
 Each agent harness configures OpenTelemetry differently based on the
 agent CLI's telemetry implementation. The local OTLP collector accepts
-all signals (metrics, logs, traces) regardless of harness — the
+all signals (metrics, logs, traces) regardless of harness -- the
 differences are in what the agent exports and what env vars control it.
+
+For the full telemetry architecture (collector, trace completeness,
+MLflow pipeline), see [OTEL Architecture](otel-architecture.md).
 
 ## Claude Code
 
@@ -18,14 +21,13 @@ OTLP protocol.
 | `OTEL_TRACES_EXPORTER` | `otlp` | Export trace spans (tool calls, LLM requests) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/json` | OTLP wire format |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://...:{port}` | Collector address |
+| `OTEL_BSP_SCHEDULE_DELAY` | `1000` | Flush spans every 1s. Reduces span loss on container crash vs the default 5s. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `10000` | Export metrics every 10s. Controls Claude Code's OTel metrics SDK export frequency. |
 | `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` | `1` | Rich span hierarchy with tool nesting and subagent spans |
 | `OTEL_LOG_USER_PROMPTS` | `1` | Include user prompt text in spans |
 | `OTEL_LOG_TOOL_DETAILS` | `1` | Include tool input parameters in spans |
 | `OTEL_LOG_TOOL_CONTENT` | `1` | Include tool output/results in spans |
-
-**Not set:** `OTEL_BSP_SCHEDULE_DELAY` — Claude Code manages its own
-span flush lifecycle, so the default batch processor delay is fine.
+| `TRACEPARENT` | `00-{trace_id}-{span_id}-01` | W3C Trace Context. If the agent's OTEL SDK respects it, spans parent under the orchestrator's root span. |
 
 ## OpenCode
 
@@ -39,6 +41,7 @@ via `write_sandbox_config()`.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://...:{port}` | Collector address |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/json` | OTLP wire format |
 | `OTEL_BSP_SCHEDULE_DELAY` | `0` | Flush spans immediately. Required because OpenCode calls `process.exit()` which kills the Node.js process before the OTel batch span processor can drain its queue. Without this, spans are lost. |
+| `TRACEPARENT` | `00-{trace_id}-{span_id}-01` | W3C Trace Context. Same as Claude Code. |
 
 **Not set:**
 

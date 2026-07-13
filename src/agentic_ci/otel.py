@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -288,6 +289,182 @@ def print_summary(log_file):
         total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
+
+
+def generate_trace_context():
+    """Generate W3C Trace Context components for orchestrator-owned root spans.
+
+    Returns (trace_id, span_id, traceparent) where traceparent is a valid
+    W3C traceparent header value. If the agent's OTEL SDK picks up the
+    TRACEPARENT env var, its spans become children of this root span.
+    """
+    trace_id = uuid.uuid4().hex
+    span_id = uuid.uuid4().hex[:16]
+    traceparent = f"00-{trace_id}-{span_id}-01"
+    return trace_id, span_id, traceparent
+
+
+def _find_orphan_traces(records):
+    """Find traces in JSONL records that have spans but no root span.
+
+    Returns a dict mapping trace_id to (min_start_ns, max_end_ns) for
+    traces missing a root span (a span with no parentSpanId).
+    """
+    has_root = set()
+    trace_bounds = {}
+
+    for rec in records:
+        if "/v1/traces" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    tid = span.get("traceId")
+                    if not tid:
+                        continue
+                    parent = span.get("parentSpanId", "")
+                    if not parent:
+                        has_root.add(tid)
+
+                    start = int(span.get("startTimeUnixNano", 0))
+                    end = int(span.get("endTimeUnixNano", 0))
+                    if tid in trace_bounds:
+                        prev_start, prev_end = trace_bounds[tid]
+                        trace_bounds[tid] = (
+                            min(prev_start, start) if start else prev_start,
+                            max(prev_end, end) if end else prev_end,
+                        )
+                    else:
+                        trace_bounds[tid] = (start, end)
+
+    return {tid: bounds for tid, bounds in trace_bounds.items() if tid not in has_root}
+
+
+def _build_root_span_record(trace_id, span_id, start_ns, end_ns, exit_code, attributes=None):
+    """Build an OTLP-formatted JSONL record containing a synthetic root span."""
+    status_code = 1 if exit_code == 0 else 2  # STATUS_CODE_OK or STATUS_CODE_ERROR
+    status: dict[str, int | str] = {"code": status_code}
+    if exit_code != 0:
+        status["message"] = f"agent exited with code {exit_code}"
+
+    span_attrs = [
+        {"key": "agentic_ci.synthetic_root", "value": {"boolValue": True}},
+    ]
+    for key, val in (attributes or {}).items():
+        span_attrs.append({"key": key, "value": {"stringValue": str(val)}})
+
+    span = {
+        "traceId": trace_id,
+        "spanId": span_id,
+        "name": "agentic-ci-run",
+        "kind": 1,  # SPAN_KIND_INTERNAL
+        "startTimeUnixNano": str(start_ns),
+        "endTimeUnixNano": str(end_ns),
+        "status": status,
+        "attributes": span_attrs,
+    }
+
+    payload = {
+        "resourceSpans": [
+            {
+                "resource": {
+                    "attributes": [
+                        {
+                            "key": "service.name",
+                            "value": {"stringValue": "agentic-ci"},
+                        }
+                    ]
+                },
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "agentic-ci.orchestrator"},
+                        "spans": [span],
+                    }
+                ],
+            }
+        ]
+    }
+
+    return {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "path": "/v1/traces",
+        "payload": payload,
+    }
+
+
+def inject_root_spans(
+    log_file,
+    start_ns,
+    end_ns,
+    exit_code,
+    fallback_trace_id=None,
+    fallback_span_id=None,
+    attributes=None,
+):
+    """Scan JSONL for traces missing root spans and append synthetic roots.
+
+    For each trace that has child spans but no root span (container crash,
+    OOM, timeout), a synthetic root span is appended to the JSONL file.
+    If no spans exist at all and fallback_trace_id is provided, a standalone
+    root span is created so MLflow always has at least one complete trace.
+    When fallback_span_id is set, the fallback root reuses that span ID so
+    children that were parented via TRACEPARENT stay connected.
+
+    Returns the number of synthetic root spans injected.
+    """
+    records = []
+    try:
+        with open(log_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        pass
+
+    orphans = _find_orphan_traces(records)
+
+    injected = 0
+
+    for trace_id, (child_start, child_end) in orphans.items():
+        span_id = fallback_span_id if fallback_span_id else uuid.uuid4().hex[:16]
+        span_start = min(start_ns, child_start) if child_start else start_ns
+        span_end = max(end_ns, child_end) if child_end else end_ns
+        record = _build_root_span_record(
+            trace_id, span_id, span_start, span_end, exit_code, attributes
+        )
+        with open(log_file, "a") as f:
+            f.write(json.dumps(record) + "\n")
+        injected += 1
+
+    if not orphans and not _has_any_traces(records) and fallback_trace_id:
+        span_id = fallback_span_id if fallback_span_id else uuid.uuid4().hex[:16]
+        record = _build_root_span_record(
+            fallback_trace_id, span_id, start_ns, end_ns, exit_code, attributes
+        )
+        with open(log_file, "a") as f:
+            f.write(json.dumps(record) + "\n")
+        injected += 1
+
+    return injected
+
+
+def _has_any_traces(records):
+    """Check if any /v1/traces records contain spans."""
+    for rec in records:
+        if "/v1/traces" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                if ss.get("spans"):
+                    return True
+    return False
 
 
 def main():
