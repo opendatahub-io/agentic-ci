@@ -27,6 +27,7 @@ src/agentic_ci/
             gateway.py  # OpenShell gateway lifecycle
             sandbox.py  # OpenShell sandbox lifecycle
             policy.py   # Policy resolution + built-in default
+    config.py           # Project config loader (.agentic-ci/config.yml)
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
     stream.py           # Stream parsers for Claude Code and OpenCode output
     otel.py             # OTLP collector + token/cost summary
@@ -42,7 +43,9 @@ src/agentic_ci/
 
 - **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
-- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, and credential injection. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+- **`config.py`**: Loads project configuration from `.agentic-ci/config.yml` in the workdir. Currently supports a `setup` key with a list of commands (bare strings or `{name, run}` objects) that run on the host before sandbox upload, enabling dependency installation for repos whose agents need it.
+
+- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. Both produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 

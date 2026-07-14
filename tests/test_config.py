@@ -101,6 +101,14 @@ def test_config_not_a_dict(tmp_path):
     assert config.setup == []
 
 
+def test_malformed_yaml_returns_empty(tmp_path):
+    config_dir = tmp_path / ".agentic-ci"
+    config_dir.mkdir()
+    (config_dir / "config.yml").write_text("setup:\n  - run: [\n")
+    config = load_config(str(tmp_path))
+    assert config.setup == []
+
+
 def test_setup_run_non_string_skipped(tmp_path):
     config_dir = tmp_path / ".agentic-ci"
     config_dir.mkdir()

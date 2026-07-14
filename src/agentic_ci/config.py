@@ -58,7 +58,11 @@ def load_config(workdir: str = ".") -> Config:
         return Config()
 
     with open(path) as fh:
-        data = yaml.safe_load(fh)
+        try:
+            data = yaml.safe_load(fh)
+        except yaml.YAMLError:
+            log.warning("Failed to parse %s, skipping", path)
+            return Config()
 
     if not isinstance(data, dict):
         return Config()

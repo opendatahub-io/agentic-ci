@@ -222,18 +222,9 @@ The default endpoints cover:
 ### Project-specific endpoints
 
 Projects can declare additional endpoints in
-`.agentic-ci/openshell-policy.yml` at the repository root. These are
-merged with the built-in defaults (duplicates are ignored).
-
-```yaml
-# .agentic-ci/openshell-policy.yml
-endpoints:
-  - "redhat.atlassian.net:443:read-only"
-  - "*.example.com:443:full"
-```
-
-The `--policy` CLI flag takes precedence: if a flag path is provided
-and the file exists, the repo-level file is ignored.
+`.agentic-ci/openshell-policy.yml`. See
+[Project Configuration](../configuration.md#network-policy-openshell)
+for details.
 
 ## Supervisor Image
 

@@ -16,8 +16,10 @@ them ideal for dependency installation that the sandboxed agent cannot
 perform itself.
 
 This is primarily useful for the **OpenShell backend**, where the sandbox
-has no internet access by default. The Podman and Local backends already
-have network access, so setup steps are not needed there.
+restricts network access to a small set of allowed endpoints (GitHub,
+GitLab, Vertex AI, etc.) and does not permit general-purpose package
+registry access. The Podman and Local backends already have full network
+access, so setup steps are not needed there.
 
 ### Configuration
 
@@ -60,7 +62,7 @@ Each step object accepts:
    uploaded into the sandbox
 4. The agent starts inside the sandbox
 
-```
+```text
 Host (internet access)          Sandbox (isolated)
 ─────────────────────           ──────────────────
 1. sandbox.create()
@@ -94,4 +96,27 @@ setup:
 ```
 
 This ensures `node_modules/` is present inside the sandbox so the agent
-can run tests, linting, and type checks without needing internet access.
+can run tests, linting, and type checks without needing general internet
+access.
+
+## Network Policy (OpenShell)
+
+Projects can declare additional network endpoints for the OpenShell
+sandbox in `.agentic-ci/openshell-policy.yml`. These are merged with
+the built-in defaults (duplicates are ignored).
+
+```yaml
+# .agentic-ci/openshell-policy.yml
+endpoints:
+  - "redhat.atlassian.net:443:read-only"
+  - "*.example.com:443:full"
+```
+
+Each endpoint uses the format `host:port:access` where access is one of
+`full`, `read-only`, or `read-write`.
+
+The `--policy` CLI flag takes precedence: if a flag path is provided and
+the file exists, the repo-level file is ignored.
+
+See [OpenShell Backend](backends/openshell.md) for the full list of
+built-in default endpoints.
