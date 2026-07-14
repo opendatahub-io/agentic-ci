@@ -1,5 +1,8 @@
 # Agentic CI
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines,
+PR requirements, and harness/backend parity rules.
+
 agentic-ci runs AI coding agents in sandboxed CI environments with pluggable backends and harnesses. Users run `agentic-ci run "prompt"` to execute an agent in an isolated environment with streaming output and OTEL telemetry.
 
 Three **backends** provide execution environments:
