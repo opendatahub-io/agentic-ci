@@ -124,6 +124,8 @@ class OpenShellBackend(Backend):
             approval_mode=self.approval_mode,
         )
 
+        self._run_setup_steps()
+
         log.section("Uploading workdir")
         sandbox.upload(self.workdir)
 

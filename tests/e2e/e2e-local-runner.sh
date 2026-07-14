@@ -156,5 +156,30 @@ assert_ok "extra args output file is non-empty" test -s "$TMPDIR_E2E/extra-args-
 assert_contains "extra args output contains response" \
     "$(cat "$TMPDIR_E2E/extra-args-out.txt")" "pong"
 
+# -- Setup steps test ---------------------------------------------------------
+print_header "=== agentic-ci run --backend local: setup steps ==="
+
+WORKDIR="$TMPDIR_E2E/setup-steps"
+mkdir -p "$WORKDIR/.agentic-ci"
+cat > "$WORKDIR/.agentic-ci/config.yml" <<'CONFIG'
+setup:
+  - name: Create marker file
+    run: echo "setup-complete" > .setup-marker
+CONFIG
+
+print_step "Running Claude Code with setup steps (local)..."
+RC=0
+agentic-ci run --backend local \
+    "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
+    --harness claude-code \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    --no-streaming \
+    > "$TMPDIR_E2E/setup-out.txt" 2>"$TMPDIR_E2E/setup-err.txt" || RC=$?
+
+assert_ok "setup-steps local run exited successfully" test "$RC" -eq 0
+assert_contains "setup-steps: marker file found by agent" \
+    "$(cat "$TMPDIR_E2E/setup-out.txt")" "pong"
+
 echo ""
 print_header "=== All test sections complete ==="

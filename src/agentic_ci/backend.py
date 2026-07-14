@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
+from agentic_ci.config import load_config
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -156,6 +157,22 @@ class Backend(ABC):
         lines = buf.decode("utf-8", errors="replace").splitlines(keepends=True)
         filtered = [line for line in lines if not any(p in line for p in cls._STDERR_NOISE)]
         return "".join(filtered).encode("utf-8") if filtered else b""
+
+    def _run_setup_steps(self):
+        """Run repo-defined setup commands on the host before the agent starts.
+
+        Setup steps execute with full network access outside any sandbox,
+        allowing dependency installation (e.g. ``npm ci``) whose outputs
+        are available to the agent at runtime.
+        """
+        config = load_config(self.workdir)
+        if not config.setup:
+            return
+
+        log.section("Running setup steps")
+        for step in config.setup:
+            log.info(f"  {step.name}: {step.run}")
+            subprocess.run(step.run, shell=True, cwd=self.workdir, check=True, timeout=600)
 
     def _wait_for_otel_flush(self, otel_port):
         """Wait for OTEL metrics to flush after the agent stream ends.
