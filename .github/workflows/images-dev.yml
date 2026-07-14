@@ -42,6 +42,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
       - name: Compute dev tag
@@ -75,8 +77,11 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build base image
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
         run: |
           podman build --no-cache -t localhost/base:latest \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/runner/shared/Containerfile.base \
             .
 
@@ -116,8 +121,11 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build base image
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
         run: |
           podman build --no-cache -t localhost/base:latest \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/runner/shared/Containerfile.base \
             .
 
