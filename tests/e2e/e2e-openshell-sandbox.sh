@@ -353,6 +353,39 @@ POLICY
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
+    # --- Setup steps test ---
+    # Verifies that .agentic-ci/config.yml setup steps run on the host
+    # before the workdir is uploaded. The setup step creates a marker file;
+    # the agent checks whether it exists inside the sandbox.
+    print_header "=== agentic-ci run: setup steps ==="
+
+    WORKDIR="$TMPDIR_E2E/setup-steps"
+    mkdir -p "$WORKDIR/.agentic-ci"
+    cat > "$WORKDIR/.agentic-ci/config.yml" <<'CONFIG'
+setup:
+  - name: Create marker file
+    run: echo "setup-complete" > .setup-marker
+CONFIG
+
+    print_step "Running Claude Code with setup steps..."
+    SETUP_LOG="$TMPDIR_E2E/setup-steps.log"
+    RC=0
+    agentic-ci run \
+        "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$SETUP_LOG" || RC=$?
+
+    OUTPUT="$(cat "$SETUP_LOG")"
+    assert_ok "setup-steps run exited successfully" test "$RC" -eq 0
+    assert_contains "setup-steps: marker file found in sandbox" "$OUTPUT" "pong"
+    assert_contains "setup-steps: setup section logged" "$OUTPUT" "Running setup steps"
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
     # --- Verdict file download test ---
     # Verifies that files written to gitignored directories inside the
     # sandbox (like autofix-output/) are downloaded back to the host.
