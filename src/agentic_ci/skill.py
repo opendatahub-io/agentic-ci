@@ -24,13 +24,21 @@ import json
 import logging
 import os
 import shutil
+import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
 
 from agentic_ci.backends import create_backend
 from agentic_ci.harness import create_harness
-from agentic_ci.otel import parse_metrics, start_collector, stop_collector
+from agentic_ci.otel import (
+    generate_trace_context,
+    inject_root_spans,
+    parse_metrics,
+    start_collector,
+    stop_collector,
+)
 
 log = logging.getLogger(__name__)
 
@@ -146,22 +154,55 @@ def _default_run_container(
 
     otel_proc = None
     otel_port = None
+    otel_log = None
+    traceparent = None
+    trace_id = None
+    span_id = None
+    start_ns = None
     if harness.supports_otel:
         run_dir = Path(work_dir) / "_run"
         run_dir.mkdir(parents=True, exist_ok=True)
         try:
-            otel_proc, otel_port, _, _ = start_collector(
+            otel_proc, otel_port, otel_log, _ = start_collector(
                 str(run_dir), bind_addr=backend.collector_bind_address
             )
+            trace_id, span_id, traceparent = generate_trace_context()
         except Exception:
             log.warning("Failed to start OTEL collector, continuing without telemetry")
 
+    rc = 1
     try:
         backend.setup(otel_port=otel_port)
-        return backend.run(prompt, model=model, otel_port=otel_port)
+        start_ns = time.time_ns()
+        rc = backend.run(prompt, model=model, otel_port=otel_port, traceparent=traceparent)
+        return rc
     finally:
+        end_ns = time.time_ns()
+
         if otel_proc:
             stop_collector(otel_proc)
+            if start_ns and otel_log:
+                try:
+                    injected = inject_root_spans(
+                        otel_log,
+                        start_ns,
+                        end_ns,
+                        rc,
+                        fallback_trace_id=trace_id,
+                        fallback_span_id=span_id,
+                        attributes={
+                            "agent.backend": backend_name,
+                            "agent.harness": harness_name,
+                            "agent.model": model,
+                        },
+                    )
+                    if injected:
+                        log.info("Injected %d synthetic root span(s)", injected)
+                except Exception as exc:
+                    print(
+                        f"Root span injection failed (non-fatal): {exc}",
+                        file=sys.stderr,
+                    )
         backend.stop()
 
 
