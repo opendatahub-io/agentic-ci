@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.9.3,<1"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.18", "uv-dynamic-versioning>=0.6"]
+build-backend = "hatchling.build"
 
 [project]
 name = "agentic-ci"
-version = "0.3.25"
+dynamic = ["version"]
 description = "Tooling for running AI coding agents in CI/CD environments"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -67,3 +67,12 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "I", "N"]
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+pattern = "^(?P<base>\\d+\\.\\d+\\.\\d+)$"
+fallback-version = "0.0.0+unknown"

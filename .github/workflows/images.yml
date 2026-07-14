@@ -83,7 +83,12 @@ jobs:
 
       - name: Build base image
         run: |
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(--build-arg "AGENTIC_CI_VERSION=${VERSION_TAG}")
+          fi
           podman build -t localhost/base:latest \
+            "${VERSION_ARGS[@]}" \
             -f images/runner/shared/Containerfile.base \
             .
 
@@ -159,7 +164,12 @@ jobs:
 
       - name: Build base image
         run: |
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(--build-arg "AGENTIC_CI_VERSION=${VERSION_TAG}")
+          fi
           podman build -t localhost/base:latest \
+            "${VERSION_ARGS[@]}" \
             -f images/runner/shared/Containerfile.base \
             .
 
