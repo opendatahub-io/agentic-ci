@@ -45,6 +45,7 @@ class PodmanBackend(Backend):
         if self.harness.auth_mode == "vertex":
             self._resolve_credentials()
         self._resolve_sandbox_config(otel_enabled=otel_port is not None)
+        self._run_setup_steps()
 
         if self.is_running():
             log.section("Podman container already running")

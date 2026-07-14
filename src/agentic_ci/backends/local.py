@@ -28,6 +28,7 @@ class LocalBackend(Backend):
 
     def setup(self, otel_port=None):
         log.section("Local backend (direct execution)")
+        self._run_setup_steps()
 
     def stop(self):
         pass
