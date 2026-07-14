@@ -15,9 +15,11 @@ environment). On each `agentic-ci run --backend openshell`, it:
 2. Creates a GCP or Anthropic credential provider
 3. Creates a sandbox container from the specified image
 4. Applies a network policy and waits for it to activate
-5. Uploads an env script with agent configuration
-6. Executes the agent inside the sandbox
-7. Tears everything down on completion
+5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
+6. Uploads the workdir (including setup step outputs) into the sandbox
+7. Uploads an env script with agent configuration
+8. Executes the agent inside the sandbox
+9. Tears everything down on completion
 
 ## OpenShell Commands
 
@@ -174,6 +176,21 @@ openshell sandbox get ci                         # check if exists
 openshell sandbox delete ci
 openshell gateway remove ci                      # deregister from CLI
 # Gateway and podman service processes are killed by PID
+```
+
+## Setup Steps
+
+Because the sandbox has no internet access by default, repositories that
+need dependency installation (e.g. `npm ci` for Node.js projects) can
+define **setup steps** that run on the host before the workdir is
+uploaded. See [Project Configuration](../configuration.md#setup-steps)
+for full details.
+
+```yaml
+# .agentic-ci/config.yml
+setup:
+  - name: Install dependencies
+    run: npm ci
 ```
 
 ## Network Policy

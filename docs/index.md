@@ -9,6 +9,7 @@ simplicity and security.
 
 - **Multiple backends**: Local (direct execution), Podman containers, or OpenShell sandboxes with network policy enforcement
 - **Multiple harnesses**: Claude Code and OpenCode agent CLIs
+- **Setup steps**: Pre-sandbox dependency installation for repos that need it
 - **Streaming output**: Colored, parsed CI logs with tool call summaries and token tracking
 - **OTEL telemetry**: Token usage, cost tracking, and metrics collection
 - **Gates**: Pre- and post-agent validation (sensitive files, commit checks, secret scanning)
@@ -56,6 +57,7 @@ backend.stop()
 
 ## Learn more
 
+- [Project Configuration](configuration.md) -- setup steps and per-repo config
 - [OTEL Architecture](otel-architecture.md) -- collector, trace completeness, MLflow pipeline
 - [OTEL Configuration](otel-configuration.md) -- per-harness env var reference
 - [MLflow Trace Export](mlflow-traces.md) -- CI setup and enrichment details
