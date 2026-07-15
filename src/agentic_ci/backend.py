@@ -164,7 +164,13 @@ class Backend(ABC):
         Setup steps execute with full network access outside any sandbox,
         allowing dependency installation (e.g. ``npm ci``) whose outputs
         are available to the agent at runtime.
+
+        Skipped when ``AGENTIC_CI_SKIP_SETUP=1`` is set, allowing
+        lightweight consumers (e.g. triage) to opt out.
         """
+        if os.environ.get("AGENTIC_CI_SKIP_SETUP") == "1":
+            return
+
         config = load_config(self.workdir)
         if not config.setup:
             return
