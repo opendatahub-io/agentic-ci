@@ -85,6 +85,8 @@ Host (internet access)          Sandbox (isolated)
   blocking CI indefinitely.
 - Malformed entries (e.g. missing `run` key, non-string `run` value) are
   skipped with a warning.
+- Set `AGENTIC_CI_SKIP_SETUP=1` to skip all setup steps (useful for
+  lightweight jobs like triage that don't need dependencies).
 
 ### Example: Node.js Project
 
