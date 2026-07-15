@@ -181,5 +181,31 @@ assert_ok "setup-steps local run exited successfully" test "$RC" -eq 0
 assert_contains "setup-steps: marker file found by agent" \
     "$(cat "$TMPDIR_E2E/setup-out.txt")" "pong"
 
+# -- AGENTIC_CI_SKIP_SETUP test -----------------------------------------------
+print_header "=== agentic-ci run --backend local: AGENTIC_CI_SKIP_SETUP ==="
+
+WORKDIR="$TMPDIR_E2E/skip-setup"
+mkdir -p "$WORKDIR/.agentic-ci"
+cat > "$WORKDIR/.agentic-ci/config.yml" <<'CONFIG'
+setup:
+  - name: Create marker file
+    run: echo "setup-complete" > .setup-marker
+CONFIG
+
+print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1 (local)..."
+RC=0
+AGENTIC_CI_SKIP_SETUP=1 \
+agentic-ci run --backend local \
+    "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
+    --harness claude-code \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    --no-streaming \
+    > "$TMPDIR_E2E/skip-setup-out.txt" 2>"$TMPDIR_E2E/skip-setup-err.txt" || RC=$?
+
+assert_ok "skip-setup local run exited successfully" test "$RC" -eq 0
+assert_contains "skip-setup: marker file NOT created" \
+    "$(cat "$TMPDIR_E2E/skip-setup-out.txt")" "pong"
+
 echo ""
 print_header "=== All test sections complete ==="

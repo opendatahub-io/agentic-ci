@@ -386,6 +386,38 @@ CONFIG
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
+    # --- AGENTIC_CI_SKIP_SETUP test ---
+    # Verifies that AGENTIC_CI_SKIP_SETUP=1 skips setup steps entirely.
+    # Uses the same config as above but the marker file should NOT exist.
+    print_header "=== agentic-ci run: AGENTIC_CI_SKIP_SETUP ==="
+
+    WORKDIR="$TMPDIR_E2E/skip-setup"
+    mkdir -p "$WORKDIR/.agentic-ci"
+    cat > "$WORKDIR/.agentic-ci/config.yml" <<'CONFIG'
+setup:
+  - name: Create marker file
+    run: echo "setup-complete" > .setup-marker
+CONFIG
+
+    print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1..."
+    SKIP_LOG="$TMPDIR_E2E/skip-setup.log"
+    RC=0
+    AGENTIC_CI_SKIP_SETUP=1 \
+    agentic-ci run \
+        "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$SKIP_LOG" || RC=$?
+
+    OUTPUT="$(cat "$SKIP_LOG")"
+    assert_ok "skip-setup run exited successfully" test "$RC" -eq 0
+    assert_contains "skip-setup: marker file NOT created" "$OUTPUT" "pong"
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
     # --- Verdict file download test ---
     # Verifies that files written to gitignored directories inside the
     # sandbox (like autofix-output/) are downloaded back to the host.

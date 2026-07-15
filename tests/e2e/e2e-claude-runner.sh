@@ -172,6 +172,36 @@ assert_contains "setup-steps: marker file found by agent" "$OUTPUT" "pong"
 
 agentic-ci stop --harness claude-code 2>/dev/null || true
 
+# -- AGENTIC_CI_SKIP_SETUP test -----------------------------------------------
+print_header "=== agentic-ci run: AGENTIC_CI_SKIP_SETUP (podman) ==="
+
+WORKDIR="$TMPDIR_E2E/skip-setup"
+mkdir -p "$WORKDIR/.agentic-ci"
+cat > "$WORKDIR/.agentic-ci/config.yml" <<'CONFIG'
+setup:
+  - name: Create marker file
+    run: echo "setup-complete" > .setup-marker
+CONFIG
+
+print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1 (podman)..."
+SKIP_LOG="$TMPDIR_E2E/skip-setup-out.txt"
+RC=0
+AGENTIC_CI_SKIP_SETUP=1 \
+agentic-ci run \
+    "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
+    --image "$IMAGE" \
+    --harness claude-code \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    --no-streaming \
+    > "$SKIP_LOG" 2>&1 || RC=$?
+
+OUTPUT="$(cat "$SKIP_LOG")"
+assert_ok "skip-setup run exited successfully" test "$RC" -eq 0
+assert_contains "skip-setup: marker file NOT created" "$OUTPUT" "pong"
+
+agentic-ci stop --harness claude-code 2>/dev/null || true
+
 # -- AGENT_ENABLED_PLUGINS test -----------------------------------------------
 print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS ==="
 
