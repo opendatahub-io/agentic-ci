@@ -619,6 +619,54 @@ class TestJobTrace:
             forge.job_trace("org/repo", 501)
 
 
+class TestRetryJob:
+    def test_returns_new_job(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(
+            201,
+            {
+                "id": 999,
+                "web_url": "https://gitlab.com/org/repo/-/jobs/999",
+                "status": "pending",
+            },
+        )
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        result = forge.retry_job("org/repo", 501)
+        assert result["id"] == 999
+        assert result["status"] == "pending"
+        mock_session.post.assert_called_once()
+        assert "/jobs/501/retry" in mock_session.post.call_args[0][0]
+
+    def test_401_raises_actionable_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(401, text="Unauthorized")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="BOT_PAT"):
+            forge.retry_job("org/repo", 501)
+
+    def test_403_raises_actionable_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(403, text="Forbidden")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="does not have permission to retry jobs"):
+            forge.retry_job("org/repo", 501)
+
+    def test_other_error_raises_generic_forge_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(404, text="Job not found")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="HTTP 404"):
+            forge.retry_job("org/repo", 501)
+
+
 class TestPipelineSchedules:
     def test_returns_schedules(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
