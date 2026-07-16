@@ -85,7 +85,7 @@ COPY images/runner/shared/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.15.20 \
+    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.15.21 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox /usr/local/share/agentic-ci
 
