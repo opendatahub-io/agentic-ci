@@ -7,11 +7,27 @@ using fixVersion fields and component configuration overrides.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from agentic_ci.git import validate_branch_exists
 
 log = logging.getLogger(__name__)
+
+_TARGET_BRANCH_RE = re.compile(r"\*{0,2}Target branch\*{0,2}:\s*`?([A-Za-z0-9._/\-]+)`?")
+
+
+def extract_branch_from_text(text: str) -> str | None:
+    """Extract a target branch name from the ``Target branch`` sentinel in text.
+
+    Matches both the markdown-bold form (``**Target branch**: `name```) and the
+    ADF-stripped plain-text form (``Target branch: name``).  Returns the first
+    match, or ``None`` if the sentinel is not present.
+    """
+    m = _TARGET_BRANCH_RE.search(text)
+    if m:
+        return m.group(1)
+    return None
 
 
 class BranchResolutionError(Exception):

@@ -4,9 +4,9 @@ import subprocess
 from unittest.mock import patch
 
 import pytest
-
 from agentic_ci.branch import (
     BranchResolutionError,
+    extract_branch_from_text,
     resolve_branch_from_jira,
 )
 from agentic_ci.git import _validate_ref, validate_branch_exists
@@ -329,3 +329,70 @@ class TestBranchResolutionError:
         """Should be instantiable with a message."""
         error = BranchResolutionError("something went wrong")
         assert str(error) == "something went wrong"
+
+
+class TestExtractBranchFromText:
+    """Test extract_branch_from_text function."""
+
+    def test_markdown_bold_with_backtick(self):
+        """Should match markdown bold sentinel with backtick-quoted branch."""
+        text = "Some context.\n**Target branch**: `release-3.5-stable`\nMore text."
+        assert extract_branch_from_text(text) == "release-3.5-stable"
+
+    def test_plain_text_adf_stripped(self):
+        """Should match ADF-stripped plain text variant."""
+        text = "Target branch: release-3.5-stable"
+        assert extract_branch_from_text(text) == "release-3.5-stable"
+
+    def test_no_match_returns_none(self):
+        """Should return None when no sentinel is present."""
+        text = "This is a normal Jira description with no branch sentinel."
+        assert extract_branch_from_text(text) is None
+
+    def test_multiple_matches_returns_first(self):
+        """Should return the first match when multiple sentinels exist."""
+        text = (
+            "**Target branch**: `first-branch`\n"
+            "Some text in between.\n"
+            "**Target branch**: `second-branch`\n"
+        )
+        assert extract_branch_from_text(text) == "first-branch"
+
+    def test_branch_with_slashes(self):
+        """Should handle branch names containing slashes."""
+        text = "**Target branch**: `release/3.5-stable`"
+        assert extract_branch_from_text(text) == "release/3.5-stable"
+
+    def test_branch_with_dots(self):
+        """Should handle branch names containing dots."""
+        text = "**Target branch**: `v3.3.0-fixes`"
+        assert extract_branch_from_text(text) == "v3.3.0-fixes"
+
+    def test_branch_with_underscores(self):
+        """Should handle branch names containing underscores."""
+        text = "**Target branch**: `feature/my_branch`"
+        assert extract_branch_from_text(text) == "feature/my_branch"
+
+    def test_branch_with_mixed_special_chars(self):
+        """Should handle branch names with mixed dots, dashes, slashes, underscores."""
+        text = "Target branch: feature/v2.1_hot-fix"
+        assert extract_branch_from_text(text) == "feature/v2.1_hot-fix"
+
+    def test_empty_string(self):
+        """Should return None for empty input."""
+        assert extract_branch_from_text("") is None
+
+    def test_extra_whitespace_after_colon(self):
+        """Should tolerate extra whitespace between colon and branch name."""
+        text = "**Target branch**:   `release-3.5`"
+        assert extract_branch_from_text(text) == "release-3.5"
+
+    def test_no_whitespace_after_colon(self):
+        """Should match when there is no space after the colon."""
+        text = "**Target branch**:`main`"
+        assert extract_branch_from_text(text) == "main"
+
+    def test_plain_text_no_backticks(self):
+        """Should match plain branch name without backticks."""
+        text = "Target branch: develop"
+        assert extract_branch_from_text(text) == "develop"
