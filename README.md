@@ -249,7 +249,7 @@ The **openshell** backend uploads the local ADC file
 
 By default, agent output is parsed into human-readable CI logs with:
 
-- Colored ANSI output (thinking in red, tool calls in gray)
+- Colored ANSI output (thinking in cyan, tool calls in gray)
 - Tool call summaries (bash commands, file paths, agent dispatches)
 - Token count display with throughput rate
 - OTEL token/cost summary at completion
