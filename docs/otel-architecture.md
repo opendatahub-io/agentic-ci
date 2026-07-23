@@ -134,7 +134,10 @@ the orchestrator's root span.
 
 ```python
 otel.inject_root_spans(
-    otel_log, start_ns, end_ns, rc,
+    otel_log,
+    start_ns,
+    end_ns,
+    rc,
     fallback_trace_id=trace_id,
     fallback_span_id=span_id,
     attributes={...},
