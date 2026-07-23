@@ -266,7 +266,9 @@ from agentic_ci.harness import create_harness
 harness = create_harness("claude-code")
 
 # Podman backend
-backend = create_backend("podman", harness=harness, workdir="/path/to/repo", image="my-image:latest")
+backend = create_backend(
+    "podman", harness=harness, workdir="/path/to/repo", image="my-image:latest"
+)
 backend.setup()
 rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
 backend.stop()
@@ -310,12 +312,8 @@ config = SkillConfig(
     prompt_builder=lambda ticket_key, mode, skill_name, **kw: (
         f"Use the /{skill_name} skill to review ticket {ticket_key}."
     ),
-    verdict_loader=lambda work_dir: json.loads(
-        (work_dir / "verdict.json").read_text()
-    ),
-    label_applier=lambda ticket_key, verdict, **kw: (
-        print(f"[{ticket_key}] verdict: {verdict}")
-    ),
+    verdict_loader=lambda work_dir: json.loads((work_dir / "verdict.json").read_text()),
+    label_applier=lambda ticket_key, verdict, **kw: print(f"[{ticket_key}] verdict: {verdict}"),
 )
 
 rc = run_skill(
@@ -402,12 +400,12 @@ project uses this framework to build an automated Jira bug-fix pipeline:
 ```python
 config = SkillConfig(
     skill_name="autofix-resolve",
-    prompt_builder=_build_prompt,         # Jira-specific prompt
-    context_writer=_write_context,        # Writes ticket.json to .autofix-context/
-    verdict_loader=_load_verdict,          # Reads .autofix-verdict.json
-    label_applier=_apply_labels,          # Manages jira-autofix-* labels
-    cost_formatter=_format_otel_cost,     # Formats cost for Jira comments
-    post_gates=[_autofix_post_gate],      # Commit author check, sensitive files, gitleaks
+    prompt_builder=_build_prompt,  # Jira-specific prompt
+    context_writer=_write_context,  # Writes ticket.json to .autofix-context/
+    verdict_loader=_load_verdict,  # Reads .autofix-verdict.json
+    label_applier=_apply_labels,  # Manages jira-autofix-* labels
+    cost_formatter=_format_otel_cost,  # Formats cost for Jira comments
+    post_gates=[_autofix_post_gate],  # Commit author check, sensitive files, gitleaks
 )
 ```
 
