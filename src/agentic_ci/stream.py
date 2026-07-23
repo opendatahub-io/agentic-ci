@@ -81,7 +81,7 @@ class ClaudeCodeStreamProcessor:
         self.claude_pid = claude_pid
 
         if color:
-            self.THINK = "\033[3;31m"
+            self.THINK = "\033[3;36m"
             self.TOOL = "\033[1;90m"
             self.CLAUDE = ""
             self.RED = "\033[31m"
@@ -374,7 +374,7 @@ class OpenCodeStreamProcessor:
         self.agent_pid = agent_pid
 
         if color:
-            self.THINK = "\033[3;31m"
+            self.THINK = "\033[3;36m"
             self.TOOL = "\033[1;90m"
             self.AGENT = ""
             self.RED = "\033[31m"
