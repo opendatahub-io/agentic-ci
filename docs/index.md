@@ -1,14 +1,14 @@
 # agentic-ci
 
 Run AI coding agents in sandboxed CI environments with streaming output
-and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
+and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode, Cursor)
 and isolation backends so you can choose the right tradeoff between
 simplicity and security.
 
 ## Features
 
 - **Multiple backends**: Local (direct execution), Podman containers, or OpenShell sandboxes with network policy enforcement
-- **Multiple harnesses**: Claude Code and OpenCode agent CLIs
+- **Multiple harnesses**: Claude Code, OpenCode, and Cursor agent CLIs
 - **Setup steps**: Pre-sandbox dependency installation for repos that need it
 - **Streaming output**: Colored, parsed CI logs with tool call summaries and token tracking
 - **OTEL telemetry**: Token usage, cost tracking, and metrics collection

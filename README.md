@@ -8,7 +8,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://opendatahub-io.github.io/agentic-ci/)
 
 Run AI coding agents in sandboxed CI environments with streaming output
-and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
+and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode, Cursor)
 and isolation backends so you can choose the right tradeoff between
 simplicity and security.
 
@@ -112,10 +112,10 @@ agentic-ci {setup,run,stop} [options]
 | Flag | Default | Description |
 |---|---|---|
 | `--backend` | `podman` | Sandbox backend to use |
-| `--harness` | `claude-code` | Agent harness (`claude-code` or `opencode`) |
+| `--harness` | `claude-code` | Agent harness (`claude-code`, `opencode`, or `cursor`) |
 | `--workdir PATH` | `.` | Working directory to mount |
 | `--image IMAGE` | — | Container or sandbox base image |
-| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode |
+| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, `claude-4.6-sonnet-medium-thinking` for Cursor |
 | `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
 | `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
@@ -235,6 +235,9 @@ The **openshell** backend uploads the local ADC file
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
 | `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`) |
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
+| `CURSOR_MODEL` | `claude-4.6-sonnet-medium-thinking` | Default model for Cursor harness (overridden by `--model`) |
+| `CURSOR_CONTAINER_IMAGE` | — | Default container image for Cursor harness |
+| `CURSOR_API_KEY` | — | Cursor API key for Cursor harness authentication |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
 | `GCP_PROJECT_ID` | — | Fallback for `ANTHROPIC_VERTEX_PROJECT_ID` |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project ID (OpenCode uses this before falling back to `ANTHROPIC_VERTEX_PROJECT_ID`) |
@@ -422,6 +425,8 @@ published to `quay.io/aipcc/agentic-ci/`:
 | `opencode-runner` | OpenCode CLI with pre-installed skills |
 | `claude-sandbox` | Claude Code sandbox for OpenShell |
 | `opencode-sandbox` | OpenCode sandbox for OpenShell |
+| `cursor-runner` | Cursor Agent CLI runner |
+| `cursor-sandbox` | Cursor sandbox for OpenShell |
 | `podman` | CI environment with podman, gh, glab, gitleaks, acli |
 | `openshell` | CI environment with OpenShell gateway + podman |
 
@@ -432,9 +437,11 @@ for usage details.
 ```bash
 make claude-build              # build Claude Code runner image locally
 make opencode-build            # build OpenCode runner image locally
+make cursor-build              # build Cursor runner image locally
 make ci-build                  # build CI podman image locally
 make openshell-claude-build    # build Claude sandbox locally
 make openshell-opencode-build  # build OpenCode sandbox locally
+make openshell-cursor-build    # build Cursor sandbox locally
 make openshell-ci-build        # build OpenShell CI image locally
 ```
 

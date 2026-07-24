@@ -31,7 +31,7 @@ from agentic_ci.git import clone_repo
 
 DEFAULT_MANIFEST_PATH = "/usr/local/share/agentic-ci/plugin-skills.manifest.json"
 
-_FALLBACK_SKILL_DIRS = [".claude/skills", ".opencode/skills", "skills"]
+_FALLBACK_SKILL_DIRS = [".claude/skills", ".opencode/skills", ".cursor/skills", "skills"]
 
 
 def _manifest_path() -> Path:
@@ -298,12 +298,14 @@ def enable_plugins() -> None:
 
     agent_tool = os.environ.get("AGENT_TOOL")
     if not agent_tool:
-        print("ERROR: AGENT_TOOL must be set (claude or opencode)", file=sys.stderr)
+        print("ERROR: AGENT_TOOL must be set (claude, opencode, or cursor)", file=sys.stderr)
         sys.exit(1)
     if agent_tool == "opencode":
         _filter_opencode(wanted)
     elif agent_tool == "claude":
         _filter_claude(wanted)
+    elif agent_tool == "cursor":
+        print("INFO: plugin filtering not yet implemented for Cursor, skipping")
     else:
         print(f"ERROR: unknown AGENT_TOOL: {agent_tool!r}", file=sys.stderr)
         sys.exit(1)

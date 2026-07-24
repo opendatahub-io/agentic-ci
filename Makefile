@@ -18,6 +18,10 @@ claude-build: base-build ## Build the Claude Code runner image locally
 opencode-build: base-build ## Build the OpenCode runner image locally
 	podman build -t localhost/opencode-runner:latest -f images/runner/opencode/Containerfile .
 
+.PHONY: cursor-build
+cursor-build: base-build ## Build the Cursor Agent runner image locally
+	podman build -t localhost/cursor-runner:latest -f images/runner/cursor/Containerfile .
+
 .PHONY: ci-build
 ci-build: ## Build the CI podman image locally
 	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
@@ -33,6 +37,10 @@ openshell-claude-build: openshell-base-build ## Build the OpenShell Claude sandb
 .PHONY: openshell-opencode-build
 openshell-opencode-build: openshell-base-build ## Build the OpenShell OpenCode sandbox image locally
 	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
+
+.PHONY: openshell-cursor-build
+openshell-cursor-build: openshell-base-build ## Build the OpenShell Cursor sandbox image locally
+	podman build -t localhost/cursor-sandbox:latest -f images/runner/cursor/Containerfile.openshell .
 
 .PHONY: openshell-supervisor-build
 openshell-supervisor-build: ## Build the OpenShell supervisor image locally

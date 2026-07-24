@@ -69,6 +69,9 @@ _detect_tool() {
         opencode)
             export OPENCODE_DISABLE_AUTOUPDATE=1
             ;;
+        agent|cursor)
+            export CURSOR_DISABLE_AUTOUPDATE=1
+            ;;
         *)
             if [[ "${AGENT_TOOL:-}" == "claude" ]]; then
                 export DISABLE_AUTOUPDATER=1
@@ -77,6 +80,8 @@ _detect_tool() {
                 fi
             elif [[ "${AGENT_TOOL:-}" == "opencode" ]]; then
                 export OPENCODE_DISABLE_AUTOUPDATE=1
+            elif [[ "${AGENT_TOOL:-}" == "cursor" ]]; then
+                export CURSOR_DISABLE_AUTOUPDATE=1
             fi
             ;;
     esac
@@ -108,10 +113,14 @@ agentic-ci enable-plugins
 # the entrypoint to prepend the tool command (matching the runner image
 # behavior where the entrypoint always prepends the agent command).
 case "${1:-}" in
-    claude|claude-code|opencode|bash|sh|true)
+    claude|claude-code|opencode|agent|cursor|bash|sh|true)
         exec "$@"
         ;;
     *)
+        # Cursor installs as `agent`, not `cursor`.
+        if [[ "${AGENT_TOOL:-}" == "cursor" ]]; then
+            exec agent "$@"
+        fi
         exec "${AGENT_TOOL:-claude}" "$@"
         ;;
 esac

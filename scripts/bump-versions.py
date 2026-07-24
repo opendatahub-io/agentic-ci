@@ -27,10 +27,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BASE_CF = REPO_ROOT / "images" / "runner" / "shared" / "Containerfile.base"
 CLAUDE_CF = REPO_ROOT / "images" / "runner" / "claude-code" / "Containerfile"
 OPENCODE_CF = REPO_ROOT / "images" / "runner" / "opencode" / "Containerfile"
+CURSOR_CF = REPO_ROOT / "images" / "runner" / "cursor" / "Containerfile"
 CI_CF = REPO_ROOT / "images" / "ci" / "Containerfile.podman"
 OPENSHELL_BASE_CF = REPO_ROOT / "images" / "runner" / "shared" / "Containerfile.openshell-base"
 OPENSHELL_CLAUDE_CF = REPO_ROOT / "images" / "runner" / "claude-code" / "Containerfile.openshell"
 OPENSHELL_OPENCODE_CF = REPO_ROOT / "images" / "runner" / "opencode" / "Containerfile.openshell"
+OPENSHELL_CURSOR_CF = REPO_ROOT / "images" / "runner" / "cursor" / "Containerfile.openshell"
 OPENSHELL_CI_CF = REPO_ROOT / "images" / "ci" / "Containerfile.openshell"
 RENOVATE_OUT_DIR = REPO_ROOT / "public" / "renovate"
 
@@ -545,6 +547,24 @@ def sync_opencode():
     return {"tool": "opencode", "versions": list(versions)}
 
 
+def sync_cursor():
+    versions = {}
+    for cf in [CURSOR_CF, OPENSHELL_CURSOR_CF]:
+        if not cf.exists():
+            continue
+        version = _current_value(cf, "CURSOR_VERSION")
+        if version:
+            versions.setdefault(version, []).append(cf)
+    if not versions:
+        return {"tool": "cursor", "skipped": "CURSOR_VERSION not found"}
+    for version, files in versions.items():
+        url = f"https://downloads.cursor.com/lab/{version}/linux/x64/agent-cli-package.tar.gz"
+        sha = _sha256_of_url(url)
+        for cf in files:
+            _update_arg(cf, "CURSOR_SHA256", sha)
+    return {"tool": "cursor", "versions": list(versions)}
+
+
 def sync_openshell():
     return {"tool": "openshell", "skipped": "rpm-based, no checksum to sync"}
 
@@ -570,6 +590,7 @@ SYNC_TOOLS = {
     "vale": sync_vale,
     "claude": sync_claude,
     "opencode": sync_opencode,
+    "cursor": sync_cursor,
     "openshell": sync_openshell,
     "acli": sync_acli,
     "ruff": sync_ruff,

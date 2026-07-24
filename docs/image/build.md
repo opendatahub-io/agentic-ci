@@ -21,6 +21,8 @@ schedule triggers builds. Images are tagged with:
 | `opencode-runner` | `images/runner/opencode/Containerfile` | OpenCode runner |
 | `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Claude Code sandbox |
 | `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox |
+| `cursor-runner` | `images/runner/cursor/Containerfile` | Cursor runner |
+| `cursor-sandbox` | `images/runner/cursor/Containerfile.openshell` | Cursor sandbox |
 
 ## Local builds
 
@@ -30,7 +32,9 @@ make openshell-ci-build        # openshell CI image
 make base-build                # runner base
 make claude-build              # claude-runner (depends on base-build)
 make opencode-build            # opencode-runner (depends on base-build)
+make cursor-build              # cursor-runner (depends on base-build)
 make openshell-base-build      # sandbox base
 make openshell-claude-build    # claude-sandbox
 make openshell-opencode-build  # opencode-sandbox
+make openshell-cursor-build    # cursor-sandbox
 ```

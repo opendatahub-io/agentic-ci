@@ -127,6 +127,29 @@ openshell provider create \
   --credential ANTHROPIC_API_KEY
 ```
 
+#### API Key (Cursor)
+
+Cursor uses a generic OpenShell provider that injects `CURSOR_API_KEY`:
+
+```bash
+openshell provider get ci-gcp                    # check if exists
+openshell provider create \
+  --name ci-gcp \
+  --type generic \
+  --credential CURSOR_API_KEY
+```
+
+When running with `--harness cursor`, `agentic-ci` also applies `tls: skip`
+for Cursor API hosts (`api2.cursor.sh`, `*.cursor.sh`, `*.api5.cursor.sh`,
+`*.us.api5.cursor.sh`). Cursor's Connect-RPC transport requires HTTP/2 ALPN
+(`h2`); OpenShell's TLS MITM proxy currently hardcodes `ALPN: http/1.1`, so
+passthrough TLS is required.
+
+**Known limitation:** even with `tls: skip`, Cursor agent runs through
+OpenShell hang until NVIDIA OpenShell gains HTTP/2 ALPN support
+([OpenShell#2426](https://github.com/NVIDIA/OpenShell/issues/2426)).
+The Podman backend path works for Cursor today.
+
 ### Sandbox Lifecycle
 
 ```bash
@@ -146,6 +169,8 @@ openshell sandbox create \
 openshell policy update --wait \
   --binary /usr/local/bin/claude \
   --binary /usr/bin/opencode \
+  --binary /usr/local/bin/agent \
+  --binary /usr/local/lib/cursor-agent/node \
   --add-endpoint github.com:443:full \
   --add-endpoint *.github.com:443:full \
   --add-endpoint gitlab.com:443:full \
@@ -200,8 +225,9 @@ creation. The `--wait` flag blocks until the supervisor confirms the
 policy rules are compiled and active. This prevents a race condition
 where the agent starts before the policy is ready.
 
-Each endpoint must specify explicit binary paths (`--binary
-/usr/local/bin/claude`). Using `--binary "*"` as a wildcard does not
+Each endpoint must specify explicit binary paths (for example `--binary
+/usr/local/bin/claude`, `--binary /usr/bin/opencode`, `--binary
+/usr/local/bin/agent`). Using `--binary "*"` as a wildcard does not
 work for CONNECT tunnel requests, which is how HTTPS clients establish
 connections through the supervisor proxy.
 
@@ -254,7 +280,8 @@ The wildcard `*` in `openshell policy update --binary "*"` fails to match
 binaries making HTTPS CONNECT tunnel requests. Use explicit paths instead:
 
 ```bash
---binary /usr/local/bin/claude --binary /usr/bin/opencode
+--binary /usr/local/bin/claude --binary /usr/bin/opencode \
+--binary /usr/local/bin/agent --binary /usr/local/lib/cursor-agent/node
 ```
 
 ### `--from-gcloud-adc` rejects service account keys

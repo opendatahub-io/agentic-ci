@@ -11,6 +11,8 @@
       "images/runner/claude-code/Containerfile.openshell",
       "images/runner/opencode/Containerfile",
       "images/runner/opencode/Containerfile.openshell",
+      "images/runner/cursor/Containerfile",
+      "images/runner/cursor/Containerfile.openshell",
       "images/ci/Containerfile.podman",
       "images/ci/Containerfile.openshell"
     ],
@@ -156,6 +158,16 @@
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/cursor/Containerfile$",
+        "^images/runner/cursor/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG CURSOR_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "getcursor/cursor",
+      "datasourceTemplate": "github-tags"
     },
     {
       "customType": "regex",

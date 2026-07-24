@@ -1,0 +1,35 @@
+# Cursor Agent sandbox image for OpenShell.
+#
+# Use with: agentic-ci run --backend openshell --image <this-image> ...
+# Or:       openshell sandbox create --from <this-image> --provider ...
+#
+# Build:
+#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base .
+#   podman build -t cursor-sandbox -f images/runner/cursor/Containerfile.openshell .
+#
+# Alternatively, use the community base for quick dev/test (multi-arch):
+#   podman build -t cursor-sandbox -f images/runner/cursor/Containerfile.openshell \
+#     --build-arg BASE_IMAGE=ghcr.io/nvidia/openshell-community/sandboxes/base:latest .
+
+FROM localhost/openshell-base:latest
+
+ARG CURSOR_VERSION=2026.07.16-899851b
+ARG CURSOR_SHA256=106acf6b3a3781cd279038726abc4f79f987449b9f5219b0f6e62d96c88fee6d
+
+USER root
+
+RUN curl -fsSL -o /tmp/cursor-agent.tar.gz \
+        "https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/x64/agent-cli-package.tar.gz" \
+    && echo "${CURSOR_SHA256}  /tmp/cursor-agent.tar.gz" | sha256sum -c - \
+    && mkdir -p /usr/local/lib/cursor-agent \
+    && tar -xzf /tmp/cursor-agent.tar.gz --strip-components=1 -C /usr/local/lib/cursor-agent \
+    && ln -sf /usr/local/lib/cursor-agent/cursor-agent /usr/local/bin/agent \
+    && test -x /usr/local/lib/cursor-agent/node \
+    && rm -f /tmp/cursor-agent.tar.gz
+
+USER sandbox
+
+ENV AGENT_TOOL=cursor
+ENV CURSOR_DISABLE_AUTOUPDATE=1
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["agent"]

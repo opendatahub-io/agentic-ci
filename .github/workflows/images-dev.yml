@@ -142,6 +142,50 @@ jobs:
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
+  # cursor-runner
+  # --------------------------------------------------------------------------
+  build-cursor-runner:
+    name: Build cursor-runner (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build base image
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          podman build --no-cache -t localhost/base:latest \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
+            -f images/runner/shared/Containerfile.base \
+            .
+
+      - name: Build and push cursor-runner
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/cursor-runner"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/cursor/Containerfile \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
   # ci-podman
   # --------------------------------------------------------------------------
   build-ci-podman:
@@ -255,6 +299,47 @@ jobs:
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
             -f images/runner/opencode/Containerfile.openshell \
+            .
+          podman push "${IMAGE_NAME}:${DEV_TAG}"
+
+  # --------------------------------------------------------------------------
+  # cursor-sandbox (OpenShell)
+  # --------------------------------------------------------------------------
+  build-cursor-sandbox:
+    name: Build cursor-sandbox (dev)
+    needs: compute-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to quay.io
+        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build openshell-base
+        run: |
+          podman build --no-cache -t localhost/openshell-base:latest \
+            -f images/runner/shared/Containerfile.openshell-base \
+            .
+
+      - name: Build and push cursor-sandbox
+        env:
+          DEV_TAG: ${{ needs.compute-tag.outputs.dev_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/cursor-sandbox"
+          podman build --no-cache \
+            -t "${IMAGE_NAME}:${DEV_TAG}" \
+            -f images/runner/cursor/Containerfile.openshell \
             .
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 

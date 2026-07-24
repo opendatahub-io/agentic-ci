@@ -12,8 +12,8 @@ FROM registry.access.redhat.com/ubi10/ubi:10.2
 ARG GH_VERSION=2.96.0
 ARG GH_SHA256=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
 
-ARG GLAB_VERSION=1.107.0
-ARG GLAB_SHA256=eb42f56eb1a789cf4f22aa5960ff0ef60cf1e7fc1295327501f9f59030d5ae2c
+ARG GLAB_VERSION=1.108.0
+ARG GLAB_SHA256=cb3eb9d6b05eedef24a028b52354f12fb9a07ecfa0b5581eb161176585bc8213
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -78,8 +78,8 @@ RUN curl -fsSL -o /etc/yum.repos.d/acli.repo \
     && dnf clean all
 
 # uv
-ARG UV_VERSION=0.11.28
-ARG UV_SHA256=f02146b371c35c287d860f003ece7345c86e358a3fd70a9b63700cd141ee7fb4
+ARG UV_VERSION=0.11.29
+ARG UV_SHA256=46711858adb2a3acaa9cee00f9060688ad1fd5706aecc005b96a6a7f285a00b7
 RUN curl -fsSL -o /tmp/uv.tar.gz \
         "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \

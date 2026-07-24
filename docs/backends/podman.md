@@ -98,7 +98,7 @@ bind-mounted into the container at the harness's credential mount target
 The image is resolved from (in priority order):
 
 1. `--image` CLI flag
-2. Harness-specific env var (`CLAUDE_CONTAINER_IMAGE` or `OPENCODE_CONTAINER_IMAGE`)
+2. Harness-specific env var (`CLAUDE_CONTAINER_IMAGE`, `OPENCODE_CONTAINER_IMAGE`, or `CURSOR_CONTAINER_IMAGE`)
 3. Error if neither is set
 
 Images prefixed with `localhost/` are treated as local builds and skip
@@ -110,6 +110,7 @@ Standard images:
 |---------|-------|
 | Claude Code | `quay.io/aipcc/agentic-ci/claude-runner:latest` |
 | OpenCode | `quay.io/aipcc/agentic-ci/opencode-runner:latest` |
+| Cursor | `quay.io/aipcc/agentic-ci/cursor-runner:latest` |
 
 ## Environment Variables
 

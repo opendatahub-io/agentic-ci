@@ -4,6 +4,7 @@ import pytest
 
 from agentic_ci.harness import (
     ClaudeCodeHarness,
+    CursorHarness,
     OpenCodeHarness,
     create_harness,
 )
@@ -17,6 +18,11 @@ def test_create_claude_code_harness():
 def test_create_opencode_harness():
     harness = create_harness("opencode")
     assert isinstance(harness, OpenCodeHarness)
+
+
+def test_create_cursor_harness():
+    harness = create_harness("cursor")
+    assert isinstance(harness, CursorHarness)
 
 
 def test_create_unknown_harness_raises():
@@ -39,6 +45,38 @@ class TestAuthMode:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "")
         assert ClaudeCodeHarness().auth_mode == "vertex"
         assert OpenCodeHarness().auth_mode == "vertex"
+
+
+class TestSandboxProperties:
+    """Tests for tls_skip_hosts and sandbox_binaries across all harnesses."""
+
+    def test_claude_code_no_tls_skip(self):
+        assert ClaudeCodeHarness().tls_skip_hosts == []
+
+    def test_claude_code_sandbox_binaries(self):
+        assert ClaudeCodeHarness().sandbox_binaries == ["/usr/local/bin/claude"]
+
+    def test_opencode_no_tls_skip(self):
+        assert OpenCodeHarness().tls_skip_hosts == []
+
+    def test_opencode_sandbox_binaries(self):
+        assert OpenCodeHarness().sandbox_binaries == ["/usr/local/bin/opencode"]
+
+    def test_cursor_tls_skip_hosts(self):
+        hosts = CursorHarness().tls_skip_hosts
+        assert len(hosts) == 4
+        host_names = [h for h, _, _ in hosts]
+        assert "api2.cursor.sh" in host_names
+        assert "*.cursor.sh" in host_names
+        for _, port, access in hosts:
+            assert port == 443
+            assert access == "read-write"
+
+    def test_cursor_sandbox_binaries(self):
+        assert CursorHarness().sandbox_binaries == [
+            "/usr/local/bin/agent",
+            "/usr/local/lib/cursor-agent/node",
+        ]
 
 
 class TestClaudeCodeHarness:
@@ -435,3 +473,113 @@ class TestOpenCodeHarness:
         harness = OpenCodeHarness()
         mounts = harness.sandbox_config_mounts(str(tmp_path))
         assert mounts == []
+
+
+class TestCursorHarness:
+    def test_name(self):
+        assert CursorHarness().name == "Cursor"
+
+    def test_slug(self):
+        assert CursorHarness().slug == "cursor"
+
+    def test_build_args(self):
+        harness = CursorHarness()
+        args = harness.build_args("do something", "claude-4.6-sonnet-medium-thinking")
+        assert args[0] == "agent"
+        assert "-p" in args
+        assert "--force" in args
+        assert "--trust" in args
+        assert "--approve-mcps" in args
+        assert "--output-format" in args
+        assert "stream-json" in args
+        assert "--model" in args
+        assert "claude-4.6-sonnet-medium-thinking" in args
+        assert "do something" in args
+
+    def test_build_args_with_extra(self):
+        harness = CursorHarness()
+        args = harness.build_args("prompt", "model", extra_args=["--max-turns", "5"])
+        assert "--max-turns" in args
+        assert "5" in args
+
+    def test_build_env_args(self):
+        harness = CursorHarness()
+        args = harness.build_env_args()
+        assert "CURSOR_API_KEY" in args
+        assert "AGENT_TOOL=cursor" in args
+
+    def test_build_env_script_lines(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        harness = CursorHarness()
+        lines = harness.build_env_script_lines()
+        assert "export CURSOR_API_KEY=crsr_test_key" in lines
+        assert any("AGENT_TOOL=cursor" in line for line in lines)
+
+    def test_build_env_script_lines_missing_key(self, monkeypatch):
+        monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+        with pytest.raises(EnvironmentError, match="CURSOR_API_KEY must be set"):
+            CursorHarness().build_env_script_lines()
+
+    def test_build_env_script_lines_with_traceparent(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        harness = CursorHarness()
+        lines = harness.build_env_script_lines(traceparent="00-abc-def-01")
+        assert any("TRACEPARENT" in line for line in lines)
+
+    def test_build_otel_exec_env_always_empty(self):
+        assert CursorHarness().build_otel_exec_env(otel_port=4318) == []
+        assert CursorHarness().build_otel_exec_env(otel_port=None) == []
+
+    def test_build_local_env(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        env = CursorHarness().build_local_env()
+        assert env["AGENT_TOOL"] == "cursor"
+        assert env["CURSOR_API_KEY"] == "crsr_test_key"
+        assert env["CURSOR_DISABLE_AUTOUPDATE"] == "1"
+
+    def test_build_local_env_with_traceparent(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        env = CursorHarness().build_local_env(traceparent="00-abc-def-01")
+        assert env["TRACEPARENT"] == "00-abc-def-01"
+
+    def test_build_local_env_missing_key(self, monkeypatch):
+        monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+        with pytest.raises(EnvironmentError, match="CURSOR_API_KEY must be set"):
+            CursorHarness().build_local_env()
+
+    def test_auth_mode_api_key(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        assert CursorHarness().auth_mode == "api-key"
+
+    def test_auth_mode_missing_key(self, monkeypatch):
+        monkeypatch.delenv("CURSOR_API_KEY", raising=False)
+        with pytest.raises(EnvironmentError, match="CURSOR_API_KEY must be set"):
+            CursorHarness().auth_mode
+
+    def test_credential_mount_target(self):
+        assert CursorHarness().credential_mount_target() == "/home/agent-ci"
+
+    def test_credential_mount_target_env_override(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_CONTAINER_HOME", "/home/cursor")
+        assert CursorHarness().credential_mount_target() == "/home/cursor"
+
+    def test_create_stream_processor(self):
+        from agentic_ci.stream import CursorStreamProcessor
+
+        proc = CursorHarness().create_stream_processor(pid=789)
+        assert isinstance(proc, CursorStreamProcessor)
+
+    def test_image_env_var(self):
+        assert CursorHarness().image_env_var() == "CURSOR_CONTAINER_IMAGE"
+
+    def test_model_env_var(self):
+        assert CursorHarness().model_env_var() == "CURSOR_MODEL"
+
+    def test_default_model(self):
+        assert CursorHarness().default_model() == "claude-4.6-sonnet-medium-thinking"
+
+    def test_supports_otel_false(self):
+        assert CursorHarness().supports_otel is False
+
+    def test_autoupdater_env_var(self):
+        assert CursorHarness().autoupdater_env_var == "CURSOR_DISABLE_AUTOUPDATE"
