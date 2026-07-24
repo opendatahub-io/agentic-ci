@@ -188,9 +188,12 @@ def test_linux_collector_bind_address(monkeypatch, tmp_path, claude_harness):
 
 
 def test_darwin_otel_env_rewrite(monkeypatch, tmp_path, claude_harness):
-    """On Darwin, OTEL endpoint 127.0.0.1 is rewritten to host.containers.internal."""
+    """On Darwin, PodmanBackend binds OTEL to 0.0.0.0 and rewrites env."""
     monkeypatch.setattr("agentic_ci.backends.podman.platform.system", lambda: "Darwin")
-    PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert backend.collector_bind_address == "0.0.0.0", (
+        "Darwin should bind to 0.0.0.0 so the container can reach the host collector"
+    )
     otel_env = claude_harness.build_otel_exec_env(4318)
     assert any("127.0.0.1" in v for v in otel_env), "Harness should default to 127.0.0.1"
     rewritten = [v.replace("127.0.0.1", _DARWIN_OTEL_HOST) for v in otel_env]

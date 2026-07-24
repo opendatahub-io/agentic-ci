@@ -195,8 +195,9 @@ every missing variable and which gate needs it.
 
 ## Credentials
 
-Two authentication modes are supported. The mode is auto-detected
-and logged at startup.
+Authentication is auto-detected from the environment and logged at
+startup. Claude Code and OpenCode support Anthropic API key and Vertex
+AI modes; Cursor uses its own API key.
 
 ### Anthropic API key (direct)
 
@@ -208,6 +209,17 @@ are skipped.
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 agentic-ci run "Fix the bug" --image ghcr.io/opendatahub-io/ai-helpers:latest
+```
+
+### Cursor API key
+
+Set `CURSOR_API_KEY` in the environment. This is the only authentication
+mode supported by the Cursor harness (Vertex AI / GCP auth is not available
+for Cursor).
+
+```bash
+export CURSOR_API_KEY=crsr_...
+agentic-ci run "Fix the bug" --harness cursor
 ```
 
 ### Vertex AI (default)

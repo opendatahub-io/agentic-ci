@@ -22,7 +22,7 @@ to confirm or override each one before proceeding:
 | CI image         | `quay.io/aipcc/agentic-ci/podman`                     | `$CI_IMAGE`               |
 | Claude runner    | `quay.io/aipcc/agentic-ci/claude-runner:latest`        | `$CLAUDE_IMAGE`           |
 | OpenCode runner  | `quay.io/aipcc/agentic-ci/opencode-runner:latest`      | `$OPENCODE_IMAGE`         |
-| Cursor runner    | `quay.io/aipcc/agentic-ci/cursor-runner:latest`        | `$CURSOR_IMAGE`           |
+| Cursor runner    | `quay.io/aipcc/agentic-ci/cursor-runner:latest`        | `$CURSOR_CONTAINER_IMAGE` |
 
 Also ask for:
 

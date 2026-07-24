@@ -10,6 +10,7 @@ from agentic_ci.backends.openshell.policy import (
     generate_policy_yaml,
     resolve_endpoints,
 )
+from agentic_ci.harness import CursorHarness
 
 CURSOR_TLS_SKIP_HOSTS = {
     "api2.cursor.sh",
@@ -199,8 +200,6 @@ def test_cursor_harness_tls_skip_hosts_integration(monkeypatch):
     in sandbox.py works correctly.
     """
     monkeypatch.setenv("CURSOR_API_KEY", "test-key")
-    from agentic_ci.harness import CursorHarness
-
     harness = CursorHarness()
     raw_hosts = harness.tls_skip_hosts  # list of tuples
 

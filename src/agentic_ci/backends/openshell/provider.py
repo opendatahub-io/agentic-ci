@@ -146,6 +146,8 @@ def _extract_provider_type(provider_details):
 
 
 def _provider_has_credential(provider_details, credential_key):
+    if isinstance(provider_details, dict) and "raw" in provider_details:
+        return False
     return credential_key in json.dumps(provider_details, sort_keys=True)
 
 
