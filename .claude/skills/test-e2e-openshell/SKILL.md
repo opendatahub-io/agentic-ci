@@ -6,6 +6,9 @@ description: Run end-to-end tests for the openshell backend using real container
 # End-to-End OpenShell Backend Test
 
 Run full lifecycle tests of the OpenShell backend across harnesses and auth modes.
+Claude/OpenCode are fully covered by sections A-H. Cursor is covered by the
+optional Cursor block in `tests/e2e/e2e-openshell-sandbox.sh` when both
+`CURSOR_SANDBOX_IMAGE` and `CURSOR_API_KEY` are set.
 All tests run inside a privileged container.
 
 Each section below is independent. Run whichever sections match your environment and skip the rest.
@@ -21,6 +24,7 @@ to confirm or override each one before proceeding:
 | Supervisor         | `quay.io/aipcc/agentic-ci/openshell-supervisor`        | `$SUPERVISOR_IMAGE`         |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
+| Cursor sandbox     | `quay.io/aipcc/agentic-ci/cursor-sandbox`              | `$CURSOR_SANDBOX_IMAGE`     |
 
 Also ask for:
 
@@ -111,6 +115,7 @@ Use haiku to keep cost down. The model name format varies by harness:
 |-------------|---------------------------------------------|----------------------------------------|
 | Claude Code | `claude-haiku-4-5`                          | `claude-haiku-4-5`                     |
 | OpenCode    | `google-vertex/claude-haiku-4-5@20251001`   | `anthropic/claude-haiku-4-5-20251001`  |
+| Cursor      | (not supported via Vertex)                  | `claude-4.6-sonnet-medium-thinking`    |
 
 ## Known issue: Claude Code + Vertex AI
 

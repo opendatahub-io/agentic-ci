@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import tempfile
 from typing import TYPE_CHECKING
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from agentic_ci.harness import Harness
 
 CONTAINER_NAME = "agentic-ci"
+
+
+_DARWIN_OTEL_HOST = "host.containers.internal"
 
 
 class PodmanBackend(Backend):
@@ -39,6 +43,8 @@ class PodmanBackend(Backend):
         self.timeout = timeout
         self._config_dir = None
         self._extra_env = extra_env or {}
+        if platform.system() == "Darwin":
+            self.collector_bind_address = "0.0.0.0"
 
     def setup(self, otel_port=None):
         self._resolve_image()
@@ -84,6 +90,8 @@ class PodmanBackend(Backend):
             if rc != 0:
                 raise subprocess.CalledProcessError(rc, ["podman", "pull", self.image])
 
+        network_args = ["--network", "host"] if platform.system() != "Darwin" else []
+
         cmd = [
             "podman",
             "run",
@@ -92,8 +100,7 @@ class PodmanBackend(Backend):
             CONTAINER_NAME,
             "--pull",
             "never",
-            "--network",
-            "host",
+            *network_args,
             *user_args,
             *env_args,
             *vol_args,
@@ -123,6 +130,8 @@ class PodmanBackend(Backend):
 
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
+        if platform.system() == "Darwin":
+            otel_env = [v.replace("127.0.0.1", _DARWIN_OTEL_HOST) for v in otel_env]
         agent_args = self.harness.build_args(prompt, model, extra_args)
 
         proc = subprocess.Popen(
