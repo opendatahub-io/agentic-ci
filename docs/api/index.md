@@ -9,7 +9,7 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 | [CLI](cli.md) | Entry point, backend/harness selection, OTEL orchestration |
 | [Backend](backend.md) | Abstract base class for sandbox backends |
 | [Harness](harness.md) | Harness abstraction for AI agent CLI tools |
-| [Stream Processors](stream.md) | Parsers for Claude Code and OpenCode output |
+| [Stream Processors](stream.md) | Parsers for Claude Code, OpenCode, and Cursor output |
 | [OTEL Collector](otel.md) | OTLP HTTP/JSON receiver and token/cost summary |
 
 ## Backends

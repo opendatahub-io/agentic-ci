@@ -25,15 +25,18 @@
 #   images.yml (paths: images/, tests/images/, tests/e2e/, src/agentic_ci/, Makefile):
 #     - Build claude-runner
 #     - Build opencode-runner
+#     - Build cursor-runner
 #     - Build ci-podman
 #     - Build claude-sandbox
 #     - Build opencode-sandbox
+#     - Build cursor-sandbox
 #     - Build ci-openshell
 #     - Build openshell-supervisor
 #     - Lint image scripts
 #     - Test image scripts
 #     - E2E claude-runner        (skipped on fork PRs, no secrets)
 #     - E2E opencode-runner      (skipped on fork PRs, no secrets)
+#     - E2E cursor-runner        (skipped on fork PRs, no secrets)
 #     - E2E openshell-sandbox    (skipped on fork PRs, no secrets)
 #
 # Path overlap between the two image workflows:
@@ -69,9 +72,11 @@ merge_protections:
       # images.yml (builds)
       - check-success = Build claude-runner
       - check-success = Build opencode-runner
+      - check-success = Build cursor-runner
       - check-success = Build ci-podman
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
+      - check-success = Build cursor-sandbox
       - check-success = Build ci-openshell
       - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
@@ -80,6 +85,7 @@ merge_protections:
       # images.yml (e2e)
       - check-success = E2E claude-runner
       - check-success = E2E opencode-runner
+      - check-success = E2E cursor-runner
       - check-success = E2E openshell-sandbox
       - -draft
       - -conflict
@@ -143,9 +149,11 @@ merge_protections:
       # images.yml (builds)
       - check-success = Build claude-runner
       - check-success = Build opencode-runner
+      - check-success = Build cursor-runner
       - check-success = Build ci-podman
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
+      - check-success = Build cursor-sandbox
       - check-success = Build ci-openshell
       - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
@@ -154,6 +162,7 @@ merge_protections:
       # images.yml (e2e)
       - check-success = E2E claude-runner
       - check-success = E2E opencode-runner
+      - check-success = E2E cursor-runner
       - check-success = E2E openshell-sandbox
       - -draft
       - -conflict
@@ -209,9 +218,11 @@ merge_protections:
       # images.yml (builds)
       - check-success = Build claude-runner
       - check-success = Build opencode-runner
+      - check-success = Build cursor-runner
       - check-success = Build ci-podman
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
+      - check-success = Build cursor-sandbox
       - check-success = Build ci-openshell
       - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
@@ -220,6 +231,7 @@ merge_protections:
       # images.yml (e2e)
       - check-success = E2E claude-runner
       - check-success = E2E opencode-runner
+      - check-success = E2E cursor-runner
       - check-success = E2E openshell-sandbox
       - -draft
       - -conflict
@@ -273,9 +285,11 @@ merge_protections:
       # images.yml (builds)
       - check-success = Build claude-runner
       - check-success = Build opencode-runner
+      - check-success = Build cursor-runner
       - check-success = Build ci-podman
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
+      - check-success = Build cursor-sandbox
       - check-success = Build ci-openshell
       - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
@@ -284,6 +298,7 @@ merge_protections:
       # images.yml (e2e)
       - check-success = E2E claude-runner
       - check-success = E2E opencode-runner
+      - check-success = E2E cursor-runner
       - check-success = E2E openshell-sandbox
       - -draft
       - -conflict
@@ -337,9 +352,11 @@ merge_protections:
       # images.yml (builds)
       - check-success = Build claude-runner
       - check-success = Build opencode-runner
+      - check-success = Build cursor-runner
       - check-success = Build ci-podman
       - check-success = Build claude-sandbox
       - check-success = Build opencode-sandbox
+      - check-success = Build cursor-sandbox
       - check-success = Build ci-openshell
       - check-success = Build openshell-supervisor
       # images.yml (lint + unit tests)
@@ -348,6 +365,7 @@ merge_protections:
       # images.yml (e2e)
       - check-success = E2E claude-runner
       - check-success = E2E opencode-runner
+      - check-success = E2E cursor-runner
       - check-success = E2E openshell-sandbox
       - -draft
       - -conflict

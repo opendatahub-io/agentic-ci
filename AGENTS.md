@@ -10,9 +10,10 @@ Three **backends** provide execution environments:
 - **Podman** (default): Runs the agent in a Podman container. Simple, widely available.
 - **OpenShell**: Runs the agent in an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox with network policy enforcement and filesystem isolation.
 
-Two **harnesses** define which agent CLI to run:
+Three **harnesses** define which agent CLI to run:
 - **claude-code** (default): [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with `stream-json` output format.
 - **opencode**: [OpenCode](https://github.com/anomalyco/opencode) with JSON event output format.
+- **cursor**: [Cursor Agent](https://docs.cursor.com/agent) with `stream-json` output format.
 
 ## Architecture
 
@@ -20,7 +21,7 @@ Two **harnesses** define which agent CLI to run:
 src/agentic_ci/
     cli.py              # Entry point, backend/harness selection, OTEL orchestration
     backend.py          # Backend ABC + shared stream processing
-    harness.py          # Harness ABC + ClaudeCode/OpenCode implementations
+    harness.py          # Harness ABC + ClaudeCode/OpenCode/Cursor implementations
     backends/
         __init__.py     # Backend factory (create_backend)
         local.py        # LocalBackend — direct execution (no container)
@@ -32,7 +33,7 @@ src/agentic_ci/
             policy.py   # Policy resolution + built-in default
     config.py           # Project config loader (.agentic-ci/config.yml)
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
-    stream.py           # Stream parsers for Claude Code and OpenCode output
+    stream.py           # Stream parsers for Claude Code, OpenCode, and Cursor output
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -40,7 +41,7 @@ src/agentic_ci/
 
 - **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor.
 
-- **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`.
+- **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CursorHarness`.
 
 - **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`) and runtime filtering (`enable_plugins`). At build time, installs skills from the skills-registry marketplace into the container image and writes a plugin-to-skill manifest. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk (since `permission.skill.deny` doesn't prevent loading with `--dangerously-skip-permissions`).
 
@@ -50,7 +51,7 @@ src/agentic_ci/
 
 - **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
-- **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. Both produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
+- **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. `CursorStreamProcessor` parses Cursor Agent `stream-json` output. All three produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 
 - **`otel.py`**: Lightweight OTLP HTTP/JSON receiver (stdlib `http.server`) that logs payloads to JSONL, tracks token usage over a sliding window, and prints a token/cost summary.
 
@@ -88,8 +89,8 @@ scripts/
 ```
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
-is pre-built as `localhost/base:latest` before building the Claude and
-OpenCode runner images. It is NOT published to any registry as a
+is pre-built as `localhost/base:latest` before building the Claude,
+OpenCode, and Cursor runner images. It is NOT published to any registry as a
 standalone image. Do not add a CI job to push runner-base separately.
 
 ### Building locally
@@ -98,10 +99,12 @@ standalone image. Do not add a CI job to push runner-base separately.
 make base-build              # build runner base image locally
 make claude-build            # build Claude Code runner image (includes base)
 make opencode-build          # build OpenCode runner image (includes base)
+make cursor-build            # build Cursor runner image (includes base)
 make ci-build                # build CI podman image
 make openshell-base-build    # build OpenShell sandbox base image
 make openshell-claude-build  # build Claude sandbox (includes openshell-base)
 make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
+make openshell-cursor-build  # build Cursor sandbox (includes openshell-base)
 make openshell-supervisor-build # build OpenShell supervisor image
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts

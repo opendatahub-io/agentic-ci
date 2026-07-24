@@ -99,6 +99,11 @@ class OpenShellBackend(Backend):
         self._extra_env = extra_env or {}
         self.approval_mode = approval_mode
 
+    @property
+    def _harness_id(self) -> str:
+        """Stable identifier: prefer slug, fall back to display name."""
+        return getattr(self.harness, "slug", None) or self.harness.name
+
     def setup(self, otel_port=None):
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
@@ -107,7 +112,8 @@ class OpenShellBackend(Backend):
             log.section("OpenShell gateway already running")
 
         log.section("Configuring provider")
-        provider.setup(auth_mode=self.harness.auth_mode)
+        harness_id = self._harness_id
+        provider.setup(auth_mode=self.harness.auth_mode, harness_name=harness_id)
 
         if sandbox.exists():
             log.section("Sandbox already exists")
@@ -122,6 +128,8 @@ class OpenShellBackend(Backend):
             otel_port=otel_port,
             workdir=self.workdir,
             approval_mode=self.approval_mode,
+            tls_skip_hosts=self.harness.tls_skip_hosts,
+            binaries=self.harness.sandbox_binaries,
         )
 
         self._run_setup_steps()
@@ -221,8 +229,9 @@ class OpenShellBackend(Backend):
             # used by the Podman backend). OpenShell sandboxes can't reach that
             # address — they resolve the host via host.openshell.internal.
             lines.append(f"export OTEL_EXPORTER_OTLP_ENDPOINT=http://{_OPENSHELL_HOST}:{otel_port}")
-        if not otel_port and self.harness.name == "Claude Code":
-            lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+        nonessential = self.harness.disable_nonessential_traffic_env
+        if not otel_port and nonessential:
+            lines.append(f"export {nonessential}")
 
         if self.harness.auth_mode == "vertex":
             max_retries = os.environ.get("CLAUDE_CODE_MAX_RETRIES", _DEFAULT_MAX_RETRIES)
@@ -233,7 +242,9 @@ class OpenShellBackend(Backend):
 
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
 
-        lines.append("agentic-ci enable-plugins")
+        # Cursor has no plugin system; skip to avoid noisy "not implemented" logs.
+        if self._harness_id not in ("cursor", "Cursor"):
+            lines.append("agentic-ci enable-plugins")
 
         script = "\n".join(lines) + "\n"
 

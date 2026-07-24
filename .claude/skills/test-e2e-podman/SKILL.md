@@ -5,7 +5,9 @@ description: Run end-to-end tests for the podman backend using real container an
 
 # End-to-End Podman Backend Test
 
-Run full lifecycle tests of the podman backend across harnesses and auth modes.
+Run full lifecycle tests of the podman backend for Claude/OpenCode harnesses and auth modes.
+Cursor has a dedicated script workflow (`tests/e2e/e2e-cursor-runner.sh`) and is
+included in the image inputs below for parity.
 All tests run inside a CI container with nested podman.
 
 Each section below is independent. Run whichever sections match your environment and skip the rest.
@@ -20,6 +22,7 @@ to confirm or override each one before proceeding:
 | CI image         | `quay.io/aipcc/agentic-ci/podman`                     | `$CI_IMAGE`               |
 | Claude runner    | `quay.io/aipcc/agentic-ci/claude-runner:latest`        | `$CLAUDE_IMAGE`           |
 | OpenCode runner  | `quay.io/aipcc/agentic-ci/opencode-runner:latest`      | `$OPENCODE_IMAGE`         |
+| Cursor runner    | `quay.io/aipcc/agentic-ci/cursor-runner:latest`        | `$CURSOR_CONTAINER_IMAGE` |
 
 Also ask for:
 
@@ -78,10 +81,11 @@ podman exec podman-e2e bash -c 'podman rm -f agentic-ci 2>/dev/null || true'
 
 Use haiku to keep cost down. The model name format varies by harness:
 
-| Harness     | Vertex AI model           | API key model                          |
-|-------------|---------------------------|----------------------------------------|
-| Claude Code | `claude-haiku-4-5`        | `claude-haiku-4-5`                     |
-| OpenCode    | (not supported via Vertex) | `anthropic/claude-haiku-4-5-20251001` |
+| Harness     | Vertex AI model            | API key model                          |
+|-------------|----------------------------|----------------------------------------|
+| Claude Code | `claude-haiku-4-5`         | `claude-haiku-4-5`                     |
+| OpenCode    | `google-vertex/claude-haiku-4-5@20251001` | `anthropic/claude-haiku-4-5-20251001` |
+| Cursor      | (not supported via Vertex) | `claude-4.6-sonnet-medium-thinking`    |
 
 ---
 

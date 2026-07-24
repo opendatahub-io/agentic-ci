@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, OpenCodeHarness
+from agentic_ci.backends.podman import _DARWIN_OTEL_HOST, PodmanBackend
+from agentic_ci.harness import ClaudeCodeHarness, CursorHarness, OpenCodeHarness
 
 
 @pytest.fixture()
@@ -17,6 +17,11 @@ def claude_harness():
 @pytest.fixture()
 def opencode_harness():
     return OpenCodeHarness()
+
+
+@pytest.fixture()
+def cursor_harness():
+    return CursorHarness()
 
 
 def test_build_env_args_claude_code(tmp_path, claude_harness):
@@ -166,3 +171,63 @@ def test_setup_does_not_override_entrypoint(monkeypatch, tmp_path, claude_harnes
     assert "--entrypoint" not in run_cmd
     image_idx = run_cmd.index("localhost/test:latest")
     assert run_cmd[image_idx + 1 : image_idx + 4] == ["bash", "-c", "sleep 1200"]
+
+
+def test_darwin_collector_bind_address(monkeypatch, tmp_path, claude_harness):
+    """On Darwin, collector_bind_address should be 0.0.0.0 so the container can reach it."""
+    monkeypatch.setattr("agentic_ci.backends.podman.platform.system", lambda: "Darwin")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert backend.collector_bind_address == "0.0.0.0"
+
+
+def test_linux_collector_bind_address(monkeypatch, tmp_path, claude_harness):
+    """On Linux, collector_bind_address stays at the default 127.0.0.1."""
+    monkeypatch.setattr("agentic_ci.backends.podman.platform.system", lambda: "Linux")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert backend.collector_bind_address == "127.0.0.1"
+
+
+def test_darwin_otel_env_rewrite(monkeypatch, tmp_path, claude_harness):
+    """On Darwin, PodmanBackend binds OTEL to 0.0.0.0 and rewrites env."""
+    monkeypatch.setattr("agentic_ci.backends.podman.platform.system", lambda: "Darwin")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert backend.collector_bind_address == "0.0.0.0", (
+        "Darwin should bind to 0.0.0.0 so the container can reach the host collector"
+    )
+    otel_env = claude_harness.build_otel_exec_env(4318)
+    assert any("127.0.0.1" in v for v in otel_env), "Harness should default to 127.0.0.1"
+    rewritten = [v.replace("127.0.0.1", _DARWIN_OTEL_HOST) for v in otel_env]
+    assert not any("127.0.0.1" in v for v in rewritten)
+    assert any(_DARWIN_OTEL_HOST in v for v in rewritten)
+
+
+def test_build_env_args_cursor(tmp_path, cursor_harness, monkeypatch):
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=cursor_harness)
+    args = backend._build_env_args()
+    assert "CURSOR_API_KEY" in args
+    assert "AGENT_TOOL=cursor" in args
+    assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+    assert "OPENCODE_DISABLE_AUTOUPDATE=1" not in args
+
+
+def test_resolve_image_cursor(monkeypatch, tmp_path, cursor_harness):
+    monkeypatch.setenv("CURSOR_CONTAINER_IMAGE", "my-cursor-image:latest")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=cursor_harness)
+    backend._resolve_image()
+    assert backend.image == "my-cursor-image:latest"
+
+
+def test_resolve_image_raises_cursor(monkeypatch, tmp_path, cursor_harness):
+    monkeypatch.delenv("CURSOR_CONTAINER_IMAGE", raising=False)
+    backend = PodmanBackend(workdir=str(tmp_path), harness=cursor_harness)
+    with pytest.raises(RuntimeError, match="CURSOR_CONTAINER_IMAGE"):
+        backend._resolve_image()
+
+
+def test_build_vol_args_cursor_mount_target(monkeypatch, tmp_path, cursor_harness):
+    monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+    backend = PodmanBackend(workdir=str(tmp_path), harness=cursor_harness)
+    vol_args = backend._build_vol_args()
+    mount_str = " ".join(vol_args)
+    assert "/workspace" in mount_str

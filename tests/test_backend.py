@@ -9,7 +9,7 @@ from agentic_ci.backends import create_backend
 from agentic_ci.backends.local import LocalBackend
 from agentic_ci.backends.openshell import OpenShellBackend, _token_keepalive
 from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, create_harness
+from agentic_ci.harness import ClaudeCodeHarness, CursorHarness, create_harness
 
 
 @pytest.fixture()
@@ -72,6 +72,27 @@ def test_create_openshell_with_extra_env(harness):
 def test_create_openshell_with_approval_mode(harness):
     backend = create_backend("openshell", harness=harness, approval_mode="auto")
     assert backend.approval_mode == "auto"
+
+
+def test_create_podman_backend_cursor():
+    cursor = create_harness("cursor")
+    backend = create_backend("podman", harness=cursor, workdir="/tmp")
+    assert isinstance(backend, PodmanBackend)
+    assert backend.harness is cursor
+
+
+def test_create_openshell_backend_cursor():
+    cursor = create_harness("cursor")
+    backend = create_backend("openshell", harness=cursor, workdir="/tmp")
+    assert isinstance(backend, OpenShellBackend)
+    assert backend.harness is cursor
+
+
+def test_create_local_backend_cursor():
+    cursor = create_harness("cursor")
+    backend = create_backend("local", harness=cursor, workdir="/tmp")
+    assert isinstance(backend, LocalBackend)
+    assert backend.harness is cursor
 
 
 def test_unknown_backend_raises(harness):
@@ -177,6 +198,60 @@ class TestOpenShellEnvScript:
     def test_env_script_omits_max_retries_for_api_key(self, monkeypatch, tmp_path):
         script = self._capture_script(monkeypatch, tmp_path)
         assert "CLAUDE_CODE_MAX_RETRIES" not in script
+
+
+class TestOpenShellEnvScriptCursor:
+    """Tests for OpenShellBackend._write_env_script() with CursorHarness."""
+
+    def _capture_script(self, monkeypatch, tmp_path, **env_overrides):
+        monkeypatch.setenv("CURSOR_API_KEY", "crsr_test_key")
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        for key, val in env_overrides.items():
+            if val is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, val)
+
+        harness = CursorHarness()
+        backend = OpenShellBackend(workdir=str(tmp_path), harness=harness)
+
+        captured = []
+
+        def mock_upload(path):
+            with open(path) as f:
+                captured.append(f.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=mock_upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("claude-4.6-sonnet-medium-thinking")
+
+        assert len(captured) == 1
+        return captured[0]
+
+    def test_env_script_sets_cursor_api_key(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "CURSOR_API_KEY=crsr_test_key" in script
+
+    def test_env_script_sets_agent_tool_cursor(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "AGENT_TOOL=cursor" in script
+
+    def test_env_script_skips_enable_plugins_for_cursor(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "agentic-ci enable-plugins" not in script
+
+    def test_env_script_omits_claude_specific_vars(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path)
+        assert "CLAUDE_CODE_USE_VERTEX" not in script
+        assert "CLAUDE_CODE_PLUGIN_SEED_DIR" not in script
+        assert "CLAUDE_CODE_MAX_RETRIES" not in script
+
+    def test_env_script_includes_enabled_plugins_var(self, monkeypatch, tmp_path):
+        script = self._capture_script(monkeypatch, tmp_path, AGENT_ENABLED_PLUGINS="alpha,beta")
+        assert "AGENT_ENABLED_PLUGINS" in script
+        assert "alpha,beta" in script
 
 
 class TestTokenKeepalive:
