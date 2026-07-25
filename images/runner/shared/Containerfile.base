@@ -68,7 +68,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
          python3 -c 'import sys,re; f=sys.argv[1]; v=sys.argv[2]; d=open(f).read(); open(f,"w").write(re.sub(r"^fallback-version = .*", f"fallback-version = \"{v}\"", d, flags=re.M))' \
            /tmp/agentic-ci/pyproject.toml "${AGENTIC_CI_VERSION}"; \
        fi \
-    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.15.21 \
+    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.15.22 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o agent-ci /usr/local/share/agentic-ci
 

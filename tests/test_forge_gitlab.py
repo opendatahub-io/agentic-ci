@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agentic_ci.forge import ForgeError
-from agentic_ci.forge.gitlab import GitLabForge, _find_first_added_line
+from agentic_ci.forge.gitlab import GitLabForge, _find_first_added_line, _sanitize_resp_text
 
 
 @pytest.fixture()
@@ -619,6 +619,63 @@ class TestJobTrace:
             forge.job_trace("org/repo", 501)
 
 
+class TestRetryJob:
+    def test_returns_new_job(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(
+            201,
+            {
+                "id": 999,
+                "web_url": "https://gitlab.com/org/repo/-/jobs/999",
+                "status": "pending",
+            },
+        )
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        result = forge.retry_job("org/repo", 501)
+        assert result["id"] == 999
+        assert result["status"] == "pending"
+        mock_session.post.assert_called_once()
+        assert "/jobs/501/retry" in mock_session.post.call_args[0][0]
+
+    def test_401_raises_actionable_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(401, text="Unauthorized")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="BOT_PAT"):
+            forge.retry_job("org/repo", 501)
+
+    def test_403_raises_actionable_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(403, text="Forbidden")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="does not have permission to retry jobs"):
+            forge.retry_job("org/repo", 501)
+
+    def test_other_error_raises_generic_forge_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(404, text="Job not found")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="HTTP 404"):
+            forge.retry_job("org/repo", 501)
+
+    def test_error_text_sanitized(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        retry_resp = _make_response(500, text="line1\r\nline2\x00line3")
+        mock_session.get.return_value = project_resp
+        mock_session.post.return_value = retry_resp
+
+        with pytest.raises(ForgeError, match="line1 line2 line3"):
+            forge.retry_job("org/repo", 501)
+
+
 class TestPipelineSchedules:
     def test_returns_schedules(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
@@ -777,3 +834,17 @@ class TestFindFirstAddedLine:
     def test_no_newline_metadata_does_not_shift_line(self):
         diff = "@@ -1,2 +1,3 @@\n existing\n\\ No newline at end of file\n+added line"
         assert _find_first_added_line(diff) == 2
+
+
+class TestSanitizeRespText:
+    def test_strips_control_characters(self):
+        assert _sanitize_resp_text("a\r\nb\nc") == "a b c"
+
+    def test_truncates_long_text(self):
+        long_text = "x" * 300
+        result = _sanitize_resp_text(long_text)
+        assert len(result) == 203
+        assert result.endswith("...")
+
+    def test_passthrough_short_clean_text(self):
+        assert _sanitize_resp_text("Not found") == "Not found"

@@ -22,6 +22,16 @@ from agentic_ci.forge.session import GitLabHTTPAdapter, build_session, extract_a
 
 log = logging.getLogger(__name__)
 
+_MAX_ERROR_TEXT_LEN = 200
+
+
+def _sanitize_resp_text(text: str) -> str:
+    """Strip control characters and truncate response text for error messages."""
+    cleaned = re.sub(r"[\r\n\x00-\x1f]+", " ", text).strip()
+    if len(cleaned) > _MAX_ERROR_TEXT_LEN:
+        return cleaned[:_MAX_ERROR_TEXT_LEN] + "..."
+    return cleaned
+
 
 class GitLabForge(Forge):
     """GitLab REST API implementation of the ``Forge`` interface."""
@@ -328,6 +338,36 @@ class GitLabForge(Forge):
         if resp.status_code != 200:
             raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
         return resp.text
+
+    def retry_job(self, project_path: str, job_id: int) -> dict:
+        """Retry a failed or canceled GitLab CI job.
+
+        Args:
+            project_path: GitLab project path (e.g. ``"org/repo"``).
+            job_id: Numeric job ID to retry.
+
+        Returns the new job dict from the API response (includes the
+        retried job's ``id``, ``web_url``, and ``status``).
+
+        Raises:
+            ForgeError: On API failure. A 401/403 response raises an
+                actionable error indicating the token needs the ``api``
+                or ``write_build`` scope to retry jobs.
+        """
+        job_id = int(job_id)
+        pid = self.project_id(project_path)
+        resp = self._session.post(
+            f"https://gitlab.com/api/v4/projects/{pid}/jobs/{job_id}/retry",
+        )
+        if resp.status_code in (401, 403):
+            raise ForgeError(
+                f"GitLab API returned {resp.status_code}: token does not have "
+                "permission to retry jobs. Ensure BOT_PAT has the 'api' or "
+                "'write_build' scope."
+            )
+        if resp.status_code not in (200, 201):
+            raise ForgeError(f"HTTP {resp.status_code}: {_sanitize_resp_text(resp.text)}")
+        return resp.json()
 
     def pipeline_schedules(self, project_path: str) -> list[dict]:
         """List all pipeline schedules for a project (paginated).
