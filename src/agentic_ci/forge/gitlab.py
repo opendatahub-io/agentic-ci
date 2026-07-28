@@ -39,6 +39,11 @@ class GitLabForge(Forge):
     def __init__(self, *, adapter: GitLabHTTPAdapter | None = None) -> None:
         self._session = build_session(gitlab_adapter=adapter)
 
+    @property
+    def session(self):
+        """The authenticated HTTP session for direct API calls."""
+        return self._session
+
     def project_id(self, project_path: str) -> int:
         """Look up the numeric GitLab project ID from a project path.
 
@@ -467,7 +472,7 @@ class GitLabForge(Forge):
                 break
         return result
 
-    def _paginate(self, url: str, params: dict | None = None) -> list[dict]:
+    def paginate(self, url: str, params: dict | None = None) -> list[dict]:
         """Fetch all pages of a paginated GitLab API endpoint."""
         all_items: list[dict] = []
         page = 1
@@ -486,6 +491,8 @@ class GitLabForge(Forge):
                 break
             page += 1
         return all_items
+
+    _paginate = paginate
 
 
 def _find_first_added_line(diff_text: str) -> int | None:
