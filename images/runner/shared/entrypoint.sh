@@ -70,6 +70,8 @@ _detect_tool() {
             export OPENCODE_DISABLE_AUTOUPDATE=1
             ;;
         codex)
+            # Codex has no auto-update env var. CodexHarness passes the native
+            # check_for_update_on_startup=false CLI config override instead.
             ;;
         *)
             if [[ "${AGENT_TOOL:-}" == "claude" ]]; then

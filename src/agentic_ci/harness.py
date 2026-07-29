@@ -585,6 +585,9 @@ class CodexHarness(Harness):
             "--json",
             "--skip-git-repo-check",
             "--ephemeral",
+            # Codex has no supported auto-update env var; use its native config.
+            "-c",
+            "check_for_update_on_startup=false",
         ]
         if otel_endpoint:
             args.extend(self._otel_config_args(otel_endpoint))

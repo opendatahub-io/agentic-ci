@@ -461,6 +461,8 @@ class TestCodexHarness:
         assert "--skip-git-repo-check" in args
         assert "--ephemeral" in args
         assert "--ignore-user-config" not in args
+        config_values = [args[index + 1] for index, arg in enumerate(args) if arg == "-c"]
+        assert "check_for_update_on_startup=false" in config_values
         assert "-m" in args
         assert "gpt-5.6-sol" in args
         assert "do something" in args
