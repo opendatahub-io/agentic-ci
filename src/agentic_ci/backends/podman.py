@@ -123,7 +123,8 @@ class PodmanBackend(Backend):
 
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         proc = subprocess.Popen(
             [

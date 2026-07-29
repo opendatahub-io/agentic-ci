@@ -9,6 +9,7 @@ import pytest
 from agentic_ci.plugins import (
     _find_skill_names,
     enable_plugins,
+    install_codex_plugins,
     install_opencode_skills,
 )
 
@@ -187,6 +188,67 @@ class TestEnablePluginsOpenCode:
         enable_plugins()
 
 
+# -- enable_plugins: Codex filtering -----------------------------------------
+
+
+class TestEnablePluginsCodex:
+    def test_filters_native_plugins_and_compatibility_skills(self, monkeypatch, tmp_path):
+        codex_home = tmp_path / "codex"
+        skills_dir = codex_home / "skills"
+        for name in ("skill-a", "skill-b", "personal-skill"):
+            skill_dir = skills_dir / name
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text(json.dumps({"plugin-a": ["skill-a"], "plugin-b": ["skill-b"]}))
+        installed = {
+            "installed": [
+                {
+                    "name": "plugin-a",
+                    "pluginId": "plugin-a@test",
+                    "marketplaceName": "test",
+                },
+                {
+                    "name": "plugin-b",
+                    "pluginId": "plugin-b@test",
+                    "marketplaceName": "test",
+                },
+            ]
+        }
+
+        monkeypatch.setenv("AGENT_TOOL", "codex")
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "plugin-a")
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+
+        with mock.patch(
+            "agentic_ci.plugins._run_codex_json",
+            side_effect=[installed, {"pluginId": "plugin-b@test"}],
+        ) as run_codex:
+            enable_plugins()
+
+        assert run_codex.call_args_list[-1] == mock.call(["plugin", "remove", "plugin-b@test"])
+        assert (skills_dir / "skill-a").is_dir()
+        assert not (skills_dir / "skill-b").exists()
+        assert (skills_dir / "personal-skill").is_dir()
+
+    def test_unknown_plugin_exits(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AGENT_TOOL", "codex")
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "missing")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(tmp_path / "missing-manifest.json"))
+
+        with (
+            mock.patch(
+                "agentic_ci.plugins._run_codex_json",
+                return_value={"installed": []},
+            ),
+            pytest.raises(SystemExit),
+        ):
+            enable_plugins()
+
+
 # -- install_opencode_skills -------------------------------------------------
 
 
@@ -315,3 +377,80 @@ class TestInstallOpencodeSkills:
         install_opencode_skills(mkt, skills_dir=skills_dir, manifest_path=manifest)
 
         assert json.loads(manifest.read_text()) == {}
+
+
+# -- install_codex_plugins ---------------------------------------------------
+
+
+class TestInstallCodexPlugins:
+    def test_installs_native_plugins_and_writes_manifest(self, tmp_path):
+        marketplace_dir = tmp_path / ".agents" / "plugins"
+        marketplace_dir.mkdir(parents=True)
+        marketplace = marketplace_dir / "marketplace.json"
+        marketplace.write_text("{}")
+
+        installed_plugin = tmp_path / "installed-plugin"
+        skill = installed_plugin / "skills" / "review"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: review\n---\n")
+        manifest = tmp_path / "manifest.json"
+
+        responses = [
+            {"marketplaceName": "test-marketplace"},
+            {
+                "available": [
+                    {
+                        "name": "review-plugin",
+                        "pluginId": "review-plugin@test-marketplace",
+                    }
+                ]
+            },
+            {"pluginId": "review-plugin@test-marketplace"},
+            {
+                "installed": [
+                    {
+                        "name": "review-plugin",
+                        "marketplaceName": "test-marketplace",
+                        "installedPath": str(installed_plugin),
+                    }
+                ]
+            },
+        ]
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses) as run_codex:
+            install_codex_plugins(marketplace, manifest_path=manifest)
+
+        assert run_codex.call_args_list[0] == mock.call(
+            ["plugin", "marketplace", "add", str(tmp_path)]
+        )
+        assert json.loads(manifest.read_text()) == {"review-plugin": ["review"]}
+
+    def test_legacy_marketplace_falls_back_to_skills(self, tmp_path):
+        marketplace_dir = tmp_path / ".claude-plugin"
+        marketplace_dir.mkdir()
+        marketplace = marketplace_dir / "marketplace.json"
+        marketplace.write_text("{}")
+        manifest = tmp_path / "manifest.json"
+        skills_dir = tmp_path / "skills"
+
+        with (
+            mock.patch(
+                "agentic_ci.plugins._run_codex_json",
+                side_effect=[
+                    {"marketplaceName": "legacy"},
+                    {"available": []},
+                ],
+            ),
+            mock.patch("agentic_ci.plugins.install_opencode_skills") as install_skills,
+        ):
+            install_codex_plugins(
+                marketplace,
+                skills_dir=skills_dir,
+                manifest_path=manifest,
+            )
+
+        install_skills.assert_called_once_with(
+            marketplace,
+            skills_dir=skills_dir,
+            manifest_path=manifest,
+        )

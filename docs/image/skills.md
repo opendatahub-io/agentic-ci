@@ -3,7 +3,7 @@
 Skills from the
 [opendatahub-io/skills-registry](https://github.com/opendatahub-io/skills-registry)
 are pre-installed into every runner and sandbox image at build time. Each
-harness (Claude Code, OpenCode) uses a different installation mechanism
+harness (Claude Code, OpenCode, Codex) uses a different installation mechanism
 that matches the tool's native plugin system.
 
 ## Claude Code: plugin seed
@@ -110,6 +110,18 @@ RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registr
 All skills are flat in one directory — no plugin namespacing. OpenCode
 discovers them by scanning for `SKILL.md` files.
 
+## Codex: native plugins with legacy compatibility
+
+Codex has a native plugin and marketplace system. At build time,
+`agentic-ci install-plugins --harness codex --marketplace-json <path>` adds the
+marketplace with `codex plugin marketplace add`, installs its native Codex
+plugins, and records their bundled skills in the plugin-skills manifest.
+
+The existing skills registry also contains legacy Claude-compatible
+marketplaces whose packages do not yet include Codex plugin manifests. If
+Codex reports no native packages for such a marketplace, agentic-ci clones the
+entries and installs their skills under `$CODEX_HOME/skills`.
+
 ## Plugin-skills manifest
 
 Both install scripts generate a manifest at
@@ -125,8 +137,8 @@ plugin names to the skills they contain:
 ```
 
 For Claude Code, the manifest is informational (debugging, auditing).
-For OpenCode, the manifest is functional — `enable-plugins` uses it to
-apply per-skill filtering at runtime (see below).
+For OpenCode and Codex, the manifest is functional — `enable-plugins` uses it
+to apply per-skill filtering at runtime (see below).
 
 ## Filtering plugins at runtime
 
@@ -154,9 +166,13 @@ to use:
 reads this at startup and skips disabled plugins.
 
 **OpenCode** (`AGENT_TOOL=opencode`): Reads the plugin-skills manifest
-to find which skills belong to unwanted plugins, then writes
-`"skill-name": "deny"` entries to `opencode.json`'s `permission.skill`
-section. OpenCode hides denied skills from the agent.
+to find which skills belong to unwanted plugins, then removes unwanted skill
+directories from the ephemeral runtime filesystem before OpenCode starts.
+
+**Codex** (`AGENT_TOOL=codex`): Uses `codex plugin list/remove` for native
+plugins and removes only manifest-managed compatibility skills for unwanted
+plugins from `$CODEX_HOME/skills`. Personal skills that are not managed by the
+manifest are left intact.
 
 ### Error handling
 
@@ -175,7 +191,7 @@ Plugin installation and filtering are `agentic-ci` subcommands
 
 | Command | When | Purpose |
 |---------|------|---------|
-| `agentic-ci install-plugins` | Build time | Install plugins for Claude Code (reads seed dir) or OpenCode (`--harness opencode --marketplace-json <path>`) |
+| `agentic-ci install-plugins` | Build time | Install plugins for Claude Code (reads seed dir), OpenCode, or Codex (`--marketplace-json <path>`) |
 | `agentic-ci enable-plugins` | Runtime | Filter active plugins based on `AGENT_ENABLED_PLUGINS` |
 
 The container entrypoint (`images/runner/shared/entrypoint.sh`) calls

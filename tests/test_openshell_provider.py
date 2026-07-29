@@ -5,7 +5,11 @@ from unittest import mock
 
 import pytest
 
-from agentic_ci.backends.openshell.provider import PROVIDER_NAME, rotate_token
+from agentic_ci.backends.openshell.provider import (
+    PROVIDER_NAME,
+    rotate_token,
+    setup,
+)
 
 
 class TestRotateToken:
@@ -33,3 +37,46 @@ class TestRotateToken:
         ):
             with pytest.raises(subprocess.CalledProcessError):
                 rotate_token()
+
+
+class TestProviderSetup:
+    def test_openai_provider_uses_codex_api_key(self, monkeypatch):
+        monkeypatch.setenv("CODEX_API_KEY", "test-key")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=False,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+        ):
+            setup("openai")
+
+        args = mock_run.call_args.args[0]
+        env = mock_run.call_args.kwargs["env"]
+        assert args == [
+            "openshell",
+            "provider",
+            "create",
+            "--name",
+            PROVIDER_NAME,
+            "--type",
+            "openai",
+            "--credential",
+            "OPENAI_API_KEY",
+        ]
+        assert env["OPENAI_API_KEY"] == "test-key"
+
+    def test_openai_provider_requires_api_key(self, monkeypatch):
+        monkeypatch.delenv("CODEX_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=False,
+            ),
+            pytest.raises(RuntimeError, match="CODEX_API_KEY"),
+        ):
+            setup("openai")

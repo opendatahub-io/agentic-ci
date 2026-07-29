@@ -52,7 +52,8 @@ class LocalBackend(Backend):
             **self._extra_env,
         }
 
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         proc = subprocess.Popen(
             agent_args,

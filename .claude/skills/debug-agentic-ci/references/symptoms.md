@@ -54,6 +54,14 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: For OpenShell backend, OTEL host networking wasn't configured. Fixed to set up OTEL endpoint forwarding.
 - **Where to look**: `otel.py` collector setup, `backends/openshell/` network config
 
+### Codex starts but plugins or OTEL data are missing
+- **Likely cause**: Codex was launched with `--ignore-user-config`, which suppresses plugin state and user-level OTel configuration, or the per-run `otel.*` exporter overrides were not passed.
+- **Where to look**: `harness.py` Codex arguments, `plugins.py`, backend `otel_endpoint` argument wiring
+
+### Codex OpenShell setup creates an Anthropic provider
+- **Likely cause**: Codex was classified as generic `api-key` auth and OpenShell selected its Anthropic provider. Codex must use the `openai` auth mode and the OpenAI network endpoints.
+- **Where to look**: `harness.py` auth mode, `backends/openshell/provider.py`, `backends/openshell/policy.py`
+
 ## Jira client
 
 ### Markdown formatting lost in ADF roundtrip

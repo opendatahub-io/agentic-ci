@@ -69,6 +69,8 @@ _detect_tool() {
         opencode)
             export OPENCODE_DISABLE_AUTOUPDATE=1
             ;;
+        codex)
+            ;;
         *)
             if [[ "${AGENT_TOOL:-}" == "claude" ]]; then
                 export DISABLE_AUTOUPDATER=1
@@ -108,7 +110,7 @@ agentic-ci enable-plugins
 # the entrypoint to prepend the tool command (matching the runner image
 # behavior where the entrypoint always prepends the agent command).
 case "${1:-}" in
-    claude|claude-code|opencode|bash|sh|true)
+    claude|claude-code|opencode|codex|bash|sh|true)
         exec "$@"
         ;;
     *)

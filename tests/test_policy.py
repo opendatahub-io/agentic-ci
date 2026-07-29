@@ -130,3 +130,9 @@ def test_credential_binding_patch_preserves_existing_binding():
         },
     }
     assert build_credential_binding_patch(policy_get_output) is None
+
+
+def test_endpoints_include_openai_apis():
+    result = resolve_endpoints()
+    assert any("api.openai.com" in ep for ep in result)
+    assert any("chatgpt.com" in ep for ep in result)

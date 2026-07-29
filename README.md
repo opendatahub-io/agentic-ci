@@ -8,7 +8,8 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://opendatahub-io.github.io/agentic-ci/)
 
 Run AI coding agents in sandboxed CI environments with streaming output
-and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode)
+and telemetry. Supports multiple agent harnesses (Claude Code, OpenCode,
+and Codex)
 and isolation backends so you can choose the right tradeoff between
 simplicity and security.
 
@@ -25,7 +26,8 @@ Good for: running inside an existing CI container (e.g. a Prow step
 image) where the agent CLI is pre-installed and an extra isolation
 layer is unnecessary.
 
-Requires: the agent CLI on PATH (e.g. `claude`).
+Requires: the selected agent CLI on PATH (for example `claude`,
+`opencode`, or `codex`).
 
 ### Podman (default)
 
@@ -112,10 +114,10 @@ agentic-ci {setup,run,stop} [options]
 | Flag | Default | Description |
 |---|---|---|
 | `--backend` | `podman` | Sandbox backend to use |
-| `--harness` | `claude-code` | Agent harness (`claude-code` or `opencode`) |
+| `--harness` | `claude-code` | Agent harness (`claude-code`, `opencode`, or `codex`) |
 | `--workdir PATH` | `.` | Working directory to mount |
 | `--image IMAGE` | — | Container or sandbox base image |
-| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode |
+| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, and `gpt-5.6-sol` for Codex |
 | `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
 | `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
@@ -124,7 +126,7 @@ agentic-ci {setup,run,stop} [options]
 | `--policy PATH` | — | OpenShell policy file override (`openshell` backend only) |
 | `--timeout SECS` | `1200` | Container timeout (`podman` backend only) |
 
-Extra arguments after the prompt are passed through to the Claude CLI.
+Extra arguments after the prompt are passed through to the selected agent CLI.
 
 ### Examples
 
@@ -195,7 +197,8 @@ every missing variable and which gate needs it.
 
 ## Credentials
 
-Two authentication modes are supported. The mode is auto-detected
+Anthropic, Vertex AI, and OpenAI authentication are supported. The mode is
+auto-detected
 and logged at startup.
 
 ### Anthropic API key (direct)
@@ -226,6 +229,24 @@ The **openshell** backend uploads the local ADC file
 (`~/.config/gcloud/application_default_credentials.json` or
 `GOOGLE_APPLICATION_CREDENTIALS`) into the sandbox.
 
+### OpenAI Codex
+
+For non-interactive Codex runs, set `CODEX_API_KEY` for the single job or
+invocation. `CODEX_ACCESS_TOKEN` and an existing login under `CODEX_HOME` are
+also supported by the local backend. The Podman backend forwards
+`CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, and `OPENAI_API_KEY` when they are set.
+OpenShell Codex runs currently require `CODEX_API_KEY` or `OPENAI_API_KEY`.
+
+```bash
+export CODEX_API_KEY=...
+agentic-ci run --backend local --harness codex "Fix the bug"
+```
+
+Codex user configuration remains enabled so installed plugins and skills are
+available. During telemetry-enabled runs, agentic-ci supplies per-run Codex
+configuration overrides that export logs, metrics, and traces to its local
+OTLP collector.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -235,6 +256,11 @@ The **openshell** backend uploads the local ADC file
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
 | `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`) |
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
+| `CODEX_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
+| `CODEX_ACCESS_TOKEN` | — | ChatGPT/Codex access token for trusted automation |
+| `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
+| `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`) |
+| `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
 | `GCP_PROJECT_ID` | — | Fallback for `ANTHROPIC_VERTEX_PROJECT_ID` |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project ID (OpenCode uses this before falling back to `ANTHROPIC_VERTEX_PROJECT_ID`) |
@@ -454,4 +480,3 @@ Or to preview with live reload:
 ```bash
 uv run --with '.[docs]' mkdocs serve
 ```
-

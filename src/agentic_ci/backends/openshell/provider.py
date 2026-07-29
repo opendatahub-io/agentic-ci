@@ -11,7 +11,7 @@ from agentic_ci.gcp import read_credential_type as _adc_credential_type
 
 PROVIDER_NAME = "ci-gcp"
 
-_SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=")
+_SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "OPENAI_API_KEY=")
 
 
 def _run(args, **kwargs):
@@ -39,7 +39,7 @@ def setup(auth_mode):
     the provider is created bare and refresh is configured separately with
     the service account's email and private key.
 
-    For API key auth, creates an anthropic provider instead.
+    For Anthropic or OpenAI API key auth, creates the corresponding provider.
     """
     if provider_exists():
         # NOTE: switching auth modes (e.g. Vertex → API key) between runs
@@ -48,6 +48,8 @@ def setup(auth_mode):
         print(f"  Provider '{PROVIDER_NAME}' already exists", flush=True)
     elif auth_mode == "api-key":
         _create_anthropic_provider()
+    elif auth_mode == "openai":
+        _create_openai_provider()
     else:
         _create_gcp_provider()
 
@@ -77,6 +79,30 @@ def _create_anthropic_provider():
             "ANTHROPIC_API_KEY",
         ],
         check=True,
+    )
+
+
+def _create_openai_provider():
+    api_key = os.environ.get("CODEX_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OpenShell Codex runs require CODEX_API_KEY or OPENAI_API_KEY")
+
+    print("  Creating OpenAI API key provider", flush=True)
+    env = {**os.environ, "OPENAI_API_KEY": api_key}
+    _run(
+        [
+            "openshell",
+            "provider",
+            "create",
+            "--name",
+            PROVIDER_NAME,
+            "--type",
+            "openai",
+            "--credential",
+            "OPENAI_API_KEY",
+        ],
+        check=True,
+        env=env,
     )
 
 

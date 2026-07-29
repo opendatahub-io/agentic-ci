@@ -175,6 +175,31 @@ def stop_collector(proc):
         proc.wait()
 
 
+def _otel_attribute_value(value):
+    if not isinstance(value, dict):
+        return None
+    for key in (
+        "stringValue",
+        "intValue",
+        "doubleValue",
+        "boolValue",
+        "string_value",
+        "int_value",
+        "double_value",
+        "bool_value",
+    ):
+        if key in value:
+            return value[key]
+    return None
+
+
+def _numeric_attribute(attributes, key):
+    try:
+        return float(attributes.get(key, 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def parse_metrics(records):
     """Parse OTLP JSONL records into structured token/cost data."""
     token_totals = defaultdict(float)
@@ -221,13 +246,32 @@ def parse_metrics(records):
                         event_attrs = {}
                         for a in lr.get("attributes", []):
                             key = a["key"]
-                            val = a["value"]
-                            v = val.get("stringValue", val.get("intValue", val.get("doubleValue")))
+                            v = _otel_attribute_value(a.get("value"))
                             event_attrs[key] = v
                             if key == "event.name":
                                 event_name = v
-                        if event_name == "claude_code.api_request":
+                        if event_name in ("claude_code.api_request", "codex.api_request"):
                             api_requests.append(event_attrs)
+                        elif (
+                            event_name == "codex.sse_event"
+                            and event_attrs.get("event.kind") == "response.completed"
+                        ):
+                            model = event_attrs.get("model", "unknown")
+                            input_tokens = _numeric_attribute(event_attrs, "input_token_count")
+                            cached_tokens = _numeric_attribute(event_attrs, "cached_token_count")
+                            cache_write_tokens = _numeric_attribute(
+                                event_attrs, "cache_write_token_count"
+                            )
+                            fresh_input = max(
+                                input_tokens - cached_tokens - cache_write_tokens,
+                                0,
+                            )
+                            token_totals[(model, "input")] += fresh_input
+                            token_totals[(model, "cacheRead")] += cached_tokens
+                            token_totals[(model, "cacheCreation")] += cache_write_tokens
+                            token_totals[(model, "output")] += _numeric_attribute(
+                                event_attrs, "output_token_count"
+                            )
 
     return token_totals, cost_totals, api_requests, active_time
 

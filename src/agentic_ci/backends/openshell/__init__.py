@@ -167,7 +167,8 @@ class OpenShellBackend(Backend):
         traceparent=None,
     ):
         self._write_env_script(model, otel_port, otel_rate_file, traceparent=traceparent)
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        otel_endpoint = f"http://{_OPENSHELL_HOST}:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         workdir_name = os.path.basename(self.workdir)
         sandbox_workdir = f"/sandbox/{workdir_name}"

@@ -135,6 +135,37 @@ if [[ -s "$TMPDIR_E2E/nostream-out.txt" ]]; then
     echo "--- end non-streaming output ---"
 fi
 
+# -- Codex streaming + OTEL test ---------------------------------------------
+print_header "=== agentic-ci run --backend local: Codex + OTEL ==="
+
+_has_codex_creds() {
+    [[ -n "${CODEX_API_KEY:-}" ]] || \
+    [[ -n "${CODEX_ACCESS_TOKEN:-}" ]] || \
+    [[ -n "${OPENAI_API_KEY:-}" ]] || \
+    [[ -f "${CODEX_HOME:-${HOME}/.codex}/auth.json" ]]
+}
+
+if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
+    WORKDIR="$TMPDIR_E2E/codex"
+    mkdir -p "$WORKDIR"
+
+    print_step "Running Codex via local backend with OTEL..."
+    RC=0
+    agentic-ci run --backend local \
+        "Reply with only the word codex-pong" \
+        --harness codex \
+        --workdir "$WORKDIR" \
+        > "$TMPDIR_E2E/codex-out.txt" 2>"$TMPDIR_E2E/codex-err.txt" || RC=$?
+
+    assert_ok "Codex local run exited successfully" test "$RC" -eq 0
+    assert_contains "Codex streaming output contains response" \
+        "$(cat "$TMPDIR_E2E/codex-out.txt")" "codex-pong"
+    assert_contains "Codex exported OTEL API request events" \
+        "$(cat "$TMPDIR_E2E/codex-out.txt")" "API Requests:"
+else
+    print_warning "Skipping Codex local test (codex CLI or credentials unavailable)"
+fi
+
 # -- Extra args passthrough test ----------------------------------------------
 print_header "=== agentic-ci run --backend local: extra args ==="
 

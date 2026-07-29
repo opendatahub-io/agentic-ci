@@ -25,6 +25,8 @@ DEFAULT_ENDPOINTS = [
     "*.aiplatform.googleapis.com:443:read-write",
     "oauth2.googleapis.com:443:read-write",
     "api.anthropic.com:443:read-write",
+    "api.openai.com:443:read-write",
+    "chatgpt.com:443:read-write",
 ]
 
 

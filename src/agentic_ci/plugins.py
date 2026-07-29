@@ -1,6 +1,6 @@
 """Plugin and skill installation and runtime filtering.
 
-Provides two build-time operations and one runtime operation:
+Provides three build-time operations and one runtime operation:
 
 Build-time (called from Containerfiles via ``agentic-ci install-plugins``):
 
@@ -8,8 +8,11 @@ Build-time (called from Containerfiles via ``agentic-ci install-plugins``):
   plugins from a marketplace seed directory.
 - :func:`install_opencode_skills` — clones plugin repos and copies SKILL.md
   files into OpenCode's skills directory.
+- :func:`install_codex_plugins` — installs native Codex plugins when the
+  marketplace supports them, with a skills-only fallback for legacy
+  marketplaces.
 
-Both generate a plugin-to-skill manifest at a well-known path.
+All generate a plugin-to-skill manifest at a well-known path.
 
 Runtime (called from entrypoint.sh / OpenShell env script via
 ``agentic-ci enable-plugins``):
@@ -31,7 +34,7 @@ from agentic_ci.git import clone_repo
 
 DEFAULT_MANIFEST_PATH = "/usr/local/share/agentic-ci/plugin-skills.manifest.json"
 
-_FALLBACK_SKILL_DIRS = [".claude/skills", ".opencode/skills", "skills"]
+_FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".opencode/skills", "skills"]
 
 
 def _manifest_path() -> Path:
@@ -194,6 +197,96 @@ def install_opencode_skills(
     print(f"==> Manifest written to {manifest_path}")
 
 
+def _codex_marketplace_root(marketplace_json: Path) -> Path:
+    if marketplace_json.parent.name == ".claude-plugin":
+        return marketplace_json.parent.parent
+    if (
+        marketplace_json.parent.name == "plugins"
+        and marketplace_json.parent.parent.name == ".agents"
+    ):
+        return marketplace_json.parent.parent.parent
+    return marketplace_json.parent
+
+
+def _run_codex_json(args: list[str]) -> dict | None:
+    result = subprocess.run(
+        ["codex", *args, "--json"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def install_codex_plugins(
+    marketplace_json: Path,
+    skills_dir: Path | None = None,
+    manifest_path: Path | None = None,
+) -> None:
+    """Install plugins for Codex from a marketplace.
+
+    Native Codex plugins are preferred. Legacy Claude-compatible marketplaces
+    that do not expose Codex plugin packages fall back to installing their
+    skills under ``CODEX_HOME/skills``.
+    """
+    marketplace_root = _codex_marketplace_root(marketplace_json)
+    added = _run_codex_json(["plugin", "marketplace", "add", str(marketplace_root)])
+    marketplace_name = added.get("marketplaceName") if added else None
+
+    listing = None
+    if marketplace_name:
+        listing = _run_codex_json(
+            ["plugin", "list", "--available", "--marketplace", marketplace_name]
+        )
+    available = listing.get("available", []) if listing else []
+
+    if not available:
+        print("==> Marketplace has no native Codex plugins; installing skills compatibility layer")
+        if skills_dir is None:
+            codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+            skills_dir = codex_home / "skills"
+        install_opencode_skills(
+            marketplace_json,
+            skills_dir=skills_dir,
+            manifest_path=manifest_path,
+        )
+        return
+
+    for entry in available:
+        name = entry.get("name")
+        selector = entry.get("pluginId")
+        if not selector and name:
+            selector = f"{name}@{marketplace_name}"
+        if not selector:
+            continue
+        print(f"==> Installing {selector}")
+        if _run_codex_json(["plugin", "add", selector]) is None:
+            print(f"WARN: failed to install {selector}")
+
+    installed = _run_codex_json(["plugin", "list"])
+    manifest: dict[str, list[str]] = {}
+    for entry in installed.get("installed", []) if installed else []:
+        if entry.get("marketplaceName") != marketplace_name:
+            continue
+        name = entry.get("name")
+        installed_path = entry.get("installedPath")
+        if not name or not installed_path:
+            continue
+        skill_names = _find_skill_names(Path(installed_path))
+        if skill_names:
+            manifest[name] = skill_names
+
+    manifest_path = manifest_path or _manifest_path()
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    print(f"==> Manifest written to {manifest_path}")
+
+
 # ---------------------------------------------------------------------------
 # Runtime: filter plugins
 # ---------------------------------------------------------------------------
@@ -279,6 +372,61 @@ def _filter_opencode(wanted: set[str]) -> None:
                     shutil.rmtree(entry)
 
 
+def _load_plugin_manifest() -> dict[str, list[str]]:
+    manifest_path = _manifest_path()
+    if not manifest_path.is_file():
+        return {}
+    try:
+        with open(manifest_path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, ValueError):
+        print(
+            f"WARNING: {manifest_path} contains invalid JSON",
+            file=sys.stderr,
+        )
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _filter_codex(wanted: set[str]) -> None:
+    installed = _run_codex_json(["plugin", "list"])
+    native_plugins = installed.get("installed", []) if installed else []
+    manifest = _load_plugin_manifest()
+
+    native_names = {
+        entry.get("name") for entry in native_plugins if isinstance(entry.get("name"), str)
+    }
+    matched = wanted & (native_names | set(manifest))
+    _check_unmatched(wanted, matched)
+
+    for entry in native_plugins:
+        name = entry.get("name")
+        if not name or name in wanted:
+            continue
+        selector = entry.get("pluginId")
+        if not selector:
+            marketplace = entry.get("marketplaceName")
+            selector = f"{name}@{marketplace}" if marketplace else name
+        if _run_codex_json(["plugin", "remove", selector]) is None:
+            print(f"WARN: failed to disable Codex plugin {selector}", file=sys.stderr)
+
+    wanted_skills: set[str] = set()
+    for plugin_name, skills in manifest.items():
+        if plugin_name in wanted:
+            wanted_skills.update(skills)
+
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    skills_dir = codex_home / "skills"
+    if skills_dir.is_dir():
+        managed_skills = {skill for skills in manifest.values() for skill in skills}
+        for entry in skills_dir.iterdir():
+            if entry.name in managed_skills and entry.name not in wanted_skills:
+                if entry.is_symlink():
+                    entry.unlink()
+                elif entry.is_dir():
+                    shutil.rmtree(entry)
+
+
 def enable_plugins() -> None:
     """Filter active plugins based on ``AGENT_ENABLED_PLUGINS``."""
     wanted_csv = os.environ.get("AGENT_ENABLED_PLUGINS", "")
@@ -305,8 +453,7 @@ def enable_plugins() -> None:
     elif agent_tool == "claude":
         _filter_claude(wanted)
     elif agent_tool == "codex":
-        # Codex does not have a plugin system; nothing to filter.
-        pass
+        _filter_codex(wanted)
     else:
         print(f"ERROR: unknown AGENT_TOOL: {agent_tool!r}", file=sys.stderr)
         sys.exit(1)

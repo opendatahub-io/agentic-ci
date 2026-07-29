@@ -568,18 +568,9 @@ class OpenCodeStreamProcessor:
 class CodexStreamProcessor:
     """Processes Codex CLI --json JSONL output and prints human-readable CI logs.
 
-    Codex CLI with ``--json`` emits one JSON object per line.  Each object has
-    a ``type`` field.  The main event types are:
-
-    - ``message_start`` -- beginning of a new assistant turn
-    - ``message_delta`` -- incremental text / tool-call deltas
-    - ``message_complete`` -- a full assistant message (text + tool calls)
-    - ``exec_approval`` -- tool execution approval (auto-approved in CI)
-    - ``exec_result`` -- result of a tool execution
-    - ``task_complete`` -- final summary when the session ends
-    - ``error`` -- an error event
-
-    This processor provides a minimal but readable rendering.
+    Codex emits ``thread.started``, ``turn.*``, ``item.*``, and ``error``
+    events. Items cover assistant messages, reasoning, command executions,
+    file changes, MCP calls, web searches, and plan updates.
     """
 
     def __init__(self, color=True, wrap=0, agent_pid=0):
@@ -595,45 +586,93 @@ class CodexStreamProcessor:
         else:
             self.THINK = self.TOOL = self.AGENT = self.RED = self.RESET = ""
 
-        self._in_text = False
-        self._line_buf = ""
         self._errors: list[str] = []
+        self._started_items: set[str] = set()
 
     _INDENT = "  "
 
-    def _print_line(self, line):
-        if self.wrap and len(line) > self.wrap:
-            wrapped = ""
-            col = 0
-            for word in line.split(" "):
-                if col + len(word) > self.wrap and col > 0:
-                    wrapped += f"\n{self._INDENT}"
-                    col = 0
-                if col > 0:
-                    wrapped += " "
-                    col += 1
-                wrapped += word
-                col += len(word)
-            print(f"{self._INDENT}{wrapped}", flush=True)
-        else:
-            print(f"{self._INDENT}{line}", flush=True)
+    def _print_text(self, label, text, style=""):
+        lines = str(text).splitlines() or [""]
+        first_prefix = f"{self._INDENT}{style}{label}"
+        continuation = self._INDENT * 2
+        for index, line in enumerate(lines):
+            prefix = first_prefix if index == 0 else continuation
+            if self.wrap and len(prefix) + len(line) > self.wrap:
+                available = max(self.wrap - len(continuation), 20)
+                words = line.split()
+                chunks = []
+                current = ""
+                for word in words:
+                    candidate = f"{current} {word}".strip()
+                    if current and len(candidate) > available:
+                        chunks.append(current)
+                        current = word
+                    else:
+                        current = candidate
+                chunks.append(current)
+                for chunk_index, chunk in enumerate(chunks):
+                    chunk_prefix = prefix if chunk_index == 0 else continuation
+                    print(f"{chunk_prefix}{chunk}{self.RESET}", flush=True)
+            else:
+                print(f"{prefix}{line}{self.RESET}", flush=True)
 
-    def _emit(self, text):
-        self._line_buf += text
-        while "\n" in self._line_buf:
-            line, self._line_buf = self._line_buf.split("\n", 1)
-            self._print_line(line)
+    @staticmethod
+    def _error_message(error):
+        if isinstance(error, dict):
+            return error.get("message", str(error))
+        return str(error)
 
-    def _flush_emit(self):
-        if self._line_buf:
-            self._print_line(self._line_buf)
-            self._line_buf = ""
+    def _print_command(self, item):
+        command = item.get("command", "")
+        self._print_text("\U0001f527 Shell $ ", command, self.TOOL)
 
-    def _end_text(self):
-        if self._in_text:
-            self._flush_emit()
-            sys.stdout.write(self.RESET + "\n")
-            self._in_text = False
+    def _process_item(self, event_type, item):
+        item_id = item.get("id", "")
+        item_type = item.get("type", "")
+
+        if event_type == "item.started":
+            if item_id:
+                self._started_items.add(item_id)
+            if item_type == "command_execution":
+                self._print_command(item)
+            elif item_type == "mcp_tool_call":
+                server = item.get("server", "")
+                tool = item.get("tool", item.get("name", "unknown"))
+                name = f"{server}/{tool}" if server else tool
+                self._print_text("\U0001f527 MCP ", name, self.TOOL)
+            elif item_type == "web_search":
+                self._print_text("\U0001f50d Web search ", item.get("query", ""), self.TOOL)
+            return
+
+        if item_type == "agent_message":
+            self._print_text("\U0001f4ac Codex ", item.get("text", ""), self.AGENT)
+        elif item_type == "reasoning":
+            text = item.get("text", item.get("summary", ""))
+            if text:
+                self._print_text("\U0001f9e0 Thinking ", text, self.THINK)
+        elif item_type == "command_execution":
+            if item_id not in self._started_items:
+                self._print_command(item)
+            exit_code = item.get("exit_code")
+            if exit_code not in (None, 0):
+                self._print_text("  exit=", str(exit_code), self.RED)
+        elif item_type == "file_change":
+            changes = item.get("changes", [])
+            if changes:
+                for change in changes:
+                    if isinstance(change, dict):
+                        path = change.get("path", "")
+                        kind = change.get("kind", change.get("type", ""))
+                        detail = f"{kind} {path}".strip()
+                    else:
+                        detail = str(change)
+                    self._print_text("\U0001f527 File change ", detail, self.TOOL)
+            else:
+                self._print_text("\U0001f527 File change ", item.get("path", ""), self.TOOL)
+        elif item_type == "plan":
+            text = item.get("text", item.get("plan", ""))
+            if text:
+                self._print_text("\U0001f4cb Plan ", text, self.TOOL)
 
     def flush_errors(self):
         """Print collected errors."""
@@ -641,7 +680,7 @@ class CodexStreamProcessor:
             return
         for error_msg in dict.fromkeys(self._errors):
             print(
-                f"{self._INDENT}{self.RED}Error: {error_msg}{self.RESET}",
+                f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}",
                 flush=True,
             )
 
@@ -659,73 +698,31 @@ class CodexStreamProcessor:
         msg_type = msg.get("type", "")
 
         if msg_type == "error":
-            self._end_text()
-            error_msg = msg.get("message", str(msg.get("error", "unknown error")))
+            error_msg = msg.get("message", self._error_message(msg.get("error", "unknown error")))
             self._errors.append(error_msg)
             return False
 
-        if msg_type == "message_complete":
-            self._end_text()
-            content = msg.get("content", "")
-            if content:
-                print(
-                    f"{self._INDENT}{self.AGENT}\U0001f4ac Codex {content}{self.RESET}",
-                    flush=True,
-                )
+        if msg_type in ("item.started", "item.completed"):
+            self._process_item(msg_type, msg.get("item", {}))
             return False
 
-        if msg_type == "message_delta":
-            delta = msg.get("delta", "")
-            if delta:
-                if not self._in_text:
-                    self._end_text()
-                    print(
-                        f"{self._INDENT}{self.AGENT}\U0001f4ac Codex ",
-                        end="",
-                        flush=True,
-                    )
-                    self._in_text = True
-                self._emit(delta)
+        if msg_type == "turn.failed":
+            self._errors.append(self._error_message(msg.get("error", "Codex turn failed")))
             return False
 
-        if msg_type == "exec_approval":
-            self._end_text()
-            command = msg.get("command", {})
-            cmd_type = command.get("type", "")
-            if cmd_type == "shell":
-                cmd_str = " ".join(command.get("command", []))
-                print(
-                    f"{self._INDENT}{self.TOOL}\U0001f527 Shell $ {cmd_str}{self.RESET}",
-                    flush=True,
-                )
-            elif cmd_type == "file_edit":
-                path = command.get("path", "")
-                print(
-                    f"{self._INDENT}{self.TOOL}\U0001f527 FileEdit {path}{self.RESET}",
-                    flush=True,
-                )
-            else:
-                print(
-                    f"{self._INDENT}{self.TOOL}\U0001f527 {cmd_type}{self.RESET}",
-                    flush=True,
-                )
-            return False
-
-        if msg_type == "exec_result":
-            self._end_text()
-            exit_code = msg.get("exit_code")
-            if exit_code and exit_code != 0:
-                print(
-                    f"{self._INDENT}{self.TOOL}  exit={exit_code}{self.RESET}",
-                    flush=True,
-                )
-            return False
-
-        if msg_type == "task_complete":
-            self._end_text()
-            summary = msg.get("summary", "")
-            if summary:
-                print(f"{self._INDENT}\U0001f4cb Task complete: {summary}", flush=True)
+        if msg_type == "turn.completed":
+            usage = msg.get("usage", {})
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            cache_r = usage.get("cached_input_tokens", 0)
+            cache_w = usage.get("cache_write_input_tokens", 0)
+            total = inp + out
+            print(
+                f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS in={inp} "
+                f"out={out} cache_r={cache_r} cache_w={cache_w} "
+                f"total={total}{self.RESET}",
+                flush=True,
+            )
             return True
 
         return False

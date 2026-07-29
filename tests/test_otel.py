@@ -11,6 +11,7 @@ from agentic_ci.otel import (
     _has_any_traces,
     generate_trace_context,
     inject_root_spans,
+    parse_metrics,
     start_collector,
     stop_collector,
 )
@@ -212,6 +213,58 @@ class TestGenerateTraceContext:
         trace_id, span_id, _ = generate_trace_context()
         int(trace_id, 16)
         int(span_id, 16)
+
+
+class TestParseMetrics:
+    def test_parses_codex_token_usage_and_api_requests(self):
+        attributes = {
+            "event.name": "codex.sse_event",
+            "event.kind": "response.completed",
+            "model": "gpt-test",
+            "input_token_count": "100",
+            "cached_token_count": 40,
+            "cache_write_token_count": 10,
+            "output_token_count": "20",
+        }
+
+        def attr(key, value):
+            value_key = "intValue" if isinstance(value, int) else "stringValue"
+            return {"key": key, "value": {value_key: value}}
+
+        response_record = {"attributes": [attr(key, value) for key, value in attributes.items()]}
+        request_record = {
+            "attributes": [
+                attr("event.name", "codex.api_request"),
+                attr("duration_ms", "123"),
+            ]
+        }
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "logRecords": [
+                                        response_record,
+                                        request_record,
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        token_totals, _, api_requests, _ = parse_metrics(records)
+
+        assert token_totals[("gpt-test", "input")] == 50
+        assert token_totals[("gpt-test", "cacheRead")] == 40
+        assert token_totals[("gpt-test", "cacheCreation")] == 10
+        assert token_totals[("gpt-test", "output")] == 20
+        assert api_requests == [{"event.name": "codex.api_request", "duration_ms": "123"}]
 
 
 class TestFindOrphanTraces:

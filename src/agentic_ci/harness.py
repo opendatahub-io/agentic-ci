@@ -11,7 +11,11 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
-from agentic_ci.stream import ClaudeCodeStreamProcessor, CodexStreamProcessor, OpenCodeStreamProcessor
+from agentic_ci.stream import (
+    ClaudeCodeStreamProcessor,
+    CodexStreamProcessor,
+    OpenCodeStreamProcessor,
+)
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
@@ -32,7 +36,13 @@ class Harness(ABC):
         """Human-readable name for log messages."""
 
     @abstractmethod
-    def build_args(self, prompt: str, model: str, extra_args: list[str] | None = None) -> list[str]:
+    def build_args(
+        self,
+        prompt: str,
+        model: str,
+        extra_args: list[str] | None = None,
+        otel_endpoint: str | None = None,
+    ) -> list[str]:
         """Build the CLI argument list to run inside the container."""
 
     @abstractmethod
@@ -129,7 +139,7 @@ class ClaudeCodeHarness(Harness):
     def name(self) -> str:
         return "Claude Code"
 
-    def build_args(self, prompt, model, extra_args=None):
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         args = [
             "claude",
             "--permission-mode",
@@ -325,7 +335,7 @@ class OpenCodeHarness(Harness):
     def name(self) -> str:
         return "OpenCode"
 
-    def build_args(self, prompt, model, extra_args=None):
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         args = [
             "opencode",
             "run",
@@ -510,10 +520,27 @@ class CodexHarness(Harness):
 
     @property
     def auth_mode(self) -> str:
-        """Codex uses OpenAI API keys, not Anthropic/Vertex."""
-        return "api-key"
+        """Codex uses OpenAI credentials, not Anthropic or Vertex."""
+        return "openai"
 
-    def build_args(self, prompt, model, extra_args=None):
+    @staticmethod
+    def _otel_config_args(endpoint):
+        endpoint = endpoint.rstrip("/")
+
+        def exporter(signal):
+            url = json.dumps(f"{endpoint}/v1/{signal}")
+            return f'{{ "otlp-http" = {{ endpoint = {url}, protocol = "json" }} }}'
+
+        return [
+            "-c",
+            f"otel.exporter={exporter('logs')}",
+            "-c",
+            f"otel.metrics_exporter={exporter('metrics')}",
+            "-c",
+            f"otel.trace_exporter={exporter('traces')}",
+        ]
+
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         args = [
             "codex",
             "exec",
@@ -521,39 +548,46 @@ class CodexHarness(Harness):
             "--json",
             "--skip-git-repo-check",
             "--ephemeral",
-            "--ignore-user-config",
-            "-m",
-            model,
-            prompt,
         ]
+        if otel_endpoint:
+            args.extend(self._otel_config_args(otel_endpoint))
+        args.extend(["-m", model, prompt])
         if extra_args:
             args.extend(extra_args)
         return args
 
     def build_env_args(self):
-        return [
-            "--env",
-            "OPENAI_API_KEY",
-            "--env",
-            "AGENT_TOOL=codex",
-        ]
+        args = ["--env", "AGENT_TOOL=codex"]
+        for name in ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"):
+            if os.environ.get(name):
+                args.extend(["--env", name])
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            args.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
+        return args
 
     def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
         lines = [
-            f"export OPENAI_API_KEY={shlex.quote(os.environ.get('OPENAI_API_KEY', ''))}",
+            "mkdir -p /sandbox/.codex",
             "export AGENT_TOOL=codex",
             "export CODEX_HOME=/sandbox/.codex",
         ]
+        for name in ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"):
+            if os.environ.get(name):
+                lines.append(f"export {name}={shlex.quote(os.environ[name])}")
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            lines.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
         return lines
 
     def build_otel_exec_env(self, otel_port=None, traceparent=None):
         return []
 
     def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
-        env = {
-            "AGENT_TOOL": "codex",
-            "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
-        }
+        env = {"AGENT_TOOL": "codex"}
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
         return env
 
     def credential_mount_target(self):
@@ -572,8 +606,8 @@ class CodexHarness(Harness):
         return "gpt-5.6-sol"
 
     @property
-    def autoupdater_env_var(self):
-        return "CODEX_DISABLE_AUTOUPDATE"
+    def supports_otel(self) -> bool:
+        return True
 
 
 def create_harness(name: str) -> Harness:
