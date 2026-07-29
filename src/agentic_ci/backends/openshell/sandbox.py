@@ -98,6 +98,8 @@ def _apply_policy(policy_path, otel_port=None, workdir="."):
         "/usr/local/bin/claude",
         "--binary",
         "/usr/local/bin/opencode",
+        "--binary",
+        "/usr/local/bin/codex",
     ]
     for ep in endpoints:
         args.extend(["--add-endpoint", ep])

@@ -4,6 +4,7 @@ import pytest
 
 from agentic_ci.harness import (
     ClaudeCodeHarness,
+    CodexHarness,
     OpenCodeHarness,
     create_harness,
 )
@@ -17,6 +18,11 @@ def test_create_claude_code_harness():
 def test_create_opencode_harness():
     harness = create_harness("opencode")
     assert isinstance(harness, OpenCodeHarness)
+
+
+def test_create_codex_harness():
+    harness = create_harness("codex")
+    assert isinstance(harness, CodexHarness)
 
 
 def test_create_unknown_harness_raises():
@@ -435,3 +441,83 @@ class TestOpenCodeHarness:
         harness = OpenCodeHarness()
         mounts = harness.sandbox_config_mounts(str(tmp_path))
         assert mounts == []
+
+
+class TestCodexHarness:
+    def test_name(self):
+        assert CodexHarness().name == "Codex"
+
+    def test_auth_mode_always_api_key(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        assert CodexHarness().auth_mode == "api-key"
+
+    def test_build_args(self):
+        harness = CodexHarness()
+        args = harness.build_args("do something", "gpt-5.6-sol")
+        assert args[0] == "codex"
+        assert "exec" in args
+        assert "--dangerously-bypass-approvals-and-sandbox" in args
+        assert "--json" in args
+        assert "--skip-git-repo-check" in args
+        assert "--ephemeral" in args
+        assert "--ignore-user-config" in args
+        assert "-m" in args
+        assert "gpt-5.6-sol" in args
+        assert "do something" in args
+
+    def test_build_args_with_extra(self):
+        harness = CodexHarness()
+        args = harness.build_args("prompt", "model", extra_args=["--foo", "bar"])
+        assert "--foo" in args
+        assert "bar" in args
+
+    def test_build_env_args(self):
+        harness = CodexHarness()
+        args = harness.build_env_args()
+        assert "OPENAI_API_KEY" in args
+        assert "AGENT_TOOL=codex" in args
+
+    def test_build_env_script_lines(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        harness = CodexHarness()
+        lines = harness.build_env_script_lines()
+        assert any("OPENAI_API_KEY=sk-test-key" in line for line in lines)
+        assert any("AGENT_TOOL=codex" in line for line in lines)
+        assert any("CODEX_HOME=/sandbox/.codex" in line for line in lines)
+
+    def test_build_otel_exec_env_always_empty(self):
+        assert CodexHarness().build_otel_exec_env(otel_port=4318) == []
+
+    def test_build_local_env(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+        env = CodexHarness().build_local_env()
+        assert env["AGENT_TOOL"] == "codex"
+        assert env["OPENAI_API_KEY"] == "sk-test-key"
+
+    def test_credential_mount_target(self):
+        assert CodexHarness().credential_mount_target() == "/home/agent-ci"
+
+    def test_credential_mount_target_env_override(self, monkeypatch):
+        monkeypatch.setenv("CODEX_CONTAINER_HOME", "/home/codex")
+        assert CodexHarness().credential_mount_target() == "/home/codex"
+
+    def test_create_stream_processor(self):
+        from agentic_ci.stream import CodexStreamProcessor
+
+        proc = CodexHarness().create_stream_processor(pid=789)
+        assert isinstance(proc, CodexStreamProcessor)
+
+    def test_image_env_var(self):
+        assert CodexHarness().image_env_var() == "CODEX_CONTAINER_IMAGE"
+
+    def test_model_env_var(self):
+        assert CodexHarness().model_env_var() == "CODEX_MODEL"
+
+    def test_default_model(self):
+        assert CodexHarness().default_model() == "gpt-5.6-sol"
+
+    def test_supports_otel_false(self):
+        assert CodexHarness().supports_otel is False
+
+    def test_autoupdater_env_var(self):
+        assert CodexHarness().autoupdater_env_var == "CODEX_DISABLE_AUTOUPDATE"

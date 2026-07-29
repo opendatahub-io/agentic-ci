@@ -70,6 +70,8 @@ def cmd_install_plugins(args):
             sys.exit(1)
         manifest = Path(args.manifest) if args.manifest else None
         plugins.install_opencode_skills(Path(args.marketplace_json), manifest_path=manifest)
+    elif harness_name == "codex":
+        print("Codex CLI does not support plugin installation; skipping.")
     else:
         print(f"ERROR: unknown harness {harness_name!r}", file=sys.stderr)
         sys.exit(1)
@@ -236,7 +238,7 @@ def main():
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
     common.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "codex"],
         default="claude-code",
         help="AI agent harness (default: claude-code)",
     )
@@ -328,7 +330,7 @@ def main():
     )
     p_install.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "codex"],
         default=None,
         help="Harness to install for (default: from AGENT_TOOL env or claude-code)",
     )

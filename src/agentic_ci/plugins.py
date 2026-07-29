@@ -298,12 +298,15 @@ def enable_plugins() -> None:
 
     agent_tool = os.environ.get("AGENT_TOOL")
     if not agent_tool:
-        print("ERROR: AGENT_TOOL must be set (claude or opencode)", file=sys.stderr)
+        print("ERROR: AGENT_TOOL must be set (claude, opencode, or codex)", file=sys.stderr)
         sys.exit(1)
     if agent_tool == "opencode":
         _filter_opencode(wanted)
     elif agent_tool == "claude":
         _filter_claude(wanted)
+    elif agent_tool == "codex":
+        # Codex does not have a plugin system; nothing to filter.
+        pass
     else:
         print(f"ERROR: unknown AGENT_TOOL: {agent_tool!r}", file=sys.stderr)
         sys.exit(1)

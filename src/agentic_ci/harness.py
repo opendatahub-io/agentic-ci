@@ -11,7 +11,7 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
-from agentic_ci.stream import ClaudeCodeStreamProcessor, OpenCodeStreamProcessor
+from agentic_ci.stream import ClaudeCodeStreamProcessor, CodexStreamProcessor, OpenCodeStreamProcessor
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
@@ -501,11 +501,90 @@ class OpenCodeHarness(Harness):
         return []
 
 
+class CodexHarness(Harness):
+    """OpenAI Codex CLI harness."""
+
+    @property
+    def name(self) -> str:
+        return "Codex"
+
+    @property
+    def auth_mode(self) -> str:
+        """Codex uses OpenAI API keys, not Anthropic/Vertex."""
+        return "api-key"
+
+    def build_args(self, prompt, model, extra_args=None):
+        args = [
+            "codex",
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--json",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--ignore-user-config",
+            "-m",
+            model,
+            prompt,
+        ]
+        if extra_args:
+            args.extend(extra_args)
+        return args
+
+    def build_env_args(self):
+        return [
+            "--env",
+            "OPENAI_API_KEY",
+            "--env",
+            "AGENT_TOOL=codex",
+        ]
+
+    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
+        lines = [
+            f"export OPENAI_API_KEY={shlex.quote(os.environ.get('OPENAI_API_KEY', ''))}",
+            "export AGENT_TOOL=codex",
+            "export CODEX_HOME=/sandbox/.codex",
+        ]
+        return lines
+
+    def build_otel_exec_env(self, otel_port=None, traceparent=None):
+        return []
+
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
+        env = {
+            "AGENT_TOOL": "codex",
+            "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
+        }
+        return env
+
+    def credential_mount_target(self):
+        return os.environ.get("CODEX_CONTAINER_HOME", "/home/agent-ci")
+
+    def create_stream_processor(self, pid=0):
+        return CodexStreamProcessor(agent_pid=pid)
+
+    def image_env_var(self):
+        return "CODEX_CONTAINER_IMAGE"
+
+    def model_env_var(self):
+        return "CODEX_MODEL"
+
+    def default_model(self):
+        return "gpt-5.6-sol"
+
+    @property
+    def autoupdater_env_var(self):
+        return "CODEX_DISABLE_AUTOUPDATE"
+
+
 def create_harness(name: str) -> Harness:
     """Create a harness instance by name."""
     if name == "claude-code":
         return ClaudeCodeHarness()
     elif name == "opencode":
         return OpenCodeHarness()
+    elif name == "codex":
+        return CodexHarness()
     else:
-        raise ValueError(f"Unknown harness: {name!r}. Choose 'claude-code' or 'opencode'.")
+        raise ValueError(
+            f"Unknown harness: {name!r}. Choose 'claude-code', 'opencode', or 'codex'."
+        )
