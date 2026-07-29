@@ -9,7 +9,7 @@ from agentic_ci.backends import create_backend
 from agentic_ci.backends.local import LocalBackend
 from agentic_ci.backends.openshell import OpenShellBackend, _token_keepalive
 from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, create_harness
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
 
 
 @pytest.fixture()
@@ -77,6 +77,29 @@ def test_create_openshell_with_approval_mode(harness):
 def test_unknown_backend_raises(harness):
     with pytest.raises(ValueError, match="Unknown backend"):
         create_backend("docker", harness=harness)
+
+
+def test_local_codex_credentials_fail_fast(monkeypatch, tmp_path):
+    for name in ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "missing-codex-home"))
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with pytest.raises(RuntimeError, match="CODEX_API_KEY"):
+        backend.setup()
+
+
+def test_local_codex_accepts_auth_file(monkeypatch, tmp_path):
+    for name in ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "auth.json").write_text("{}")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=CodexHarness())
+    backend.setup()
 
 
 def test_backends_have_stop_method(harness):

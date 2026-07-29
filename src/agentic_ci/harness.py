@@ -1,7 +1,7 @@
 """Harness abstraction for AI agent CLI tools.
 
 A harness encapsulates everything specific to a particular agent CLI
-(Claude Code, OpenCode, etc.): how to build the command, what env vars
+(Claude Code, OpenCode, Codex, etc.): how to build the command, what env vars
 it needs, where credentials are mounted, and how to parse its output.
 """
 
@@ -9,6 +9,8 @@ import json
 import os
 import shlex
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from agentic_ci.stream import (
@@ -29,6 +31,18 @@ class Harness(ABC):
         if os.environ.get("ANTHROPIC_API_KEY"):
             return "api-key"
         return "vertex"
+
+    def validate_credentials(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        allow_auth_file: bool = False,
+    ) -> None:
+        """Fail early when harness-specific credentials are unavailable.
+
+        Harnesses without additional validation requirements use this no-op
+        implementation.
+        """
 
     @property
     @abstractmethod
@@ -514,6 +528,8 @@ class OpenCodeHarness(Harness):
 class CodexHarness(Harness):
     """OpenAI Codex CLI harness."""
 
+    _CREDENTIAL_ENV_VARS = ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY")
+
     @property
     def name(self) -> str:
         return "Codex"
@@ -522,6 +538,27 @@ class CodexHarness(Harness):
     def auth_mode(self) -> str:
         """Codex uses OpenAI credentials, not Anthropic or Vertex."""
         return "openai"
+
+    def validate_credentials(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        allow_auth_file: bool = False,
+    ) -> None:
+        credential_env = env if env is not None else os.environ
+        if any(credential_env.get(name) for name in self._CREDENTIAL_ENV_VARS):
+            return
+
+        home = Path(credential_env.get("HOME", str(Path.home())))
+        codex_home = Path(credential_env.get("CODEX_HOME", str(home / ".codex")))
+        auth_path = codex_home / "auth.json"
+        if allow_auth_file and auth_path.is_file():
+            return
+
+        expected = ", ".join(self._CREDENTIAL_ENV_VARS)
+        if allow_auth_file:
+            expected = f"{expected}, or {auth_path}"
+        raise RuntimeError(f"Codex credentials not found. Set one of: {expected}.")
 
     @staticmethod
     def _otel_config_args(endpoint):

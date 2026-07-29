@@ -7,7 +7,10 @@ from unittest import mock
 import pytest
 
 from agentic_ci.plugins import (
+    _codex_marketplace_root,
+    _filter_codex,
     _find_skill_names,
+    _run_codex_json,
     enable_plugins,
     install_codex_plugins,
     install_opencode_skills,
@@ -248,6 +251,27 @@ class TestEnablePluginsCodex:
         ):
             enable_plugins()
 
+    def test_plugin_list_failure_still_filters_compatibility_skills(self, monkeypatch, tmp_path):
+        codex_home = tmp_path / "codex"
+        skills_dir = codex_home / "skills"
+        for name in ("skill-a", "skill-b", "personal-skill"):
+            skill_dir = skills_dir / name
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").touch()
+
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text(json.dumps({"plugin-a": ["skill-a"], "plugin-b": ["skill-b"]}))
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", return_value=None) as run_codex:
+            _filter_codex({"plugin-a"})
+
+        run_codex.assert_called_once_with(["plugin", "list"])
+        assert (skills_dir / "skill-a").is_dir()
+        assert not (skills_dir / "skill-b").exists()
+        assert (skills_dir / "personal-skill").is_dir()
+
 
 # -- install_opencode_skills -------------------------------------------------
 
@@ -383,6 +407,13 @@ class TestInstallOpencodeSkills:
 
 
 class TestInstallCodexPlugins:
+    def test_marketplace_root_plain_directory(self, tmp_path):
+        marketplace = tmp_path / "registry" / "marketplace.json"
+        marketplace.parent.mkdir()
+        marketplace.touch()
+
+        assert _codex_marketplace_root(marketplace) == marketplace.parent
+
     def test_installs_native_plugins_and_writes_manifest(self, tmp_path):
         marketplace_dir = tmp_path / ".agents" / "plugins"
         marketplace_dir.mkdir(parents=True)
@@ -454,3 +485,55 @@ class TestInstallCodexPlugins:
             skills_dir=skills_dir,
             manifest_path=manifest,
         )
+
+    def test_final_plugin_list_failure_writes_empty_manifest(self, tmp_path):
+        marketplace = tmp_path / "marketplace.json"
+        marketplace.write_text("{}")
+        manifest = tmp_path / "manifest.json"
+        responses = [
+            {"marketplaceName": "test-marketplace"},
+            {
+                "available": [
+                    {
+                        "name": "review-plugin",
+                        "pluginId": "review-plugin@test-marketplace",
+                    }
+                ]
+            },
+            {"pluginId": "review-plugin@test-marketplace"},
+            None,
+        ]
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses):
+            install_codex_plugins(marketplace, manifest_path=manifest)
+
+        assert json.loads(manifest.read_text()) == {}
+
+    def test_plugin_add_failure_warns(self, tmp_path, capsys):
+        marketplace = tmp_path / "marketplace.json"
+        marketplace.write_text("{}")
+        manifest = tmp_path / "manifest.json"
+        responses = [
+            {"marketplaceName": "test-marketplace"},
+            {
+                "available": [
+                    {
+                        "name": "review-plugin",
+                        "pluginId": "review-plugin@test-marketplace",
+                    }
+                ]
+            },
+            None,
+            {"installed": []},
+        ]
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses):
+            install_codex_plugins(marketplace, manifest_path=manifest)
+
+        assert "WARN: failed to install review-plugin@test-marketplace" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(), OSError("exec failed")])
+def test_run_codex_json_handles_missing_or_unexecutable_binary(error):
+    with mock.patch("agentic_ci.plugins.subprocess.run", side_effect=error):
+        assert _run_codex_json(["plugin", "list"]) is None

@@ -41,6 +41,8 @@ class PodmanBackend(Backend):
         self._extra_env = extra_env or {}
 
     def setup(self, otel_port=None):
+        env = {**os.environ, **self._extra_env}
+        self.harness.validate_credentials(env)
         self._resolve_image()
         if self.harness.auth_mode == "vertex":
             self._resolve_credentials()

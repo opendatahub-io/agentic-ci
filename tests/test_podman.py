@@ -7,7 +7,7 @@ import subprocess as _subprocess
 import pytest
 
 from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, OpenCodeHarness
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, OpenCodeHarness
 
 
 @pytest.fixture()
@@ -91,6 +91,20 @@ def test_resolve_image_raises_with_correct_env_var(monkeypatch, tmp_path, openco
     backend = PodmanBackend(workdir=str(tmp_path), harness=opencode_harness)
     with pytest.raises(RuntimeError, match="OPENCODE_CONTAINER_IMAGE"):
         backend._resolve_image()
+
+
+def test_setup_codex_credentials_fail_fast(monkeypatch, tmp_path):
+    for name in ("CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/codex:test",
+        harness=CodexHarness(),
+    )
+
+    with pytest.raises(RuntimeError, match="CODEX_API_KEY"):
+        backend.setup()
 
 
 def test_build_vol_args_claude_mount_target(monkeypatch, tmp_path, claude_harness):

@@ -209,11 +209,14 @@ def _codex_marketplace_root(marketplace_json: Path) -> Path:
 
 
 def _run_codex_json(args: list[str]) -> dict | None:
-    result = subprocess.run(
-        ["codex", *args, "--json"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["codex", *args, "--json"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
     if result.returncode != 0:
         return None
     try:

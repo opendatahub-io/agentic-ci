@@ -88,8 +88,9 @@ RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registr
 2. Copies skill directories to `~/.config/opencode/skills/`.
    Uses explicit `skills` paths from the marketplace entry when present
    (e.g. `"skills": ["./helpers/skills"]` for `odh-ai-helpers`), otherwise
-   falls back to standard paths (`.claude/skills/`, `.opencode/skills/`,
-   `skills/`).
+   falls back to standard paths (`.claude/skills/`, `.agents/skills/`,
+   `.opencode/skills/`, `skills/`). The `.agents/skills/` fallback applies
+   to OpenCode installs as well as Codex compatibility installs.
 3. Records the plugin→skill mapping in the
    [plugin-skills manifest](#plugin-skills-manifest).
 
@@ -121,6 +122,10 @@ The existing skills registry also contains legacy Claude-compatible
 marketplaces whose packages do not yet include Codex plugin manifests. If
 Codex reports no native packages for such a marketplace, agentic-ci clones the
 entries and installs their skills under `$CODEX_HOME/skills`.
+
+agentic-ci does not yet provide an `images/runner/codex` image. Codex runner
+images are user-supplied through `--image` or `CODEX_CONTAINER_IMAGE` and must
+include the `codex` binary until that directory exists.
 
 ## Plugin-skills manifest
 

@@ -626,6 +626,12 @@ class CodexStreamProcessor:
         command = item.get("command", "")
         self._print_text("\U0001f527 Shell $ ", command, self.TOOL)
 
+    @staticmethod
+    def _mcp_name(item):
+        server = item.get("server", "")
+        tool = item.get("tool", item.get("name", "unknown"))
+        return f"{server}/{tool}" if server else tool
+
     def _process_item(self, event_type, item):
         item_id = item.get("id", "")
         item_type = item.get("type", "")
@@ -636,10 +642,7 @@ class CodexStreamProcessor:
             if item_type == "command_execution":
                 self._print_command(item)
             elif item_type == "mcp_tool_call":
-                server = item.get("server", "")
-                tool = item.get("tool", item.get("name", "unknown"))
-                name = f"{server}/{tool}" if server else tool
-                self._print_text("\U0001f527 MCP ", name, self.TOOL)
+                self._print_text("\U0001f527 MCP ", self._mcp_name(item), self.TOOL)
             elif item_type == "web_search":
                 self._print_text("\U0001f50d Web search ", item.get("query", ""), self.TOOL)
             return
@@ -669,6 +672,12 @@ class CodexStreamProcessor:
                     self._print_text("\U0001f527 File change ", detail, self.TOOL)
             else:
                 self._print_text("\U0001f527 File change ", item.get("path", ""), self.TOOL)
+        elif item_type == "mcp_tool_call":
+            error = item.get("error")
+            if error or item.get("status") in ("failed", "error"):
+                message = self._error_message(error or "MCP tool call failed")
+                label = f"❌ MCP {self._mcp_name(item)} failed: "
+                self._print_text(label, message, self.RED)
         elif item_type == "plan":
             text = item.get("text", item.get("plan", ""))
             if text:

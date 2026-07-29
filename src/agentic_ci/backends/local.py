@@ -27,6 +27,8 @@ class LocalBackend(Backend):
         self._extra_env = extra_env or {}
 
     def setup(self, otel_port=None):
+        env = {**os.environ, **self._extra_env}
+        self.harness.validate_credentials(env, allow_auth_file=True)
         log.section("Local backend (direct execution)")
         self._run_setup_steps()
 

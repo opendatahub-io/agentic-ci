@@ -105,6 +105,22 @@ class TestProcessLine:
         proc.process_line(line)
         assert "MCP github/get_pr" in capsys.readouterr().out
 
+    def test_failed_mcp_tool_call(self, capsys):
+        proc = CodexStreamProcessor(color=False)
+        line = _make_event(
+            "item.completed",
+            item=_item(
+                "mcp_tool_call",
+                server="github",
+                tool="get_pr",
+                status="failed",
+                error={"message": "repository unavailable"},
+            ),
+        )
+        proc.process_line(line)
+        output = capsys.readouterr().out
+        assert "❌ MCP github/get_pr failed: repository unavailable" in output
+
     def test_web_search(self, capsys):
         proc = CodexStreamProcessor(color=False)
         line = _make_event(
@@ -146,6 +162,20 @@ class TestProcessLine:
     def test_unknown_type_ignored(self):
         proc = CodexStreamProcessor(color=False)
         assert proc.process_line(_make_event("something_unknown", data="foo")) is False
+
+    def test_wraps_long_agent_message(self, capsys):
+        proc = CodexStreamProcessor(color=False, wrap=30)
+        line = _make_event(
+            "item.completed",
+            item=_item(
+                "agent_message",
+                text="one two three four five six seven eight nine ten",
+            ),
+        )
+        proc.process_line(line)
+        output = capsys.readouterr().out
+        assert "💬 Codex one two three four five" in output
+        assert "\n    six seven eight nine ten\n" in output
 
 
 class TestProcess:
