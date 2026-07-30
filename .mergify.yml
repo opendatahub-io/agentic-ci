@@ -22,7 +22,8 @@
 #     - Lint
 #     - Image tests
 #
-#   images.yml (paths: images/, tests/images/, tests/e2e/, src/agentic_ci/, Makefile):
+#   images.yml (paths: images/, tests/images/, tests/e2e/, src/agentic_ci/, Makefile,
+#               .github/actions/setup-podman/, .github/workflows/images*.yml):
 #     - Build claude-runner
 #     - Build opencode-runner
 #     - Build ci-podman
@@ -39,7 +40,8 @@
 # Path overlap between the two image workflows:
 #   Both fire:          images/, tests/images/, tests/e2e/
 #   images-pr.yml only: scripts/bump-versions.py
-#   images.yml only:    src/agentic_ci/, Makefile
+#   images.yml only:    src/agentic_ci/, Makefile, .github/actions/setup-podman/,
+#                       .github/workflows/images*.yml
 
 merge_protections:
   # ---------------------------------------------------------------------------
@@ -185,15 +187,16 @@ merge_protections:
       - -draft
       - -conflict
 
-  # PRs touching only src/agentic_ci/ or Makefile (triggers images.yml only,
-  # NOT images-pr.yml). Don't require Lint or Image tests that won't run.
+  # PRs touching only src/agentic_ci/, Makefile, or .github/actions/setup-podman/,
+  # .github/workflows/images*.yml (triggers images.yml only, NOT images-pr.yml).
+  # Don't require Lint or Image tests that won't run.
   - name: maintainer-images-build-only
     if:
       - "author=@opendatahub-io/agentic-ci-maintainers"
       - "-author=aipcc-renovate-bot[bot]"
       - "-author=dependabot[bot]"
       - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$)"
-      - "files~=^(src/agentic_ci/|Makefile$)"
+      - "files~=^(src/agentic_ci/|Makefile$|\\.github/actions/setup-podman/|\\.github/workflows/images)"
     success_conditions:
       - "#approved-reviews-by>=1"
       # ci.yml
@@ -230,7 +233,7 @@ merge_protections:
       - "author=@opendatahub-io/agentic-ci-maintainers"
       - "-author=aipcc-renovate-bot[bot]"
       - "-author=dependabot[bot]"
-      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$)"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$|\\.github/actions/setup-podman/|\\.github/workflows/images)"
     success_conditions:
       - "#approved-reviews-by>=1"
       # ci.yml
@@ -314,14 +317,15 @@ merge_protections:
       - -draft
       - -conflict
 
-  # Non-maintainer PRs touching only src/agentic_ci/ or Makefile.
+  # Non-maintainer PRs touching only src/agentic_ci/, Makefile, or
+  # .github/actions/setup-podman/, .github/workflows/images*.yml.
   - name: default-images-build-only
     if:
       - "-author=@opendatahub-io/agentic-ci-maintainers"
       - "-author=aipcc-renovate-bot[bot]"
       - "-author=dependabot[bot]"
       - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$)"
-      - "files~=^(src/agentic_ci/|Makefile$)"
+      - "files~=^(src/agentic_ci/|Makefile$|\\.github/actions/setup-podman/|\\.github/workflows/images)"
     success_conditions:
       - "#approved-reviews-by>=2"
       # ci.yml
@@ -358,7 +362,7 @@ merge_protections:
       - "-author=@opendatahub-io/agentic-ci-maintainers"
       - "-author=aipcc-renovate-bot[bot]"
       - "-author=dependabot[bot]"
-      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$)"
+      - "-files~=^(images/|tests/images/|tests/e2e/|scripts/bump-versions\\.py$|src/agentic_ci/|Makefile$|\\.github/actions/setup-podman/|\\.github/workflows/images)"
     success_conditions:
       - "#approved-reviews-by>=2"
       # ci.yml

@@ -13,6 +13,9 @@ on:
     paths:
       - 'images/**'
       - 'src/agentic_ci/**'
+      - '.github/actions/setup-podman/**'
+      - '.github/workflows/images.yml'
+      - '.github/workflows/images-dev.yml'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
   pull_request:
@@ -22,6 +25,9 @@ on:
       - 'tests/e2e/**'
       - 'src/agentic_ci/**'
       - 'Makefile'
+      - '.github/actions/setup-podman/**'
+      - '.github/workflows/images.yml'
+      - '.github/workflows/images-dev.yml'
   schedule:
     # Daily at 6am UTC
     - cron: '0 6 * * *'
