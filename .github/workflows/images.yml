@@ -69,6 +69,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
       - name: Image metadata
         id: meta
         run: echo "image=${IMAGE_PREFIX}/claude-runner:${CI_TAG}" >> "$GITHUB_OUTPUT"
@@ -149,6 +152,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -231,6 +237,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
       - name: Image metadata
         id: meta
         run: echo "image=${IMAGE_PREFIX}/podman:${CI_TAG}" >> "$GITHUB_OUTPUT"
@@ -300,6 +309,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -374,6 +386,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
       - name: Image metadata
         id: meta
         run: echo "image=${IMAGE_PREFIX}/opencode-sandbox:${CI_TAG}" >> "$GITHUB_OUTPUT"
@@ -447,6 +462,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
       - name: Image metadata
         id: meta
         run: echo "image=${IMAGE_PREFIX}/openshell-supervisor:${CI_TAG}" >> "$GITHUB_OUTPUT"
@@ -516,6 +534,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
