@@ -21,13 +21,24 @@ DEFAULT_ENDPOINTS = [
     "*.gitlab.com:443:full",
     "pypi.org:443:read-only",
     "files.pythonhosted.org:443:read-only",
-    "aiplatform.googleapis.com:443:read-write",
-    "*.aiplatform.googleapis.com:443:read-write",
-    "oauth2.googleapis.com:443:read-write",
-    "api.anthropic.com:443:read-write",
-    "api.openai.com:443:read-write",
-    "chatgpt.com:443:read-write",
 ]
+
+AUTH_ENDPOINTS = {
+    "vertex": [
+        "aiplatform.googleapis.com:443:read-write",
+        "*.aiplatform.googleapis.com:443:read-write",
+        "oauth2.googleapis.com:443:read-write",
+    ],
+    "api-key": [
+        "api.anthropic.com:443:read-write",
+    ],
+    "openai": [
+        "api.openai.com:443:read-write",
+        # Codex's ChatGPT backend API is served under chatgpt.com/backend-api.
+        # OpenShell policies match hosts, not URL paths.
+        "chatgpt.com:443:read-write",
+    ],
+}
 
 
 def _load_endpoints_from_file(path):
@@ -42,11 +53,11 @@ def _load_endpoints_from_file(path):
     return [str(ep) for ep in endpoints]
 
 
-def resolve_endpoints(flag_path=None, workdir="."):
+def resolve_endpoints(flag_path=None, workdir=".", auth_mode=None):
     """Resolve the endpoint list to use for policy update.
 
-    Merges the built-in defaults with extra endpoints from, in priority
-    order:
+    Merges the built-in defaults and endpoints required by *auth_mode* with
+    extra endpoints from, in priority order:
 
     1. Explicit ``--policy`` flag path
     2. ``.agentic-ci/openshell-policy.yml`` in *workdir*
@@ -68,6 +79,7 @@ def resolve_endpoints(flag_path=None, workdir="."):
     print(f"  Policy source: {source}", flush=True)
 
     endpoints = list(DEFAULT_ENDPOINTS)
+    endpoints.extend(AUTH_ENDPOINTS.get(auth_mode, []))
     seen = set(endpoints)
     for ep in extra:
         if ep not in seen:

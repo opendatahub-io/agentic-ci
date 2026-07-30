@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import subprocess
 from unittest import mock
 
 import pytest
@@ -537,3 +538,27 @@ class TestInstallCodexPlugins:
 def test_run_codex_json_handles_missing_or_unexecutable_binary(error):
     with mock.patch("agentic_ci.plugins.subprocess.run", side_effect=error):
         assert _run_codex_json(["plugin", "list"]) is None
+
+
+def test_run_codex_json_times_out_and_warns(capsys):
+    error = subprocess.TimeoutExpired(["codex", "plugin", "list"], 120)
+    with mock.patch("agentic_ci.plugins.subprocess.run", side_effect=error) as run:
+        assert _run_codex_json(["plugin", "list"]) is None
+
+    assert run.call_args.kwargs["timeout"] == 120
+    assert "WARN: failed to run codex plugin list" in capsys.readouterr().out
+
+
+def test_run_codex_json_reports_stderr(capsys):
+    result = subprocess.CompletedProcess(
+        ["codex", "plugin", "list"],
+        returncode=2,
+        stdout="",
+        stderr="plugin registry unavailable",
+    )
+    with mock.patch("agentic_ci.plugins.subprocess.run", return_value=result):
+        assert _run_codex_json(["plugin", "list"]) is None
+
+    output = capsys.readouterr().out
+    assert "exit 2" in output
+    assert "plugin registry unavailable" in output

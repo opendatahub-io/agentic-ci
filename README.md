@@ -258,6 +258,7 @@ OTLP collector.
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
 | `CODEX_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
 | `CODEX_ACCESS_TOKEN` | — | ChatGPT/Codex access token for trusted automation |
+| `OPENAI_API_KEY` | — | OpenAI API key accepted as a fallback for Codex runs |
 | `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
 | `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`) |
 | `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |

@@ -57,7 +57,7 @@ src/agentic_ci/
 
 ### Key
 
-- **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_API_KEY`, or local `$CODEX_HOME/auth.json` login state.
+- **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_API_KEY`, or local `$CODEX_HOME/auth.json` login state. The OpenShell backend currently supports Codex only with `CODEX_API_KEY` or `OPENAI_API_KEY`.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Claude Code and Codex export OTEL data; OpenCode provides token/cost data via its JSON output.
 
 ## Container images

@@ -121,7 +121,7 @@ class PodmanBackend(Backend):
         traceparent=None,
     ):
         if not self.is_running():
-            self.setup()
+            self.setup(otel_port=otel_port)
 
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)

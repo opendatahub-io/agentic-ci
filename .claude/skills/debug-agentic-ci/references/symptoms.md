@@ -62,6 +62,10 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Codex was classified as generic `api-key` auth and OpenShell selected its Anthropic provider. Codex must use the `openai` auth mode and the OpenAI network endpoints.
 - **Where to look**: `harness.py` auth mode, `backends/openshell/provider.py`, `backends/openshell/policy.py`
 
+### OpenShell harness cannot reach its model API, or can reach another harness's API
+- **Likely cause**: The sandbox policy was resolved without the harness auth mode. Authentication endpoints are scoped to `vertex`, `api-key`, or `openai`; only common forge and package endpoints are shared.
+- **Where to look**: `backends/openshell/policy.py`, `backends/openshell/sandbox.py` auth mode wiring
+
 ### Codex exits before local or Podman execution with "credentials not found"
 - **Likely cause**: None of `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, or `OPENAI_API_KEY` is available. Local runs may instead use `$CODEX_HOME/auth.json`; Podman runs require a forwarded environment credential.
 - **Where to look**: `CodexHarness.validate_credentials()`, backend `setup()`, CI secret injection, and `CODEX_HOME`

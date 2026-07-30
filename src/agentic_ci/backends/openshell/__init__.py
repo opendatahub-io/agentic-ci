@@ -122,6 +122,7 @@ class OpenShellBackend(Backend):
             otel_port=otel_port,
             workdir=self.workdir,
             approval_mode=self.approval_mode,
+            auth_mode=self.harness.auth_mode,
         )
 
         self._run_setup_steps()

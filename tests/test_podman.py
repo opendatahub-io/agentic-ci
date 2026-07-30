@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess as _subprocess
+from unittest import mock
 
 import pytest
 
@@ -304,3 +305,22 @@ def test_is_local_image_missing_remote(monkeypatch, tmp_path, claude_harness):
     monkeypatch.setattr(_subprocess, "run", mock_run)
 
     assert backend._is_local_image() is False
+
+
+def test_run_passes_otel_port_to_implicit_setup(tmp_path, claude_harness):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    with (
+        mock.patch.object(backend, "is_running", return_value=False),
+        mock.patch.object(backend, "setup") as setup,
+        mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+        mock.patch.object(backend, "_wait_for_otel_flush"),
+        mock.patch("agentic_ci.backends.podman.subprocess.Popen"),
+    ):
+        assert backend.run("test", "test-model", otel_port=4318) == 0
+
+    setup.assert_called_once_with(otel_port=4318)

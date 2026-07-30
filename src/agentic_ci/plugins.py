@@ -214,10 +214,14 @@ def _run_codex_json(args: list[str]) -> dict | None:
             ["codex", *args, "--json"],
             capture_output=True,
             text=True,
+            timeout=120,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  WARN: failed to run codex {' '.join(args)}: {exc}")
         return None
     if result.returncode != 0:
+        detail = result.stderr.strip() or "no stderr output"
+        print(f"  WARN: codex {' '.join(args)} failed (exit {result.returncode}): {detail}")
         return None
     try:
         data = json.loads(result.stdout)
