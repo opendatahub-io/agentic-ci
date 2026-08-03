@@ -2,7 +2,7 @@
 #
 # Rebuilds all container images every 6 hours with --no-cache to pick up
 # the latest unpinned dependencies (skills from skills-registry, RPM
-# updates). Tags images as <next-patch>.dev (e.g. 0.3.20.dev) so dev
+# updates). Tags images as <next-patch>.dev0 (e.g. 0.3.20.dev0) so dev
 # builds are clearly distinguishable from releases.
 #
 # Ref: RHAIFIRST-219
