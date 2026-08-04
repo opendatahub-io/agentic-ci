@@ -69,7 +69,7 @@ images/
   runner/
     shared/
       Containerfile.base            — Runner base image (UBI10 + common tools)
-      Containerfile.openshell-base  — OpenShell sandbox base image
+      Containerfile.openshell-base  — OpenShell sandbox base image (UBI9)
       entrypoint.sh                 — Container entrypoint (credential setup + exec)
     claude-code/
       Containerfile                 — Claude Code runner image
@@ -79,13 +79,19 @@ images/
       Containerfile.openshell       — OpenCode sandbox image (OpenShell)
       opencode.json                 — Seed config for CI headless mode
   ci/
-    Containerfile.podman            — CI environment image (podman + tools)
-    Containerfile.openshell         — CI environment image (OpenShell + podman)
-  openshell-supervisor/
-    Containerfile                   — OpenShell supervisor (built from source)
+    Containerfile.podman            — CI environment image (podman + tools, UBI10)
+    Containerfile.openshell         — CI environment image (OpenShell + podman, UBI9)
 scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
+
+OpenShell is consumed from UBI9 artifacts: the CLI as a wheel from the
+RHOAI package index, the gateway binary copied from
+`quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
+runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The
+OpenShell-path images (`Containerfile.openshell`,
+`Containerfile.openshell-base`) are therefore UBI9; the podman-path images
+stay on UBI10.
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
 is pre-built as `localhost/base:latest` before building the Claude and
@@ -102,7 +108,6 @@ make ci-build                # build CI podman image
 make openshell-base-build    # build OpenShell sandbox base image
 make openshell-claude-build  # build Claude sandbox (includes openshell-base)
 make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
-make openshell-supervisor-build # build OpenShell supervisor image
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests

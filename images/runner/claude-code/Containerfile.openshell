@@ -14,8 +14,11 @@ ARG CLAUDE_SHA256=e12071751a9336b8af1012c103358ff04ac18f9aaff4a738cff7ba5cdfaf63
 
 USER root
 
-# nodejs is needed by Claude Code
-RUN microdnf install -y --nodocs nodejs npm && microdnf clean all
+# nodejs is needed by Claude Code (requires Node 18+). UBI9's default
+# nodejs module stream is 16, so enable the 22 stream explicitly.
+RUN microdnf module enable -y nodejs:22 \
+    && microdnf install -y --nodocs nodejs npm \
+    && microdnf clean all
 
 RUN curl -fsSL -o /usr/local/bin/claude \
         "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude" \

@@ -226,20 +226,34 @@ Projects can declare additional endpoints in
 [Project Configuration](../configuration.md#network-policy-openshell)
 for details.
 
+## OpenShell Artifacts
+
+OpenShell is consumed from UBI9-based artifacts. All three components are
+pinned to the same version via `OPENSHELL_VERSION` / `OPENSHELL_IMAGE_TAG`
+in `images/ci/Containerfile.openshell`:
+
+| Component | Source | How it is consumed |
+| --- | --- | --- |
+| CLI (`openshell`) | wheel from the RHOAI package index | `uv pip install --no-deps` (standalone binary; the Python SDK is not used) |
+| Gateway (`openshell-gateway`) | `quay.io/opendatahub/odh-openshell-gateway` | binary copied into the CI image via a multi-stage `COPY --from` |
+| Supervisor (`openshell-sandbox`) | `quay.io/opendatahub/odh-openshell-supervisor` | pulled at runtime by the gateway's podman driver |
+
+Because these artifacts are UBI9, the OpenShell CI image
+(`Containerfile.openshell`) and the sandbox base
+(`Containerfile.openshell-base`) are UBI9 too. UBI9 defaults `python3` to
+3.9, so `python3.12` is installed and linked as the default for
+agentic-ci and its tooling. The podman backend images
+(`Containerfile.podman`, `Containerfile.base`) are unaffected and remain
+on UBI10. `scripts/bump-versions.py` bumps the CLI wheel version and the
+image tag together to keep the three components in sync.
+
 ## Supervisor Image
 
 The sandbox supervisor runs inside each sandbox container and enforces
 policies. It is mounted as a read-only image volume by the gateway's
-podman driver.
-
-This repository builds a custom supervisor image from the OpenShell
-source at the same version as the gateway and CLI RPMs
-(`OPENSHELL_VERSION` in `images/openshell-supervisor/Containerfile`).
-The image is published to
-`quay.io/aipcc/agentic-ci/openshell-supervisor` and set as the default
-via `OPENSHELL_SUPERVISOR_IMAGE` in the CI image. Renovate bumps both
-the RPM version and the supervisor source tag in a single PR to keep
-them in sync.
+podman driver. The default is
+`quay.io/opendatahub/odh-openshell-supervisor` (set via
+`OPENSHELL_SUPERVISOR_IMAGE` in the CI image).
 
 To override the supervisor image, set the `OPENSHELL_SUPERVISOR_IMAGE`
 environment variable before running `agentic-ci`. This is written into

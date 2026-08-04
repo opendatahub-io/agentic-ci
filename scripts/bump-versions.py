@@ -14,13 +14,11 @@ Usage:
 
 import argparse
 import datetime
-import gzip
 import hashlib
 import json
 import re
 import subprocess
 import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -228,63 +226,59 @@ def bump_opencode(check_only):
     return result
 
 
-def _copr_latest_openshell():
-    """Return the latest openshell version from the Copr RPM repo."""
-    base = (
-        "https://download.copr.fedorainfracloud.org/results/"
-        "maxamillion/nvidia-openshell/rhel+epel-10-x86_64/repodata"
-    )
-    ns = {"r": "http://linux.duke.edu/metadata/repo"}
-    repomd = ET.fromstring(_fetch_text(f"{base}/repomd.xml"))
-    primary_href = None
-    for data in repomd.findall(".//r:data", ns):
-        if data.get("type") == "primary":
-            loc = data.find("r:location", ns)
-            if loc is not None:
-                primary_href = loc.get("href")
-    if not primary_href:
-        raise RuntimeError("primary metadata not found in Copr repodata")
+# OpenShell CLI wheel index (PEP 503 simple index) and the equivalent
+# container-image tag form. The CLI ships as a wheel; the gateway and
+# supervisor ship as images tagged v<version-with-dashes>.
+OPENSHELL_INDEX = (
+    "https://packages.redhat.com/api/pypi/public-rhai/rhoai/3.6-EA1/cpu-ubi9-test/simple/openshell/"
+)
 
-    url = f"{base}/../{primary_href}"
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", "bump-versions/1.0")
-    with urllib.request.urlopen(req) as resp:
-        xml_bytes = gzip.decompress(resp.read())
 
-    ns_common = {"c": "http://linux.duke.edu/metadata/common"}
-    tree = ET.fromstring(xml_bytes)
-    best = None
-    for pkg in tree.findall(".//c:package", ns_common):
-        name = pkg.find("c:name", ns_common)
-        if name is None or name.text != "openshell":
+def _openshell_image_tag(version):
+    """Derive the gateway/supervisor image tag from the wheel version.
+
+    Image tags cannot contain '+', so 0.0.94+rhaiv.0 -> v0.0.94-rhaiv.0.
+    """
+    return "v" + version.replace("+", "-")
+
+
+def _pypi_latest_openshell():
+    """Return the latest openshell version from the wheel simple index.
+
+    Parses wheel filenames (name-version-build-pytag-abi-platform.whl) and
+    picks the highest release. The index carries both plain upstream builds
+    (e.g. 0.0.95) and Red Hat rebuilds (0.0.95+rhaiv.0); the +rhaiv build is
+    preferred on an equal release, since that is what the gateway/supervisor
+    images are tagged from. A higher wheel build tag breaks any remaining tie.
+    """
+    html = _fetch_text(OPENSHELL_INDEX)
+    best_key = None
+    best_version = None
+    for fname in re.findall(r"openshell-[^\"'#]+\.whl", html):
+        parts = fname[: -len(".whl")].split("-")
+        # name, version, [build], pytag, abitag, platform
+        if len(parts) == 6:
+            version, build = parts[1], int(parts[2])
+        elif len(parts) == 5:
+            version, build = parts[1], 0
+        else:
             continue
-        ver = pkg.find("c:version", ns_common)
-        if ver is None:
-            continue
-        v = ver.get("ver", "")
-        if best is None or _rpm_ver_cmp(v, best) > 0:
-            best = v
-    if not best:
-        raise RuntimeError("openshell package not found in Copr repo")
-    return best
-
-
-def _rpm_ver_cmp(a, b):
-    """Compare two dotted version strings numerically."""
-    for x, y in zip(a.split("."), b.split(".")):
-        xi, yi = int(x), int(y)
-        if xi != yi:
-            return 1 if xi > yi else -1
-    return len(a.split(".")) - len(b.split("."))
+        release = tuple(int(n) for n in version.split("+")[0].split("."))
+        has_rhaiv = 1 if "+rhaiv" in version else 0
+        key = (release, has_rhaiv, build)
+        if best_key is None or key > best_key:
+            best_key, best_version = key, version
+    if not best_version:
+        raise RuntimeError("openshell wheel not found in package index")
+    return best_version
 
 
 def bump_openshell(check_only):
-    version = _copr_latest_openshell()
+    version = _pypi_latest_openshell()
     result = {"tool": "openshell", "version": version}
-    if not check_only:
-        for cf in [OPENSHELL_CI_CF]:
-            if cf.exists():
-                _update_arg(cf, "OPENSHELL_VERSION", version)
+    if not check_only and OPENSHELL_CI_CF.exists():
+        _update_arg(OPENSHELL_CI_CF, "OPENSHELL_VERSION", version)
+        _update_arg(OPENSHELL_CI_CF, "OPENSHELL_IMAGE_TAG", _openshell_image_tag(version))
     return result
 
 
@@ -546,7 +540,7 @@ def sync_opencode():
 
 
 def sync_openshell():
-    return {"tool": "openshell", "skipped": "rpm-based, no checksum to sync"}
+    return {"tool": "openshell", "skipped": "wheel/image-based, no checksum arg"}
 
 
 def sync_acli():

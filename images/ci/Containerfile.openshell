@@ -9,15 +9,32 @@
 # inference.local), and network policy enforcement. Agents run
 # inside OpenShell sandboxes (containers managed by podman).
 #
+# OpenShell artifacts (UBI9-based):
+#   - CLI:        openshell wheel from the RHOAI package index
+#   - gateway:    binary copied from the odh-openshell-gateway image
+#   - supervisor: pulled at runtime via OPENSHELL_SUPERVISOR_IMAGE
+# Because these artifacts are UBI9, this image is UBI9 too (the podman
+# CI image, images/ci/Containerfile.podman, stays on UBI10).
+#
 # x86_64 only.
 
-FROM registry.access.redhat.com/ubi10/ubi:10.2
+# OpenShell component version. The CLI wheel uses a PEP 440 local version
+# (0.0.95+rhaiv.0); the container images use the equivalent tag form
+# (v0.0.95-rhaiv.0) since '+' is not allowed in image tags.
+ARG OPENSHELL_VERSION=0.0.95+rhaiv.0
+ARG OPENSHELL_IMAGE_TAG=v0.0.95-rhaiv.0
+
+# Gateway binary source. The server is not shipped in the CLI wheel, so
+# the standalone binary is copied out of the published gateway image.
+FROM quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_IMAGE_TAG} AS gateway
+
+FROM registry.access.redhat.com/ubi9/ubi:9.6
 
 ARG GH_VERSION=2.96.0
 ARG GH_SHA256=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
 
-ARG GLAB_VERSION=1.109.0
-ARG GLAB_SHA256=67b4a8557727a058f44e0839babdcf214ea6f6f829062cf0bae02f7b25814e5d
+ARG GLAB_VERSION=1.110.0
+ARG GLAB_SHA256=978485e47c90b5c7d33638944838f28ddc5cb6833f01c9a0a80011a27d2766e3
 
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
@@ -25,35 +42,53 @@ ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f24
 ARG VALE_VERSION=3.15.2
 ARG VALE_SHA256=fc72e64454d6bd7af91905d4faebbf411bae3eec17bb572f4101311212bc0d9e
 
-# System packages (podman is needed as the OpenShell compute driver)
+# System packages (podman is the OpenShell compute driver; iproute
+# provides `ss` and procps-ng provides `pkill`, both used by the gateway
+# lifecycle management in backends/openshell/gateway.py).
 RUN dnf install -y --nodocs \
         podman \
         fuse-overlayfs \
-        python3 \
-        python3-pip \
+        python3.12 \
+        python3.12-pip \
         git \
-        curl \
         jq \
         make \
         which \
+        iproute \
+        procps-ng \
     && dnf clean all
 
-# OpenShell gateway + CLI from Copr (manual repo config for UBI10)
-ARG OPENSHELL_VERSION=0.0.79
-RUN printf '[copr:maxamillion:nvidia-openshell]\n\
-name=Copr repo for nvidia-openshell owned by maxamillion\n\
-baseurl=https://download.copr.fedorainfracloud.org/results/maxamillion/nvidia-openshell/rhel+epel-10-$basearch/\n\
-type=rpm-md\n\
-skip_if_unavailable=True\n\
-gpgcheck=0\n\
-repo_gpgcheck=0\n\
-enabled=1\n' > /etc/yum.repos.d/copr-nvidia-openshell.repo \
-    && dnf install -y --nodocs \
-        "openshell-gateway-${OPENSHELL_VERSION}" \
-        "openshell-${OPENSHELL_VERSION}" \
-    && dnf clean all
+# UBI9 defaults python3 to 3.9; agentic-ci needs 3.10+, so make 3.12 the
+# default python3/python via /usr/local/bin (ahead of /usr/bin on PATH).
+RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python
 
-ENV OPENSHELL_SUPERVISOR_IMAGE=quay.io/aipcc/agentic-ci/openshell-supervisor:latest
+# uv
+ARG UV_VERSION=0.11.32
+ARG UV_SHA256=1fd052f196108d87e61fc3d98fe06b4ec758c9a1eb1466a6fd1a436fe45885f2
+RUN curl -fsSL -o /tmp/uv.tar.gz \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
+    && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/uv.tar.gz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
+    && chmod +x /usr/local/bin/uv \
+    && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
+
+# OpenShell CLI (wheel). Only the `openshell` CLI binary is used (invoked
+# as a subprocess by agentic-ci); it is a standalone binary that needs no
+# Python at runtime, so --no-deps skips the unused Python SDK deps.
+ARG OPENSHELL_VERSION
+RUN uv pip install --system --python python3.12 --no-deps \
+        --index-url https://packages.redhat.com/api/pypi/public-rhai/rhoai/3.6-EA1/cpu-ubi9-test/simple/ \
+        "openshell==${OPENSHELL_VERSION}"
+
+# OpenShell gateway server (binary from the published gateway image).
+COPY --from=gateway /usr/local/bin/openshell-gateway /usr/local/bin/openshell-gateway
+
+# OpenShell supervisor runs per-sandbox; it is pulled at runtime from the
+# published image (see backends/openshell/gateway.py).
+ARG OPENSHELL_IMAGE_TAG
+ENV OPENSHELL_SUPERVISOR_IMAGE=quay.io/opendatahub/odh-openshell-supervisor:${OPENSHELL_IMAGE_TAG}
 
 # GitHub CLI (pinned)
 RUN curl -fsSL -o /tmp/gh.tar.gz \
@@ -98,21 +133,10 @@ RUN curl -fsSL -o /etc/yum.repos.d/acli.repo \
     && dnf install -y --nodocs "acli-${ACLI_VERSION}" \
     && dnf clean all
 
-# uv
-ARG UV_VERSION=0.11.32
-ARG UV_SHA256=1fd052f196108d87e61fc3d98fe06b4ec758c9a1eb1466a6fd1a436fe45885f2
-RUN curl -fsSL -o /tmp/uv.tar.gz \
-        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
-    && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/uv.tar.gz -C /tmp \
-    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
-    && chmod +x /usr/local/bin/uv \
-    && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
-
 # agentic-ci from local source
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
-RUN uv pip install --system --no-cache /tmp/agentic-ci \
+RUN uv pip install --system --python python3.12 /tmp/agentic-ci \
     && rm -rf /tmp/agentic-ci
 
 # Rootless podman config: storage driver and subordinate UID/GID
