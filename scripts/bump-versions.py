@@ -110,7 +110,7 @@ def bump_uv(check_only):
 
     result = {"tool": "uv", "version": version, "sha256": sha}
     if not check_only:
-        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
             if cf.exists():
                 _update_arg(cf, "UV_VERSION", version)
                 _update_arg(cf, "UV_SHA256", sha)
@@ -127,7 +127,7 @@ def bump_shellcheck(check_only):
 
     result = {"tool": "shellcheck", "version": version, "sha256": sha}
     if not check_only:
-        for cf in [BASE_CF, OPENSHELL_BASE_CF]:
+        for cf in [BASE_CF, OPENSHELL_BASE_CF, OPENSHELL_OPENCODE_CF]:
             if cf.exists():
                 _update_arg(cf, "SHELLCHECK_VERSION", version)
                 _update_arg(cf, "SHELLCHECK_SHA256", sha)
@@ -141,7 +141,7 @@ def bump_gh(check_only):
 
     result = {"tool": "gh", "version": version, "sha256": sha}
     if not check_only:
-        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
             if cf.exists():
                 _update_arg(cf, "GH_VERSION", version)
                 _update_arg(cf, "GH_SHA256", sha)
@@ -161,7 +161,7 @@ def bump_glab(check_only):
 
     result = {"tool": "glab", "version": version, "sha256": sha}
     if not check_only:
-        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+        for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
             if cf.exists():
                 _update_arg(cf, "GLAB_VERSION", version)
                 _update_arg(cf, "GLAB_SHA256", sha)
@@ -219,7 +219,7 @@ def bump_opencode(check_only):
 
     result = {"tool": "opencode", "version": version, "sha256": sha}
     if not check_only:
-        for cf in [OPENCODE_CF, OPENSHELL_OPENCODE_CF]:
+        for cf in [OPENCODE_CF]:
             if cf.exists():
                 _update_arg(cf, "OPENCODE_VERSION", version)
                 _update_arg(cf, "OPENCODE_SHA256", sha)
@@ -322,7 +322,7 @@ def bump_ruff(check_only):
 
     result = {"tool": "ruff", "version": version}
     if not check_only:
-        for cf in [BASE_CF, OPENSHELL_BASE_CF]:
+        for cf in [BASE_CF, OPENSHELL_BASE_CF, OPENSHELL_OPENCODE_CF]:
             if cf.exists():
                 text = cf.read_text()
                 text = re.sub(r"ruff==[\d.]+", f"ruff=={version}", text)
@@ -337,7 +337,7 @@ def bump_agentic_ci(check_only):
     result = {"tool": "agentic-ci", "version": version}
     if not check_only:
         # CI images install from local source; only bump runner base images.
-        for cf in [BASE_CF, OPENSHELL_BASE_CF]:
+        for cf in [BASE_CF, OPENSHELL_BASE_CF, OPENSHELL_OPENCODE_CF]:
             if not cf.exists():
                 continue
             text = cf.read_text()
@@ -374,7 +374,7 @@ def _current_value(path, arg_name):
 
 def sync_uv():
     versions = {}
-    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
         if not cf.exists():
             continue
         version = _current_value(cf, "UV_VERSION")
@@ -396,7 +396,7 @@ def sync_uv():
 
 def sync_shellcheck():
     versions = {}
-    for cf in [BASE_CF, OPENSHELL_BASE_CF]:
+    for cf in [BASE_CF, OPENSHELL_BASE_CF, OPENSHELL_OPENCODE_CF]:
         if not cf.exists():
             continue
         version = _current_value(cf, "SHELLCHECK_VERSION")
@@ -417,7 +417,7 @@ def sync_shellcheck():
 
 def sync_gh():
     versions = {}
-    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
         if not cf.exists():
             continue
         version = _current_value(cf, "GH_VERSION")
@@ -438,7 +438,7 @@ def sync_gh():
 
 def sync_glab():
     versions = {}
-    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF]:
+    for cf in [BASE_CF, CI_CF, OPENSHELL_BASE_CF, OPENSHELL_CI_CF, OPENSHELL_OPENCODE_CF]:
         if not cf.exists():
             continue
         version = _current_value(cf, "GLAB_VERSION")
@@ -521,7 +521,7 @@ def sync_claude():
 
 def sync_opencode():
     versions = {}
-    for cf in [OPENCODE_CF, OPENSHELL_OPENCODE_CF]:
+    for cf in [OPENCODE_CF]:
         if not cf.exists():
             continue
         version = _current_value(cf, "OPENCODE_VERSION")
