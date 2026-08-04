@@ -61,7 +61,9 @@ RUN dnf install -y --nodocs \
 # UBI9 defaults python3 to 3.9; agentic-ci needs 3.10+, so make 3.12 the
 # default python3/python via /usr/local/bin (ahead of /usr/bin on PATH).
 RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
-    && ln -sf /usr/bin/python3.12 /usr/local/bin/python
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && ln -sf /usr/bin/pip3.12 /usr/local/bin/pip3 \
+    && ln -sf /usr/bin/pip3.12 /usr/local/bin/pip
 
 # uv
 ARG UV_VERSION=0.11.33
