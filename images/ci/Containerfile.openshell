@@ -39,8 +39,8 @@ ARG GLAB_SHA256=978485e47c90b5c7d33638944838f28ddc5cb6833f01c9a0a80011a27d2766e3
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
-ARG VALE_VERSION=3.15.2
-ARG VALE_SHA256=fc72e64454d6bd7af91905d4faebbf411bae3eec17bb572f4101311212bc0d9e
+ARG VALE_VERSION=3.16.0
+ARG VALE_SHA256=1049f4a585ccd1af96dcf4bdc16800cb3ce426b432da2b27893def42dcfe0ccb
 
 # System packages (podman is the OpenShell compute driver; iproute
 # provides `ss` and procps-ng provides `pkill`, both used by the gateway
