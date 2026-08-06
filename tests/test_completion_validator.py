@@ -39,7 +39,7 @@ class FakeStreamProcessor:
             for block in msg.get("message", {}).get("content", []):
                 if block.get("type") == "tool_result":
                     content = block.get("content", "")
-                    if isinstance(content, str) and "FULL RUN COMPLETE" in content:
+                    if isinstance(content, str) and content.strip() == "FULL RUN COMPLETE":
                         return True
         return False
 
@@ -138,6 +138,26 @@ class TestVerdictPathGuard:
         proc = _make_proc(['{"type": "system"}\n'], returncode=1)
         rc, stream_complete = backend._process_stream(proc, streaming=True)
         assert rc == 1
+        assert stream_complete is False
+
+    def test_sentinel_substring_in_file_read_not_treated_as_completion(self):
+        """A tool_result containing the sentinel as a substring must not trigger termination."""
+        embedded_msg = json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "content": "The pipeline prints FULL RUN COMPLETE when done.",
+                        }
+                    ]
+                },
+            }
+        )
+        backend = ConcreteBackend(harness=FakeHarness())
+        proc = _make_proc([embedded_msg + "\n"], returncode=0)
+        rc, stream_complete = backend._process_stream(proc, streaming=True)
         assert stream_complete is False
 
 

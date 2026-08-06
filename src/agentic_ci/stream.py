@@ -247,7 +247,7 @@ class ClaudeCodeStreamProcessor:
             for block in msg.get("message", {}).get("content", []):
                 if block.get("type") == "tool_result":
                     content = block.get("content", "")
-                    if isinstance(content, str) and "FULL RUN COMPLETE" in content:
+                    if isinstance(content, str) and content.strip() == "FULL RUN COMPLETE":
                         self._end_block()
                         if self.claude_pid:
                             log.section("FULL RUN COMPLETE detected, terminating Claude")
