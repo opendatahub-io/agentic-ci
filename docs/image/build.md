@@ -20,7 +20,7 @@ schedule triggers builds. Images are tagged with:
 | `claude-runner` | `images/runner/claude-code/Containerfile` | Claude Code runner |
 | `opencode-runner` | `images/runner/opencode/Containerfile` | OpenCode runner |
 | `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Claude Code sandbox |
-| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox |
+| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/opencode`, not `openshell-base`) |
 
 ## Local builds
 
@@ -30,7 +30,7 @@ make openshell-ci-build        # openshell CI image
 make base-build                # runner base
 make claude-build              # claude-runner (depends on base-build)
 make opencode-build            # opencode-runner (depends on base-build)
-make openshell-base-build      # sandbox base
-make openshell-claude-build    # claude-sandbox
-make openshell-opencode-build  # opencode-sandbox
+make openshell-base-build      # sandbox base (used by claude-sandbox)
+make openshell-claude-build    # claude-sandbox (depends on openshell-base-build)
+make openshell-opencode-build  # opencode-sandbox (builds on the agentic base image)
 ```

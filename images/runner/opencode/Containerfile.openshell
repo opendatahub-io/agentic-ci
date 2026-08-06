@@ -3,34 +3,122 @@
 # Use with: agentic-ci run --backend openshell --image <this-image> ...
 # Or:       openshell sandbox create --from <this-image> --provider ...
 #
+# Builds on the agentic base image
+# (quay.io/aipcc/base-images/agentic/opencode), which provides OpenCode (a real
+# binary at /usr/local/bin/opencode) and Node on UBI9 with the /sandbox layout,
+# the sandbox user with a non-root primary group, and iproute for OpenShell's
+# netns setup. This Containerfile layers the agentic-ci tooling (Python, uv,
+# forge CLIs, agentic-ci) on top. The base image is pinned by digest (Renovate
+# keeps it current).
+#
+# Requires a base image with the AIPCC-29106 fixes (non-root sandbox primary
+# group, iproute, and /usr/local/bin/opencode as a real binary rather than a
+# symlink into node_modules). The digest below must point at that version or
+# later.
+#
 # Build:
-#   podman build -t openshell-base -f images/runner/shared/Containerfile.openshell-base .
 #   podman build -t openshell-opencode -f images/runner/opencode/Containerfile.openshell .
+#
+# x86_64 only.
 
-FROM localhost/openshell-base:latest
+ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:latest@sha256:8a10661d7592e592f0954bda274e7f24096fbfcf73036656d3246135f88d5d73
+FROM ${OPENCODE_BASE_IMAGE}
 
-ARG OPENCODE_VERSION=1.18.8
-ARG OPENCODE_SHA256=b72014b8b53427fdb5a628d2433569ee7ccd289bd5c4490636064b24791c1305
+ARG UV_VERSION=0.11.32
+ARG UV_SHA256=1fd052f196108d87e61fc3d98fe06b4ec758c9a1eb1466a6fd1a436fe45885f2
+
+ARG SHELLCHECK_VERSION=0.11.0
+ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+
+ARG GH_VERSION=2.96.0
+ARG GH_SHA256=83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60
+
+ARG GLAB_VERSION=1.110.0
+ARG GLAB_SHA256=978485e47c90b5c7d33638944838f28ddc5cb6833f01c9a0a80011a27d2766e3
 
 USER root
 
-RUN curl -fsSL -o /tmp/opencode.tar.gz \
-        "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-x64.tar.gz" \
-    && echo "${OPENCODE_SHA256}  /tmp/opencode.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin \
-    && chmod +x /usr/local/bin/opencode \
-    && rm -f /tmp/opencode.tar.gz
+# System packages the base image doesn't provide. The base already ships
+# git, node, tar, curl, gzip, findutils, shadow-utils and iproute.
+RUN microdnf install -y --nodocs \
+        python3.12 \
+        python3.12-pip \
+        jq \
+        make \
+        which \
+        xz \
+    && microdnf clean all
 
-COPY images/runner/opencode/opencode.json /sandbox/.config/opencode/opencode.json
-RUN chown -R sandbox:sandbox /sandbox/.config
+# UBI9 defaults python3 to 3.9; agentic-ci needs 3.10+, so make 3.12 the
+# default python3/python via /usr/local/bin (ahead of /usr/bin on PATH).
+RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python
 
+# uv (pinned)
+RUN curl -fsSL -o /tmp/uv.tar.gz \
+        "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
+    && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/uv.tar.gz -C /tmp \
+    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
+    && chmod +x /usr/local/bin/uv \
+    && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
+
+# GitHub CLI (pinned)
+RUN curl -fsSL -o /tmp/gh.tar.gz \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+    && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv /tmp/gh_${GH_VERSION}_linux_amd64/bin/gh /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh_${GH_VERSION}_linux_amd64
+
+# GitLab CLI (pinned)
+RUN curl -fsSL -o /tmp/glab.tar.gz \
+        "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_amd64.tar.gz" \
+    && echo "${GLAB_SHA256}  /tmp/glab.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/glab.tar.gz -C /tmp \
+    && mv /tmp/bin/glab /usr/local/bin/glab \
+    && chmod +x /usr/local/bin/glab \
+    && rm -rf /tmp/glab.tar.gz /tmp/bin
+
+# ShellCheck (pinned)
+RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
+        "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+    && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \
+    && tar -xJf /tmp/shellcheck.tar.xz -C /tmp \
+    && mv /tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck /usr/local/bin/shellcheck \
+    && chmod +x /usr/local/bin/shellcheck \
+    && rm -rf /tmp/shellcheck.tar.xz /tmp/shellcheck-v${SHELLCHECK_VERSION}
+
+COPY images/runner/shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY pyproject.toml README.md /tmp/agentic-ci/
+COPY src/ /tmp/agentic-ci/src/
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && uv pip install --system --python python3.12 --no-cache /tmp/agentic-ci ruff==0.16.0 \
+    && rm -rf /tmp/agentic-ci \
+    && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
+
+# Sandbox home directories. The base image provides the sandbox user
+# (uid 1001, now with the dedicated sandbox group) and /sandbox home;
+# create the dirs agentic-ci and OpenCode expect.
 USER sandbox
+RUN mkdir -p /sandbox/.local/bin /sandbox/.config/opencode /sandbox/.claude /sandbox/.agents
+COPY --chown=sandbox:sandbox images/runner/shared/AGENTS.openshell.md /sandbox/AGENTS.md
+COPY --chown=sandbox:sandbox images/runner/opencode/opencode.json /sandbox/.config/opencode/opencode.json
+RUN ln -s AGENTS.md /sandbox/CLAUDE.md \
+    && ln -s ../AGENTS.md /sandbox/.claude/CLAUDE.md
+ENV PATH="/sandbox/.local/bin:${PATH}"
+
+ENV AGENT_TOOL=opencode
+ENV OPENCODE_CONFIG_DIR=/sandbox/.config/opencode
+
+# Install skills from the skills-registry marketplace into OpenCode's
+# skills dir (OPENCODE_CONFIG_DIR/skills) and write the plugin manifest.
 RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registry.git /tmp/skills-registry \
     && agentic-ci install-plugins --harness opencode \
        --marketplace-json /tmp/skills-registry/.claude-plugin/marketplace.json \
     && rm -rf /tmp/skills-registry
 
-ENV AGENT_TOOL=opencode
-ENV OPENCODE_CONFIG_DIR=/sandbox/.config/opencode
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["opencode"]
+WORKDIR /sandbox
