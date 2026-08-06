@@ -107,10 +107,16 @@ else
 fi
 
 # --- Resolve supervisor image ---
+# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE in as an ENV, so
+# this fallback only applies to local dev runs outside that image. Derive the
+# tag from the Containerfile so it stays matched to the pinned CLI/gateway
+# version after a bump rather than drifting.
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
 elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
-    export OPENSHELL_SUPERVISOR_IMAGE="quay.io/aipcc/agentic-ci/openshell-supervisor:latest"
+    os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
+        "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
+    export OPENSHELL_SUPERVISOR_IMAGE="quay.io/opendatahub/odh-openshell-supervisor:${os_tag:-latest}"
 fi
 print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
 
@@ -272,10 +278,9 @@ else
 
     print_header "=== Component versions ==="
     echo "  agentic-ci:        $(agentic-ci --version 2>&1 || echo unknown)"
-    echo "  openshell:         $(openshell --version 2>&1 || echo unknown)"
-    echo "  openshell RPM:     $(rpm -q openshell 2>&1 || echo unknown)"
+    echo "  openshell (wheel): $(openshell --version 2>&1 || echo unknown)"
     echo "  openshell-gateway: $(openshell-gateway --version 2>&1 || echo unknown)"
-    echo "  openshell-gw RPM:  $(rpm -q openshell-gateway 2>&1 || echo unknown)"
+    echo "  supervisor image:  ${OPENSHELL_SUPERVISOR_IMAGE:-unknown}"
     echo "  podman:            $(podman --version 2>&1 || echo unknown)"
     echo "  claude:            $(run_in "$CLAUDE_SANDBOX" claude --version 2>&1 || echo unknown)"
     echo "  opencode:          $(run_in "$OPENCODE_SANDBOX" opencode --version 2>&1 || echo unknown)"

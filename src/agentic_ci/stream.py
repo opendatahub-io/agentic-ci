@@ -81,7 +81,7 @@ class ClaudeCodeStreamProcessor:
         self.claude_pid = claude_pid
 
         if color:
-            self.THINK = "\033[3;31m"
+            self.THINK = "\033[3;36m"
             self.TOOL = "\033[1;90m"
             self.CLAUDE = ""
             self.RED = "\033[31m"
@@ -247,7 +247,7 @@ class ClaudeCodeStreamProcessor:
             for block in msg.get("message", {}).get("content", []):
                 if block.get("type") == "tool_result":
                     content = block.get("content", "")
-                    if isinstance(content, str) and "FULL RUN COMPLETE" in content:
+                    if isinstance(content, str) and content.strip() == "FULL RUN COMPLETE":
                         self._end_block()
                         if self.claude_pid:
                             log.section("FULL RUN COMPLETE detected, terminating Claude")
@@ -374,7 +374,7 @@ class OpenCodeStreamProcessor:
         self.agent_pid = agent_pid
 
         if color:
-            self.THINK = "\033[3;31m"
+            self.THINK = "\033[3;36m"
             self.TOOL = "\033[1;90m"
             self.AGENT = ""
             self.RED = "\033[31m"

@@ -7,6 +7,7 @@ import platform
 import subprocess
 import tempfile
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
@@ -14,8 +15,6 @@ from agentic_ci.gcp import find_credentials as _find_gcp_credentials
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
-
-CONTAINER_NAME = "agentic-ci"
 
 
 _DARWIN_OTEL_HOST = "host.containers.internal"
@@ -41,6 +40,7 @@ class PodmanBackend(Backend):
     ):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.timeout = timeout
+        self._container_name = f"agentic-ci-{uuid4().hex}"
         self._config_dir = None
         self._extra_env = extra_env or {}
         if platform.system() == "Darwin":
@@ -57,7 +57,7 @@ class PodmanBackend(Backend):
             log.section("Podman container already running")
             return
 
-        subprocess.run(["podman", "rm", "-f", CONTAINER_NAME], capture_output=True)
+        subprocess.run(["podman", "rm", "-f", self._container_name], capture_output=True)
 
         if os.getuid() == 0:
             log.detail("Container user", "root (chown workdir)")
@@ -97,7 +97,7 @@ class PodmanBackend(Backend):
             "run",
             "-d",
             "--name",
-            CONTAINER_NAME,
+            self._container_name,
             "--pull",
             "never",
             *network_args,
@@ -141,7 +141,7 @@ class PodmanBackend(Backend):
                 "--env",
                 f"AGENT_MODEL={model}",
                 *otel_env,
-                CONTAINER_NAME,
+                self._container_name,
                 *agent_args,
             ],
             stdout=subprocess.PIPE,
@@ -155,7 +155,7 @@ class PodmanBackend(Backend):
 
     def stop(self):
         result = subprocess.run(
-            ["podman", "rm", "-f", CONTAINER_NAME],
+            ["podman", "rm", "-f", self._container_name],
             capture_output=True,
         )
         if result.returncode == 0:
@@ -166,7 +166,9 @@ class PodmanBackend(Backend):
                 log.section("No container to stop")
             else:
                 raise subprocess.CalledProcessError(
-                    result.returncode, ["podman", "rm", "-f", CONTAINER_NAME], stderr=result.stderr
+                    result.returncode,
+                    ["podman", "rm", "-f", self._container_name],
+                    stderr=result.stderr,
                 )
 
     def is_running(self):
@@ -177,7 +179,7 @@ class PodmanBackend(Backend):
                 "inspect",
                 "--format",
                 "{{.State.Running}}",
-                CONTAINER_NAME,
+                self._container_name,
             ],
             capture_output=True,
             text=True,
@@ -185,13 +187,19 @@ class PodmanBackend(Backend):
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     def _is_local_image(self):
-        """Check if the image reference is local-only (not from a remote registry).
+        """Check if the image is already available locally.
 
-        Images prefixed with 'localhost/' are local podman builds.
-        All other references (registry.example.com/..., ghcr.io/...,
-        or bare names) are treated as remote.
+        Returns True for ``localhost/`` images (local podman builds) and
+        for any image that ``podman image exists`` confirms is already
+        pulled, so redundant pulls are avoided.
         """
-        return self.image.startswith("localhost/")
+        if self.image.startswith("localhost/"):
+            return True
+        result = subprocess.run(
+            ["podman", "image", "exists", self.image],
+            capture_output=True,
+        )
+        return result.returncode == 0
 
     def _resolve_image(self):
         if not self.image:

@@ -13,6 +13,9 @@ on:
     paths:
       - 'images/**'
       - 'src/agentic_ci/**'
+      - '.github/actions/setup-podman/**'
+      - '.github/workflows/images.yml'
+      - '.github/workflows/images-dev.yml'
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
   pull_request:
@@ -22,6 +25,9 @@ on:
       - 'tests/e2e/**'
       - 'src/agentic_ci/**'
       - 'Makefile'
+      - '.github/actions/setup-podman/**'
+      - '.github/workflows/images.yml'
+      - '.github/workflows/images-dev.yml'
   schedule:
     # Daily at 6am UTC
     - cron: '0 6 * * *'
@@ -65,9 +71,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -75,7 +84,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -146,9 +155,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -156,7 +168,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -227,9 +239,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -237,7 +252,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -308,9 +323,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -318,7 +336,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -378,9 +396,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -388,7 +409,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -442,7 +463,8 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/claude-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # opencode-sandbox: OpenShell sandbox, requires openshell-base built first
+  # opencode-sandbox: OpenShell sandbox, builds on the agentic base image
+  # (quay.io/aipcc/base-images/agentic/opencode), not openshell-base
   # --------------------------------------------------------------------------
   build-opencode-sandbox:
     name: Build opencode-sandbox
@@ -451,9 +473,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -461,14 +486,11 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
-
-      - name: Build openshell-base
-        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
 
       - name: Build opencode-sandbox
         run: |
@@ -521,9 +543,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -531,7 +556,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -585,76 +610,6 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/cursor-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # openshell-supervisor: built from OpenShell source at pinned version
-  # --------------------------------------------------------------------------
-  build-openshell-supervisor:
-    name: Build openshell-supervisor
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.meta.outputs.image }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Image metadata
-        id: meta
-        run: echo "image=${IMAGE_PREFIX}/openshell-supervisor:${CI_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to quay.io
-        if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_PASSWORD }}
-
-      - name: Build openshell-supervisor
-        run: |
-          set -euo pipefail
-
-          IMAGE_NAME="${IMAGE_PREFIX}/openshell-supervisor"
-          EPOCH=$(date +%s)
-
-          LABEL_ARGS=()
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            LABEL_ARGS=(--label "quay.expires-after=3d")
-          fi
-
-          VERSION_ARGS=()
-          if [[ -n "${VERSION_TAG}" ]]; then
-            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
-          fi
-
-          podman build \
-            "${LABEL_ARGS[@]}" \
-            "${VERSION_ARGS[@]}" \
-            -t "${IMAGE_NAME}:${CI_TAG}" \
-            -t "${IMAGE_NAME}:latest" \
-            -t "${IMAGE_NAME}:${EPOCH}" \
-            -f images/openshell-supervisor/Containerfile \
-            .
-
-          echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
-
-      - name: Push ci-sha tag
-        if: env.HAS_SECRETS == 'true'
-        run: podman push "${IMAGE_PREFIX}/openshell-supervisor:${CI_TAG}"
-
-      - name: Push release tags
-        if: env.PUSH_RELEASE_TAGS == 'true'
-        run: |
-          set -euo pipefail
-          IMAGE_NAME="${IMAGE_PREFIX}/openshell-supervisor"
-          podman push "${IMAGE_NAME}:latest"
-          podman push "${IMAGE_NAME}:${EPOCH}"
-
-      - name: Push version tag
-        if: env.VERSION_TAG != ''
-        run: podman push "${IMAGE_PREFIX}/openshell-supervisor:${VERSION_TAG}"
-
-  # --------------------------------------------------------------------------
   # ci-openshell: standalone CI image with OpenShell gateway
   # --------------------------------------------------------------------------
   build-ci-openshell:
@@ -664,9 +619,12 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
 
       - name: Image metadata
         id: meta
@@ -674,7 +632,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@2e76993ec4585e058ea832c23ee3d885970936af # v1 (node24)
+        uses: redhat-actions/podman-login@028bf4466edb33d710e06e7d9e95461945086656 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -733,7 +691,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install tools
@@ -750,7 +708,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Run image-test
@@ -775,7 +733,7 @@ jobs:
         password: ${{ secrets.QUAY_PASSWORD }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -802,7 +760,7 @@ jobs:
         password: ${{ secrets.QUAY_PASSWORD }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -846,7 +804,7 @@ jobs:
 
   e2e-openshell-sandbox:
     name: E2E openshell-sandbox
-    needs: [build-claude-sandbox, build-opencode-sandbox, build-cursor-sandbox, build-ci-openshell, build-openshell-supervisor]
+    needs: [build-claude-sandbox, build-opencode-sandbox, build-cursor-sandbox, build-ci-openshell]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     container:
@@ -857,7 +815,7 @@ jobs:
         password: ${{ secrets.QUAY_PASSWORD }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -871,6 +829,5 @@ jobs:
           CLAUDE_SANDBOX_IMAGE: ${{ needs.build-claude-sandbox.outputs.image }}
           OPENCODE_SANDBOX_IMAGE: ${{ needs.build-opencode-sandbox.outputs.image }}
           CURSOR_SANDBOX_IMAGE: ${{ needs.build-cursor-sandbox.outputs.image }}
-          SUPERVISOR_IMAGE: ${{ needs.build-openshell-supervisor.outputs.image }}
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: bash tests/e2e/e2e-openshell-sandbox.sh

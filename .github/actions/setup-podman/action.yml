@@ -1,0 +1,17 @@
+# Workaround for crun "unknown version specified" on GitHub Actions runners.
+# The runner image ships a crun build incompatible with podman 5.8.x.
+# Configuring podman to use runc (available from containerd) sidesteps it.
+# Remove this action once the runner image is fixed.
+name: Setup podman runtime
+description: Configure podman to use runc as OCI runtime
+
+runs:
+  using: composite
+  steps:
+    - name: Configure podman to use runc
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo mkdir -p /etc/containers
+        printf '[engine]\nruntime = "runc"\n' | sudo tee /etc/containers/containers.conf
+        podman info --format 'Runtime: {{.Host.OCIRuntime.Name}} {{.Host.OCIRuntime.Path}}'

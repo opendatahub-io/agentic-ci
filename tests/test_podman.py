@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess as _subprocess
 
 import pytest
 
@@ -139,8 +140,6 @@ def test_build_env_args_api_key(monkeypatch, tmp_path, claude_harness):
 
 def test_setup_does_not_override_entrypoint(monkeypatch, tmp_path, claude_harness):
     """setup() passes sleep as the command, not --entrypoint, so the image entrypoint runs."""
-    import subprocess as _subprocess
-
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     backend = PodmanBackend(
         workdir=str(tmp_path),
@@ -231,3 +230,126 @@ def test_build_vol_args_cursor_mount_target(monkeypatch, tmp_path, cursor_harnes
     vol_args = backend._build_vol_args()
     mount_str = " ".join(vol_args)
     assert "/workspace" in mount_str
+
+
+def test_container_name_is_unique(tmp_path, claude_harness):
+    """Each PodmanBackend instance must get a unique container name."""
+    b1 = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    b2 = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert b1._container_name != b2._container_name
+
+
+def test_container_name_has_prefix(tmp_path, claude_harness):
+    """Container name must start with 'agentic-ci-' for easy identification."""
+    backend = PodmanBackend(workdir=str(tmp_path), harness=claude_harness)
+    assert backend._container_name.startswith("agentic-ci-")
+    # The suffix is a full 32-char hex string (uuid4)
+    suffix = backend._container_name[len("agentic-ci-") :]
+    assert len(suffix) == 32
+    int(suffix, 16)  # raises ValueError if not valid hex
+
+
+def test_setup_uses_instance_container_name(monkeypatch, tmp_path, claude_harness):
+    """setup() must use the instance's unique container name, not a global constant."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    calls = []
+    original_run = _subprocess.run
+
+    def mock_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:2] == ["podman", "rm"]:
+            return _subprocess.CompletedProcess(cmd, 0)
+        if cmd[:2] == ["podman", "run"]:
+            return _subprocess.CompletedProcess(cmd, 0)
+        if cmd[:3] == ["podman", "container", "inspect"]:
+            return _subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return original_run(cmd, **kwargs)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    backend.setup()
+
+    # rm call should use instance name
+    rm_calls = [c for c in calls if c[:2] == ["podman", "rm"]]
+    assert len(rm_calls) == 1
+    assert rm_calls[0][3] == backend._container_name
+
+    # run call should use instance name
+    run_calls = [c for c in calls if c[:2] == ["podman", "run"]]
+    assert len(run_calls) == 1
+    name_idx = run_calls[0].index("--name")
+    assert run_calls[0][name_idx + 1] == backend._container_name
+
+
+def test_stop_uses_instance_container_name(monkeypatch, tmp_path, claude_harness):
+    """stop() must use the instance's unique container name."""
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    calls = []
+
+    def mock_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    backend.stop()
+
+    assert len(calls) == 1
+    assert calls[0] == ["podman", "rm", "-f", backend._container_name]
+
+
+def test_is_local_image_localhost(tmp_path, claude_harness):
+    """localhost/ images are always considered local."""
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/myimage:latest",
+        harness=claude_harness,
+    )
+    assert backend._is_local_image() is True
+
+
+def test_is_local_image_cached_remote(monkeypatch, tmp_path, claude_harness):
+    """Non-localhost images that exist locally should be treated as local."""
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="ghcr.io/org/image:latest",
+        harness=claude_harness,
+    )
+
+    def mock_run(cmd, **kwargs):
+        if cmd[:3] == ["podman", "image", "exists"]:
+            return _subprocess.CompletedProcess(cmd, 0)
+        return _subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    assert backend._is_local_image() is True
+
+
+def test_is_local_image_missing_remote(monkeypatch, tmp_path, claude_harness):
+    """Non-localhost images not present locally should not be treated as local."""
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="ghcr.io/org/image:latest",
+        harness=claude_harness,
+    )
+
+    def mock_run(cmd, **kwargs):
+        if cmd[:3] == ["podman", "image", "exists"]:
+            return _subprocess.CompletedProcess(cmd, 1)
+        return _subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    assert backend._is_local_image() is False

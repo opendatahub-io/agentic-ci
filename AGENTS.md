@@ -70,23 +70,38 @@ images/
   runner/
     shared/
       Containerfile.base            — Runner base image (UBI10 + common tools)
-      Containerfile.openshell-base  — OpenShell sandbox base image
+      Containerfile.openshell-base  — OpenShell sandbox base image (UBI9)
       entrypoint.sh                 — Container entrypoint (credential setup + exec)
     claude-code/
       Containerfile                 — Claude Code runner image
       Containerfile.openshell       — Claude Code sandbox image (OpenShell)
     opencode/
       Containerfile                 — OpenCode runner image
-      Containerfile.openshell       — OpenCode sandbox image (OpenShell)
+      Containerfile.openshell       — OpenCode sandbox image (OpenShell); builds
+                                      on the agentic base image, not openshell-base
       opencode.json                 — Seed config for CI headless mode
   ci/
-    Containerfile.podman            — CI environment image (podman + tools)
-    Containerfile.openshell         — CI environment image (OpenShell + podman)
-  openshell-supervisor/
-    Containerfile                   — OpenShell supervisor (built from source)
+    Containerfile.podman            — CI environment image (podman + tools, UBI10)
+    Containerfile.openshell         — CI environment image (OpenShell + podman, UBI9)
 scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
+
+OpenShell is consumed from UBI9 artifacts: the CLI as a wheel from the
+RHOAI package index, the gateway binary copied from
+`quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
+runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The
+OpenShell-path images (`Containerfile.openshell`,
+`Containerfile.openshell-base`) are therefore UBI9; the podman-path images
+stay on UBI10.
+
+The OpenCode sandbox image (`images/runner/opencode/Containerfile.openshell`)
+is the exception: it builds `FROM` the agentic base image
+(`quay.io/aipcc/base-images/agentic/opencode`, pinned by digest) rather
+than `openshell-base`. That base ships the OpenCode binary and Node on UBI9;
+the Containerfile layers the agentic-ci tooling (Python, uv, forge CLIs,
+agentic-ci, skills) on top. The Claude sandbox still builds on `openshell-base`
+because there is no equivalent agentic Claude Code base image yet.
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
 is pre-built as `localhost/base:latest` before building the Claude,
@@ -103,9 +118,8 @@ make cursor-build            # build Cursor runner image (includes base)
 make ci-build                # build CI podman image
 make openshell-base-build    # build OpenShell sandbox base image
 make openshell-claude-build  # build Claude sandbox (includes openshell-base)
-make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
+make openshell-opencode-build # build OpenCode sandbox (builds on the agentic base image)
 make openshell-cursor-build  # build Cursor sandbox (includes openshell-base)
-make openshell-supervisor-build # build OpenShell supervisor image
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests

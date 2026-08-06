@@ -2,7 +2,7 @@
 """Compute the next dev image tag from the latest git version tag.
 
 Reads the latest version tag (e.g. 0.3.24) and outputs the next patch
-with a .dev suffix (e.g. 0.3.25.dev). Used by the dev image rebuild
+with a .dev0 suffix (e.g. 0.3.25.dev0). Used by the dev image rebuild
 workflow to tag images that pick up the latest unpinned dependencies
 (skills, RPMs) without cutting a full release.
 """
@@ -29,7 +29,7 @@ def main() -> None:
         sys.exit(1)
 
     major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
-    print(f"{major}.{minor}.{patch + 1}.dev")
+    print(f"{major}.{minor}.{patch + 1}.dev0")
 
 
 if __name__ == "__main__":

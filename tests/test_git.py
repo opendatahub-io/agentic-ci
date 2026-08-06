@@ -443,17 +443,17 @@ class TestCollectCandidates:
         text = "Blob https://gitlab.com/group/project/-/blob/main/f.py"
         assert _collect_candidates(text, _GITLAB_URL_RE) == []
 
-    def test_github_pr_url_filtered(self):
+    def test_github_pr_url_extracts_repo_root(self):
         text = "PR at https://github.com/org/repo/pull/42"
-        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
 
-    def test_github_issues_url_filtered(self):
+    def test_github_issues_url_extracts_repo_root(self):
         text = "Bug at https://github.com/org/repo/issues/10"
-        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
 
-    def test_github_actions_url_filtered(self):
+    def test_github_actions_url_extracts_repo_root(self):
         text = "CI run https://github.com/org/repo/actions/runs/123"
-        assert _collect_candidates(text, _GITHUB_URL_RE) == []
+        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
 
     def test_plain_github_repo_url_kept(self):
         text = "Clone https://github.com/org/repo to get started."
@@ -464,7 +464,19 @@ class TestCollectCandidates:
             "See PR https://github.com/other-org/other-repo/pull/7 "
             "and clone https://github.com/org/repo for the fix."
         )
-        assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
+        assert _collect_candidates(text, _GITHUB_URL_RE) == [
+            "https://github.com/other-org/other-repo",
+            "https://github.com/org/repo",
+        ]
+
+    def test_file_level_github_urls_extract_repo_root(self):
+        text = (
+            "See https://github.com/red-hat-data-services/ods-ci/blob/master/test.py "
+            "and https://github.com/red-hat-data-services/ods-ci/tree/main/dir"
+        )
+        assert _collect_candidates(text, _GITHUB_URL_RE) == [
+            "https://github.com/red-hat-data-services/ods-ci"
+        ]
 
     def test_filters_file_extensions(self):
         text = "See https://github.com/org/repo.md for docs."

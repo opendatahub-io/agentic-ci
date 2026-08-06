@@ -9,13 +9,16 @@
 
 FROM localhost/openshell-base:latest
 
-ARG CLAUDE_VERSION=2.1.211
-ARG CLAUDE_SHA256=8272c8a474ac9ea1bc35f19b9f7c7e7dc4dc4eb6d5ad3e484b19335ac72446b2
+ARG CLAUDE_VERSION=2.1.220
+ARG CLAUDE_SHA256=674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863
 
 USER root
 
-# nodejs is needed by Claude Code
-RUN microdnf install -y --nodocs nodejs npm && microdnf clean all
+# nodejs is needed by Claude Code (requires Node 18+). UBI9's default
+# nodejs module stream is 16, so enable the 22 stream explicitly.
+RUN microdnf module enable -y nodejs:22 \
+    && microdnf install -y --nodocs nodejs npm \
+    && microdnf clean all
 
 RUN curl -fsSL -o /usr/local/bin/claude \
         "https://downloads.claude.ai/claude-code-releases/${CLAUDE_VERSION}/linux-x64/claude" \

@@ -21,7 +21,7 @@ to confirm or override each one before proceeding:
 | Role               | Default image                                          | Variable                    |
 |--------------------|--------------------------------------------------------|-----------------------------|
 | CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
-| Supervisor         | `quay.io/aipcc/agentic-ci/openshell-supervisor`        | `$SUPERVISOR_IMAGE`         |
+| Supervisor         | `quay.io/opendatahub/odh-openshell-supervisor`         | `$SUPERVISOR_IMAGE`         |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
 | Cursor sandbox     | `quay.io/aipcc/agentic-ci/cursor-sandbox`              | `$CURSOR_SANDBOX_IMAGE`     |
