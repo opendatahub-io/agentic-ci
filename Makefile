@@ -31,7 +31,7 @@ openshell-claude-build: openshell-base-build ## Build the OpenShell Claude sandb
 	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell .
 
 .PHONY: openshell-opencode-build
-openshell-opencode-build: openshell-base-build ## Build the OpenShell OpenCode sandbox image locally
+openshell-opencode-build: ## Build the OpenShell OpenCode sandbox image locally (builds on the agentic base image, not openshell-base)
 	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
 
 .PHONY: openshell-ci-build

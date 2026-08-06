@@ -76,7 +76,8 @@ images/
       Containerfile.openshell       — Claude Code sandbox image (OpenShell)
     opencode/
       Containerfile                 — OpenCode runner image
-      Containerfile.openshell       — OpenCode sandbox image (OpenShell)
+      Containerfile.openshell       — OpenCode sandbox image (OpenShell); builds
+                                      on the agentic base image, not openshell-base
       opencode.json                 — Seed config for CI headless mode
   ci/
     Containerfile.podman            — CI environment image (podman + tools, UBI10)
@@ -93,6 +94,14 @@ OpenShell-path images (`Containerfile.openshell`,
 `Containerfile.openshell-base`) are therefore UBI9; the podman-path images
 stay on UBI10.
 
+The OpenCode sandbox image (`images/runner/opencode/Containerfile.openshell`)
+is the exception: it builds `FROM` the agentic base image
+(`quay.io/aipcc/base-images/agentic/opencode`, pinned by digest) rather
+than `openshell-base`. That base ships the OpenCode binary and Node on UBI9;
+the Containerfile layers the agentic-ci tooling (Python, uv, forge CLIs,
+agentic-ci, skills) on top. The Claude sandbox still builds on `openshell-base`
+because there is no equivalent agentic Claude Code base image yet.
+
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
 is pre-built as `localhost/base:latest` before building the Claude and
 OpenCode runner images. It is NOT published to any registry as a
@@ -107,7 +116,7 @@ make opencode-build          # build OpenCode runner image (includes base)
 make ci-build                # build CI podman image
 make openshell-base-build    # build OpenShell sandbox base image
 make openshell-claude-build  # build Claude sandbox (includes openshell-base)
-make openshell-opencode-build # build OpenCode sandbox (includes openshell-base)
+make openshell-opencode-build # build OpenCode sandbox (builds on the agentic base image)
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests
