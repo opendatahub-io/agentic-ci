@@ -11,6 +11,9 @@ Usage::
     agentic-ci forge mr-resolve <URL> <thread_id>
     agentic-ci forge pipeline-failures <URL>
     agentic-ci forge mr-diff-position <URL>
+    agentic-ci forge label-exists <REPO_URL> <label>
+    agentic-ci forge label-create <REPO_URL> <label> [--color HEX] [--description TEXT]
+    agentic-ci forge mr-add-labels <URL> --labels LABEL [LABEL ...]
     agentic-ci forge github-token --app-id ID --installation-id ID --private-key PEM
 """
 
@@ -77,6 +80,33 @@ def cmd_mr_update(args: argparse.Namespace) -> None:
     forge = Forge.detect(args.url, github_token=args.token)
     forge.update_description(args.url, title=args.title, description=args.description)
     print(f"Updated {args.url}")
+
+
+def cmd_label_exists(args: argparse.Namespace) -> None:
+    """Check whether a repository/project label exists."""
+    forge = Forge.detect(args.url, github_token=args.token)
+    exists = forge.label_exists(args.url, args.label)
+    json.dump(exists, sys.stdout)
+    print()
+
+
+def cmd_label_create(args: argparse.Namespace) -> None:
+    """Create a repository/project label."""
+    forge = Forge.detect(args.url, github_token=args.token)
+    forge.create_label(
+        args.url,
+        args.label,
+        color=args.color,
+        description=args.description,
+    )
+    print(f"Created label {args.label!r} on {args.url}")
+
+
+def cmd_mr_add_labels(args: argparse.Namespace) -> None:
+    """Attach labels to an existing MR/PR."""
+    forge = Forge.detect(args.url, github_token=args.token)
+    forge.add_mr_labels(args.url, args.labels)
+    print(f"Added labels {args.labels} to {args.url}")
 
 
 def cmd_mr_diff_position(args: argparse.Namespace) -> None:
@@ -158,6 +188,33 @@ def register_subcommands(forge_parser: argparse.ArgumentParser) -> None:
     p_update.add_argument("--title", help="New title")
     p_update.add_argument("--description", help="New description")
     p_update.set_defaults(func=cmd_mr_update)
+
+    p_label_exists = subparsers.add_parser(
+        "label-exists", help="Check whether a repository/project label exists"
+    )
+    p_label_exists.add_argument("url", help="Repository URL")
+    p_label_exists.add_argument("label", help="Label name")
+    p_label_exists.set_defaults(func=cmd_label_exists)
+
+    p_label_create = subparsers.add_parser("label-create", help="Create a repository/project label")
+    p_label_create.add_argument("url", help="Repository URL")
+    p_label_create.add_argument("label", help="Label name")
+    p_label_create.add_argument(
+        "--color",
+        help="Label color as hex (with or without leading #); default 808080",
+    )
+    p_label_create.add_argument("--description", help="Label description")
+    p_label_create.set_defaults(func=cmd_label_create)
+
+    p_add_labels = subparsers.add_parser("mr-add-labels", help="Attach labels to an existing MR/PR")
+    p_add_labels.add_argument("url", help="MR/PR URL")
+    p_add_labels.add_argument(
+        "--labels",
+        nargs="+",
+        required=True,
+        help="One or more label names to attach",
+    )
+    p_add_labels.set_defaults(func=cmd_mr_add_labels)
 
     p_diffpos = subparsers.add_parser(
         "mr-diff-position",

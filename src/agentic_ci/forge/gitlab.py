@@ -12,6 +12,7 @@ import urllib.parse
 from datetime import datetime
 
 from agentic_ci.forge import (
+    DEFAULT_LABEL_COLOR,
     DEFAULT_SKIP_PATTERNS,
     Forge,
     ForgeError,
@@ -153,6 +154,56 @@ class GitLabForge(Forge):
         if resp.status_code != 200:
             error = extract_api_error(resp)
             raise ForgeError(f"HTTP {resp.status_code} updating MR: {error}")
+
+    def label_exists(self, repo_url: str, label: str) -> bool:
+        project_path = repo_path_from_url(repo_url)
+        pid = self.project_id(project_path)
+        enc = urllib.parse.quote(label, safe="")
+        resp = self._session.get(f"https://gitlab.com/api/v4/projects/{pid}/labels/{enc}")
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 404:
+            return False
+        error = extract_api_error(resp)
+        raise ForgeError(f"HTTP {resp.status_code} checking label {label!r}: {error}")
+
+    def create_label(
+        self,
+        repo_url: str,
+        label: str,
+        *,
+        color: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        project_path = repo_path_from_url(repo_url)
+        pid = self.project_id(project_path)
+        hex_color = (color or DEFAULT_LABEL_COLOR).lstrip("#")
+        payload: dict[str, str] = {
+            "name": label,
+            "color": f"#{hex_color}",
+        }
+        if description is not None:
+            payload["description"] = description
+        resp = self._session.post(
+            f"https://gitlab.com/api/v4/projects/{pid}/labels",
+            json=payload,
+        )
+        if resp.status_code not in (200, 201):
+            error = extract_api_error(resp)
+            raise ForgeError(f"HTTP {resp.status_code} creating label {label!r}: {error}")
+
+    def add_mr_labels(self, mr_url: str, labels: list[str]) -> None:
+        if not labels:
+            return
+        project_path, mr_iid = parse_gitlab_mr_url(mr_url)
+        pid = self.project_id(project_path)
+        resp = self._session.put(
+            f"https://gitlab.com/api/v4/projects/{pid}/merge_requests/{mr_iid}",
+            json={"add_labels": ",".join(labels)},
+        )
+        if resp.status_code != 200:
+            error = extract_api_error(resp)
+            raise ForgeError(f"HTTP {resp.status_code} adding MR labels: {error}")
 
     def review_comments(self, mr_url: str) -> list[dict]:
         project_path, mr_iid = parse_gitlab_mr_url(mr_url)

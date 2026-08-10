@@ -155,6 +155,96 @@ class TestCreateMergeRequest:
         assert error is None
 
 
+class TestLabelExists:
+    def test_returns_true_when_found(self, forge, mock_session):
+        mock_session.get.side_effect = [
+            _make_response(200, {"id": 1}),
+            _make_response(200, {"name": "autofix"}),
+        ]
+        assert forge.label_exists("https://gitlab.com/org/repo", "autofix") is True
+
+    def test_url_encodes_slash_in_label_name(self, forge, mock_session):
+        mock_session.get.side_effect = [
+            _make_response(200, {"id": 1}),
+            _make_response(200, {"name": "security/critical"}),
+        ]
+        assert forge.label_exists("https://gitlab.com/org/repo", "security/critical") is True
+        assert mock_session.get.call_args_list[-1][0][0].endswith("/labels/security%2Fcritical")
+
+    def test_returns_false_when_missing(self, forge, mock_session):
+        mock_session.get.side_effect = [
+            _make_response(200, {"id": 1}),
+            _make_response(404, text="Not Found"),
+        ]
+        assert forge.label_exists("https://gitlab.com/org/repo", "missing") is False
+
+    def test_raises_on_other_http_error(self, forge, mock_session):
+        mock_session.get.side_effect = [
+            _make_response(200, {"id": 1}),
+            _make_response(403, {"message": "Forbidden"}, "Forbidden"),
+        ]
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.label_exists("https://gitlab.com/org/repo", "autofix")
+
+
+class TestCreateLabel:
+    def test_creates_with_default_color(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.post.return_value = _make_response(201, {"name": "autofix"})
+        forge.create_label("https://gitlab.com/org/repo", "autofix")
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload == {"name": "autofix", "color": "#808080"}
+
+    def test_creates_with_color_and_description(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.post.return_value = _make_response(201, {"name": "autofix"})
+        forge.create_label(
+            "https://gitlab.com/org/repo",
+            "autofix",
+            color="#FFAABB",
+            description="Opened by autofix",
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload == {
+            "name": "autofix",
+            "color": "#FFAABB",
+            "description": "Opened by autofix",
+        }
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.post.return_value = _make_response(
+            400, {"message": "Label already exists"}, "error"
+        )
+        with pytest.raises(ForgeError, match="HTTP 400"):
+            forge.create_label("https://gitlab.com/org/repo", "autofix")
+
+
+class TestAddMrLabels:
+    def test_adds_labels(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(200)
+        forge.add_mr_labels(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            ["package-onboarding", "autofix"],
+        )
+        call_kwargs = mock_session.put.call_args
+        assert call_kwargs[1]["json"] == {"add_labels": "package-onboarding,autofix"}
+
+    def test_noop_when_empty(self, forge, mock_session):
+        forge.add_mr_labels("https://gitlab.com/org/repo/-/merge_requests/10", [])
+        mock_session.put.assert_not_called()
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"id": 1})
+        mock_session.put.return_value = _make_response(403, {"message": "Forbidden"}, "Forbidden")
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.add_mr_labels(
+                "https://gitlab.com/org/repo/-/merge_requests/10",
+                ["autofix"],
+            )
+
+
 class TestUpdateMergeRequest:
     def test_updates_description(self, forge, mock_session):
         mock_session.get.return_value = _make_response(200, {"id": 1})

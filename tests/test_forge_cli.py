@@ -176,6 +176,61 @@ class TestGithubTokenCommand:
         assert output == "inst-tok"
 
 
+class TestLabelExistsCommand:
+    def test_dispatches_correctly(self, capsys):
+        mock_forge = MagicMock()
+        mock_forge.label_exists.return_value = True
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=mock_forge):
+            _run_forge_cli(["label-exists", "https://gitlab.com/o/r", "autofix"])
+
+        mock_forge.label_exists.assert_called_once_with("https://gitlab.com/o/r", "autofix")
+        assert json.loads(capsys.readouterr().out) is True
+
+
+class TestLabelCreateCommand:
+    def test_dispatches_with_optional_fields(self, capsys):
+        mock_forge = MagicMock()
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=mock_forge):
+            _run_forge_cli(
+                [
+                    "label-create",
+                    "https://github.com/o/r",
+                    "autofix",
+                    "--color",
+                    "#FFAABB",
+                    "--description",
+                    "Opened by autofix",
+                ]
+            )
+
+        mock_forge.create_label.assert_called_once_with(
+            "https://github.com/o/r",
+            "autofix",
+            color="#FFAABB",
+            description="Opened by autofix",
+        )
+
+
+class TestMrAddLabelsCommand:
+    def test_dispatches_correctly(self, capsys):
+        mock_forge = MagicMock()
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=mock_forge):
+            _run_forge_cli(
+                [
+                    "mr-add-labels",
+                    "https://gitlab.com/o/r/-/merge_requests/1",
+                    "--labels",
+                    "autofix",
+                    "package-onboarding",
+                ]
+            )
+
+        mock_forge.add_mr_labels.assert_called_once_with(
+            "https://gitlab.com/o/r/-/merge_requests/1",
+            ["autofix", "package-onboarding"],
+        )
+
+
 class TestMrUpdateCommand:
     def test_dispatches_with_description(self, capsys):
         mock_forge = MagicMock()
