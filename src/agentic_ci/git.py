@@ -57,9 +57,13 @@ def _collect_candidates(text: str, pattern: re.Pattern) -> list[str]:
     candidates: list[str] = []
     for m in pattern.finditer(text):
         url = _clean_url(m.group(0))
-        if url in seen:
-            continue
         if _SUBPATH_RE.search(url):
+            idx = url.find("/-/")
+            if idx != -1:
+                url = url[:idx]
+            else:
+                continue
+        if url in seen:
             continue
         if _FILE_EXT_RE.search(url):
             continue
