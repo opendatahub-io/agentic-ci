@@ -439,9 +439,30 @@ class TestCollectCandidates:
         text = "See https://github.com/org/repo for details."
         assert _collect_candidates(text, _GITHUB_URL_RE) == ["https://github.com/org/repo"]
 
-    def test_filters_gitlab_subpaths(self):
+    def test_gitlab_blob_url_extracts_repo_root(self):
         text = "Blob https://gitlab.com/group/project/-/blob/main/f.py"
-        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+        assert _collect_candidates(text, _GITLAB_URL_RE) == ["https://gitlab.com/group/project"]
+
+    def test_gitlab_tree_url_extracts_repo_root(self):
+        text = "Dir https://gitlab.com/group/project/-/tree/main/src"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == ["https://gitlab.com/group/project"]
+
+    def test_gitlab_merge_request_url_extracts_repo_root(self):
+        text = "MR https://gitlab.com/group/project/-/merge_requests/42"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == ["https://gitlab.com/group/project"]
+
+    def test_gitlab_nested_group_blob_url_extracts_repo_root(self):
+        text = "See https://gitlab.com/redhat/rhel-ai/core/infrastructure/-/blob/main/CODEOWNERS"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == [
+            "https://gitlab.com/redhat/rhel-ai/core/infrastructure"
+        ]
+
+    def test_gitlab_file_url_deduplicates_with_plain_url(self):
+        text = (
+            "Repo https://gitlab.com/group/project "
+            "and file https://gitlab.com/group/project/-/blob/main/f.py"
+        )
+        assert _collect_candidates(text, _GITLAB_URL_RE) == ["https://gitlab.com/group/project"]
 
     def test_github_pr_url_extracts_repo_root(self):
         text = "PR at https://github.com/org/repo/pull/42"
@@ -607,4 +628,14 @@ class TestExtractAllRepoUrls:
         text = "Repo at https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix"
         assert extract_all_repo_urls(text) == [
             "https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix"
+        ]
+
+    def test_gitlab_file_level_urls_extract_repo_root(self):
+        text = (
+            "See https://gitlab.com/redhat/rhel-ai/core/infrastructure/-/blob/main/"
+            "data/gitlab_security_exceptions.yml "
+            "and https://gitlab.com/redhat/rhel-ai/core/infrastructure/-/blob/main/CODEOWNERS"
+        )
+        assert extract_all_repo_urls(text) == [
+            "https://gitlab.com/redhat/rhel-ai/core/infrastructure"
         ]
