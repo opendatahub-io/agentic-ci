@@ -10,6 +10,13 @@ Usage::
 
     forge = Forge.detect("https://gitlab.com/org/repo/-/merge_requests/42")
     status = forge.mr_status("https://gitlab.com/org/repo/-/merge_requests/42")
+
+Label helpers (callers choose names and create-vs-attach policy)::
+
+    forge = Forge.detect(repo_url)
+    if not forge.label_exists(repo_url, "autofix"):
+        forge.create_label(repo_url, "autofix")
+    forge.add_mr_labels(mr_url, ["autofix"])
 """
 
 from __future__ import annotations
@@ -17,6 +24,9 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from urllib.parse import urlparse
+
+# Default hex color for newly created labels (no leading '#').
+DEFAULT_LABEL_COLOR = "808080"
 
 
 class ForgeError(Exception):
@@ -121,6 +131,45 @@ class Forge(ABC):
 
         Only the provided keyword arguments are updated; omitted fields
         are left unchanged.
+
+        Raises ``ForgeError`` on API failure.
+        """
+
+    @abstractmethod
+    def label_exists(self, repo_url: str, label: str) -> bool:
+        """Return whether ``label`` exists on the repository/project.
+
+        Does not create the label. Returns ``False`` when the label is
+        missing (including HTTP 404). Raises ``ForgeError`` on other
+        API failures.
+        """
+
+    @abstractmethod
+    def create_label(
+        self,
+        repo_url: str,
+        label: str,
+        *,
+        color: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Create a repository/project label.
+
+        Callers must opt in explicitly; attaching labels does not
+        implicitly create them via this API. When ``color`` is omitted,
+        ``DEFAULT_LABEL_COLOR`` is used.
+
+        Raises ``ForgeError`` on API failure (including if the label
+        already exists).
+        """
+
+    @abstractmethod
+    def add_mr_labels(self, mr_url: str, labels: list[str]) -> None:
+        """Attach labels to an existing MR/PR, preserving current labels.
+
+        No-op when ``labels`` is empty. Does not check whether labels
+        exist on the repository first — callers that need that policy
+        should use :meth:`label_exists` / :meth:`create_label`.
 
         Raises ``ForgeError`` on API failure.
         """

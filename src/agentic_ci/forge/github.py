@@ -11,12 +11,14 @@ import logging
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
 import requests
 
 from agentic_ci.forge import (
+    DEFAULT_LABEL_COLOR,
     DEFAULT_SKIP_PATTERNS,
     Forge,
     ForgeError,
@@ -131,6 +133,53 @@ class GitHubForge(Forge):
         if resp.status_code != 200:
             error = extract_api_error(resp)
             raise ForgeError(f"HTTP {resp.status_code} updating PR: {error}")
+
+    def label_exists(self, repo_url: str, label: str) -> bool:
+        repo_path = repo_path_from_url(repo_url)
+        enc = urllib.parse.quote(label, safe="")
+        resp = self._session.get(f"https://api.github.com/repos/{repo_path}/labels/{enc}")
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 404:
+            return False
+        error = extract_api_error(resp)
+        raise ForgeError(f"HTTP {resp.status_code} checking label {label!r}: {error}")
+
+    def create_label(
+        self,
+        repo_url: str,
+        label: str,
+        *,
+        color: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        repo_path = repo_path_from_url(repo_url)
+        hex_color = (color or DEFAULT_LABEL_COLOR).lstrip("#")
+        payload: dict[str, str] = {
+            "name": label,
+            "color": hex_color,
+        }
+        if description is not None:
+            payload["description"] = description
+        resp = self._session.post(
+            f"https://api.github.com/repos/{repo_path}/labels",
+            json=payload,
+        )
+        if resp.status_code not in (200, 201):
+            error = extract_api_error(resp)
+            raise ForgeError(f"HTTP {resp.status_code} creating label {label!r}: {error}")
+
+    def add_mr_labels(self, mr_url: str, labels: list[str]) -> None:
+        if not labels:
+            return
+        repo_path, pr_number = parse_github_pr_url(mr_url)
+        resp = self._session.post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/labels",
+            json={"labels": labels},
+        )
+        if resp.status_code not in (200, 201):
+            error = extract_api_error(resp)
+            raise ForgeError(f"HTTP {resp.status_code} adding PR labels: {error}")
 
     def review_comments(self, mr_url: str) -> list[dict]:
         repo_path, pr_number = parse_github_pr_url(mr_url)

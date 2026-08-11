@@ -126,6 +126,75 @@ class TestCreateMergeRequest:
         assert error is None
 
 
+class TestLabelExists:
+    def test_returns_true_when_found(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"name": "autofix"})
+        assert forge.label_exists("https://github.com/owner/repo", "autofix") is True
+        assert mock_session.get.call_args[0][0].endswith("/labels/autofix")
+
+    def test_url_encodes_slash_in_label_name(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, {"name": "security/critical"})
+        assert forge.label_exists("https://github.com/owner/repo", "security/critical") is True
+        assert mock_session.get.call_args[0][0].endswith("/labels/security%2Fcritical")
+
+    def test_returns_false_when_missing(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(404, text="Not Found")
+        assert forge.label_exists("https://github.com/owner/repo", "missing") is False
+
+    def test_raises_on_other_http_error(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(403, {"message": "Forbidden"}, "Forbidden")
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.label_exists("https://github.com/owner/repo", "autofix")
+
+
+class TestCreateLabel:
+    def test_creates_with_default_color(self, forge, mock_session):
+        mock_session.post.return_value = _make_response(201, {"name": "autofix"})
+        forge.create_label("https://github.com/owner/repo", "autofix")
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload == {"name": "autofix", "color": "808080"}
+
+    def test_strips_hash_from_color(self, forge, mock_session):
+        mock_session.post.return_value = _make_response(201, {"name": "autofix"})
+        forge.create_label(
+            "https://github.com/owner/repo",
+            "autofix",
+            color="#FFAABB",
+            description="Opened by autofix",
+        )
+        payload = mock_session.post.call_args[1]["json"]
+        assert payload == {
+            "name": "autofix",
+            "color": "FFAABB",
+            "description": "Opened by autofix",
+        }
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.post.return_value = _make_response(
+            422, {"message": "Validation Failed"}, "error"
+        )
+        with pytest.raises(ForgeError, match="HTTP 422"):
+            forge.create_label("https://github.com/owner/repo", "autofix")
+
+
+class TestAddMrLabels:
+    def test_adds_labels(self, forge, mock_session):
+        mock_session.post.return_value = _make_response(200, [{"name": "autofix"}])
+        forge.add_mr_labels("https://github.com/owner/repo/pull/42", ["autofix"])
+        url = mock_session.post.call_args[0][0]
+        assert url.endswith("/issues/42/labels")
+        assert mock_session.post.call_args[1]["json"] == {"labels": ["autofix"]}
+
+    def test_noop_when_empty(self, forge, mock_session):
+        forge.add_mr_labels("https://github.com/owner/repo/pull/42", [])
+        mock_session.post.assert_not_called()
+
+    def test_raises_on_failure(self, forge, mock_session):
+        mock_session.post.return_value = _make_response(403, {"message": "Forbidden"}, "Forbidden")
+        with pytest.raises(ForgeError, match="HTTP 403"):
+            forge.add_mr_labels("https://github.com/owner/repo/pull/42", ["autofix"])
+
+
 class TestUpdateMergeRequest:
     def test_updates_body(self, forge, mock_session):
         mock_session.patch.return_value = _make_response(200)
