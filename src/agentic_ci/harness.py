@@ -11,7 +11,11 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import Any
 
-from agentic_ci.stream import ClaudeCodeStreamProcessor, OpenCodeStreamProcessor
+from agentic_ci.stream import (
+    ClaudeCodeStreamProcessor,
+    CursorStreamProcessor,
+    OpenCodeStreamProcessor,
+)
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
@@ -107,6 +111,44 @@ class Harness(ABC):
         """Env var name to disable auto-updates."""
         return "DISABLE_AUTOUPDATER"
 
+    @property
+    def disable_nonessential_traffic_env(self) -> str | None:
+        """Env var assignment to disable non-essential traffic in the sandbox.
+
+        Some agent CLIs phone home for analytics, update checks, etc.  When
+        OTEL is *not* enabled, the env script sets this variable to suppress
+        that traffic and reduce noise in the OpenShell proxy logs.
+
+        Return ``None`` (default) to skip.
+        """
+        return None
+
+    @property
+    def tls_skip_hosts(self) -> list[tuple[str, int, str]]:
+        """Hosts requiring ``tls: skip`` in OpenShell network policy.
+
+        OpenShell's TLS MITM proxy terminates TLS and re-originates it to the
+        upstream server.  If a host requires an ALPN protocol that the proxy
+        does not negotiate (e.g. ``h2`` for gRPC/Connect-RPC), listing it here
+        causes the proxy to act as a raw TCP tunnel instead, preserving
+        end-to-end TLS negotiation.
+
+        Returns a list of ``(host, port, access)`` tuples.  Default is empty
+        (no hosts need the bypass).
+        """
+        return []
+
+    @property
+    @abstractmethod
+    def sandbox_binaries(self) -> list[str]:
+        """Binary paths allowed to make network calls in OpenShell sandboxes.
+
+        OpenShell's proxy enforces per-binary network access.  Most agent CLIs
+        are a single static binary, but some (e.g. Cursor) exec a bundled
+        runtime (Node.js) that actually opens the connections.  All such
+        binaries must be listed here.
+        """
+
     def write_sandbox_config(self, config_dir, otel_enabled=False):
         """Write agent-specific config files to the sandbox config dir.
 
@@ -128,6 +170,14 @@ class ClaudeCodeHarness(Harness):
     @property
     def name(self) -> str:
         return "Claude Code"
+
+    @property
+    def sandbox_binaries(self) -> list[str]:
+        return ["/usr/local/bin/claude"]
+
+    @property
+    def disable_nonessential_traffic_env(self) -> str | None:
+        return "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"
 
     def build_args(self, prompt, model, extra_args=None):
         args = [
@@ -325,6 +375,10 @@ class OpenCodeHarness(Harness):
     def name(self) -> str:
         return "OpenCode"
 
+    @property
+    def sandbox_binaries(self) -> list[str]:
+        return ["/usr/local/bin/opencode"]
+
     def build_args(self, prompt, model, extra_args=None):
         args = [
             "opencode",
@@ -501,11 +555,140 @@ class OpenCodeHarness(Harness):
         return []
 
 
+class CursorHarness(Harness):
+    """Cursor Agent CLI harness."""
+
+    @property
+    def name(self) -> str:
+        return "Cursor"
+
+    @property
+    def slug(self) -> str:
+        """Stable CLI identifier for provider routing (not the display name)."""
+        return "cursor"
+
+    @property
+    def tls_skip_hosts(self) -> list[tuple[str, int, str]]:
+        """Cursor's Connect-RPC protocol requires HTTP/2 ALPN (``h2``).
+
+        OpenShell's TLS MITM proxy hardcodes ``ALPN: http/1.1``, so these
+        endpoints need ``tls: skip`` to allow end-to-end h2 negotiation.
+        """
+        return [
+            ("api2.cursor.sh", 443, "read-write"),
+            ("*.cursor.sh", 443, "read-write"),
+            ("*.api5.cursor.sh", 443, "read-write"),
+            ("*.us.api5.cursor.sh", 443, "read-write"),
+        ]
+
+    @property
+    def sandbox_binaries(self) -> list[str]:
+        return ["/usr/local/bin/agent", "/usr/local/lib/cursor-agent/node"]
+
+    @property
+    def auth_mode(self) -> str:
+        """Cursor only supports API key auth via CURSOR_API_KEY."""
+        if os.environ.get("CURSOR_API_KEY"):
+            return "api-key"
+        raise EnvironmentError(
+            "CURSOR_API_KEY must be set. Cursor does not support Vertex/GCP auth."
+        )
+
+    def build_args(self, prompt, model, extra_args=None):
+        args = [
+            "agent",
+            "-p",
+            "--force",
+            "--trust",
+            "--approve-mcps",
+            "--output-format",
+            "stream-json",
+            "--model",
+            model,
+        ]
+        if extra_args:
+            args.extend(extra_args)
+        args.extend(["--", prompt])
+        return args
+
+    def build_env_args(self):
+        args = [
+            "--env",
+            "CURSOR_API_KEY",
+            "--env",
+            "CURSOR_DISABLE_AUTOUPDATE=1",
+            "--env",
+            "AGENT_TOOL=cursor",
+        ]
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            args.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
+        return args
+
+    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
+        self.auth_mode  # noqa: B018 — guard raises EnvironmentError if key missing
+        lines = [
+            f"export CURSOR_API_KEY={shlex.quote(os.environ['CURSOR_API_KEY'])}",
+            "export CURSOR_DISABLE_AUTOUPDATE=1",
+            "export AGENT_TOOL=cursor",
+        ]
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            lines.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
+        if traceparent:
+            lines.append(f"export TRACEPARENT={shlex.quote(traceparent)}")
+        return lines
+
+    def build_otel_exec_env(self, otel_port=None, traceparent=None):
+        return []
+
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
+        self.auth_mode  # noqa: B018 — guard raises EnvironmentError if key missing
+        env = {
+            "AGENT_TOOL": "cursor",
+            "CURSOR_API_KEY": os.environ["CURSOR_API_KEY"],
+            "CURSOR_DISABLE_AUTOUPDATE": "1",
+        }
+        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
+        if traceparent:
+            env["TRACEPARENT"] = traceparent
+        return env
+
+    def credential_mount_target(self):
+        return os.environ.get("CURSOR_CONTAINER_HOME", "/home/agent-ci")
+
+    def create_stream_processor(self, pid=0):
+        return CursorStreamProcessor(agent_pid=pid)
+
+    def image_env_var(self):
+        return "CURSOR_CONTAINER_IMAGE"
+
+    def model_env_var(self):
+        return "CURSOR_MODEL"
+
+    def default_model(self):
+        return "claude-4.6-sonnet-medium-thinking"
+
+    @property
+    def supports_otel(self) -> bool:
+        return False
+
+    @property
+    def autoupdater_env_var(self):
+        return "CURSOR_DISABLE_AUTOUPDATE"
+
+
 def create_harness(name: str) -> Harness:
     """Create a harness instance by name."""
     if name == "claude-code":
         return ClaudeCodeHarness()
     elif name == "opencode":
         return OpenCodeHarness()
+    elif name == "cursor":
+        return CursorHarness()
     else:
-        raise ValueError(f"Unknown harness: {name!r}. Choose 'claude-code' or 'opencode'.")
+        raise ValueError(
+            f"Unknown harness: {name!r}. Choose 'claude-code', 'opencode', or 'cursor'."
+        )

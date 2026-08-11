@@ -70,6 +70,8 @@ def cmd_install_plugins(args):
             sys.exit(1)
         manifest = Path(args.manifest) if args.manifest else None
         plugins.install_opencode_skills(Path(args.marketplace_json), manifest_path=manifest)
+    elif harness_name == "cursor":
+        print("INFO: plugin installation not yet implemented for Cursor, skipping")
     else:
         print(f"ERROR: unknown harness {harness_name!r}", file=sys.stderr)
         sys.exit(1)
@@ -236,7 +238,7 @@ def main():
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
     common.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "cursor"],
         default="claude-code",
         help="AI agent harness (default: claude-code)",
     )
@@ -328,7 +330,7 @@ def main():
     )
     p_install.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "cursor"],
         default=None,
         help="Harness to install for (default: from AGENT_TOOL env or claude-code)",
     )
@@ -374,7 +376,15 @@ def main():
 
     log.section(f"Backend: {args.backend}")
     log.detail("Harness", harness.name)
-    log.detail("Auth", "API key" if harness.auth_mode == "api-key" else "Vertex AI")
+    if args.command in ("setup", "run"):
+        try:
+            auth_label = "API key" if harness.auth_mode == "api-key" else "Vertex AI"
+        except EnvironmentError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        auth_label = "not required for stop"
+    log.detail("Auth", auth_label)
     log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,

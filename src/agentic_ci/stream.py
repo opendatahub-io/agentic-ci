@@ -563,3 +563,260 @@ class OpenCodeStreamProcessor:
             if self.process_line(line):
                 return True
         return False
+
+
+def _extract_cursor_tool(tool_call):
+    """Extract tool name and params from Cursor's nested tool_call structure.
+
+    Cursor emits tool calls as ``{shellToolCall: {args: ...}}``,
+    ``{readToolCall: {args: ...}}``, etc.  This maps them to the
+    ``(name, params)`` pair expected by ``_format_tool``.
+    """
+    tool_map = {
+        "shellToolCall": "Bash",
+        "readToolCall": "Read",
+        "writeToolCall": "Write",
+        "editToolCall": "Edit",
+        "grepToolCall": "Grep",
+        "globToolCall": "Glob",
+        "listToolCall": "List",
+        "taskToolCall": "Task",
+        "fetchToolCall": "Fetch",
+    }
+    for key, display_name in tool_map.items():
+        inner = tool_call.get(key)
+        if inner is not None:
+            args = inner.get("args", {})
+            if display_name == "Bash":
+                return display_name, {
+                    "command": args.get("command", ""),
+                    "description": inner.get("description", ""),
+                }
+            if display_name == "Read":
+                return display_name, {"file_path": args.get("path", "")}
+            if display_name == "Write":
+                return display_name, {"file_path": args.get("path", "")}
+            if display_name == "Edit":
+                return display_name, {
+                    "file_path": args.get("path", args.get("file_path", "")),
+                    "old_string": args.get("old_string", args.get("oldString", "")),
+                }
+            if display_name == "Grep":
+                return display_name, {
+                    "pattern": args.get("pattern", ""),
+                    "path": args.get("path", "."),
+                }
+            if display_name == "Glob":
+                return display_name, {
+                    "pattern": args.get("pattern", args.get("glob_pattern", "")),
+                    "path": args.get("path", "."),
+                }
+            return display_name, args
+    return "Unknown", tool_call
+
+
+class CursorStreamProcessor:
+    """Processes Cursor Agent CLI stream-json NDJSON and prints human-readable output.
+
+    Cursor emits flat top-level events (system, user, thinking, assistant,
+    tool_call, result) — a different format from Claude Code's nested
+    content_block events.
+    """
+
+    def __init__(self, color=True, wrap=0, agent_pid=0):
+        self.wrap = wrap
+        self.agent_pid = agent_pid
+
+        if color:
+            self.THINK = "\033[3;31m"
+            self.TOOL = "\033[1;90m"
+            self.AGENT = ""
+            self.RED = "\033[31m"
+            self.YELLOW = "\033[33m"
+            self.RESET = "\033[0m"
+        else:
+            self.THINK = self.TOOL = self.AGENT = ""
+            self.RED = self.YELLOW = self.RESET = ""
+
+        self._in_text = False
+        self._in_thinking = False
+        self._line_buf = ""
+        self._total_input = 0
+        self._total_output = 0
+        self._total_cache_read = 0
+        self._total_cache_write = 0
+
+    _INDENT = "  "
+
+    def _print_line(self, line):
+        prefix = self._INDENT
+        if self.wrap and len(line) > self.wrap:
+            wrapped = ""
+            col = 0
+            for word in line.split(" "):
+                if col + len(word) > self.wrap and col > 0:
+                    wrapped += f"\n{prefix}"
+                    col = 0
+                if col > 0:
+                    wrapped += " "
+                    col += 1
+                wrapped += word
+                col += len(word)
+            print(f"{prefix}{wrapped}", flush=True)
+        else:
+            print(f"{prefix}{line}", flush=True)
+
+    def _emit(self, text):
+        self._line_buf += text
+        while "\n" in self._line_buf:
+            line, self._line_buf = self._line_buf.split("\n", 1)
+            self._print_line(line)
+
+    def _flush_emit(self):
+        if self._line_buf:
+            self._print_line(self._line_buf)
+            self._line_buf = ""
+
+    def _end_text(self):
+        if self._in_text:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_text = False
+        if self._in_thinking:
+            self._flush_emit()
+            sys.stdout.write(self.RESET + "\n")
+            self._in_thinking = False
+
+    def _format_init(self, msg):
+        model = msg.get("model", "unknown")
+        perms = msg.get("permissionMode", "unknown")
+        session = msg.get("session_id", "unknown")
+        log.section("Cursor Agent")
+        log.detail("Model", model)
+        log.detail("Permissions", perms)
+        log.detail("Session", session)
+
+    def _format_result(self, msg):
+        subtype = msg.get("subtype", "unknown")
+        is_error = msg.get("is_error", False)
+        duration_ms = msg.get("duration_ms", 0)
+        api_ms = msg.get("duration_api_ms", 0)
+        usage = msg.get("usage", {})
+        self._total_input = usage.get("inputTokens", 0)
+        self._total_output = usage.get("outputTokens", 0)
+        self._total_cache_read = usage.get("cacheReadTokens", 0)
+        self._total_cache_write = usage.get("cacheWriteTokens", 0)
+        total = (
+            self._total_input
+            + self._total_output
+            + self._total_cache_read
+            + self._total_cache_write
+        )
+        label = subtype
+        if is_error:
+            label = f"ERROR: {subtype}"
+        log.section(f"Result: {label}")
+        log.detail(
+            "Duration",
+            f"{duration_ms / 1000:.1f}s (API: {api_ms / 1000:.1f}s)",
+        )
+        log.detail(
+            "Tokens",
+            f"in={self._total_input} out={self._total_output} "
+            f"cache_r={self._total_cache_read} cache_w={self._total_cache_write} "
+            f"total={total}",
+        )
+        if is_error:
+            error_text = msg.get("result", "")
+            if error_text:
+                log.detail("Error", error_text)
+
+    def flush_errors(self):
+        pass
+
+    def process_line(self, line):
+        """Process a single NDJSON line from Cursor Agent CLI. Returns True when run is complete."""
+        line = line.strip()
+        if not line:
+            return False
+
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        msg_type = msg.get("type")
+
+        if msg_type == "system":
+            subtype = msg.get("subtype", "")
+            if subtype == "init":
+                self._format_init(msg)
+            return False
+
+        if msg_type == "user":
+            return False
+
+        if msg_type == "thinking":
+            subtype = msg.get("subtype", "")
+            if subtype == "delta":
+                text = msg.get("text", "")
+                if not self._in_thinking:
+                    self._end_text()
+                    print(
+                        f"{self._INDENT}{self.THINK}\U0001f9e0 Thinking ",
+                        end="",
+                        flush=True,
+                    )
+                    self._in_thinking = True
+                self._emit(text)
+            elif subtype == "completed":
+                self._end_text()
+            return False
+
+        if msg_type == "assistant":
+            self._end_text()
+            content = msg.get("message", {}).get("content", [])
+            for block in content:
+                if block.get("type") == "text":
+                    text = block.get("text", "")
+                    print(
+                        f"{self._INDENT}{self.AGENT}\U0001f4ac Agent ",
+                        end="",
+                        flush=True,
+                    )
+                    self._in_text = True
+                    self._emit(text + "\n")
+                    self._end_text()
+            return False
+
+        if msg_type == "tool_call":
+            subtype = msg.get("subtype", "")
+            tool_call = msg.get("tool_call", {})
+            if subtype == "started":
+                self._end_text()
+                tool_name, params = _extract_cursor_tool(tool_call)
+                summary = _format_tool(tool_name, params)
+                icon = "\U0001f916" if tool_name in ("Task", "Agent") else "\U0001f527"
+                print(
+                    f"{self._INDENT}{self.TOOL}{icon} {tool_name} {summary}{self.RESET}",
+                    flush=True,
+                )
+            return False
+
+        if msg_type == "result":
+            self._end_text()
+            self._format_result(msg)
+            if msg.get("is_error"):
+                return False
+            return True
+
+        return False
+
+    def process(self, input_stream):
+        """Process a stream of lines. Returns True if run completed normally."""
+        for line in input_stream:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="replace")
+            if self.process_line(line):
+                return True
+        return False

@@ -73,5 +73,7 @@ Print:
     - `quay.io/aipcc/agentic-ci/opencode-runner:<VERSION>`
     - `quay.io/aipcc/agentic-ci/claude-sandbox:<VERSION>`
     - `quay.io/aipcc/agentic-ci/opencode-sandbox:<VERSION>`
+    - `quay.io/aipcc/agentic-ci/cursor-runner:<VERSION>`
+    - `quay.io/aipcc/agentic-ci/cursor-sandbox:<VERSION>`
     - `quay.io/aipcc/agentic-ci/openshell:<VERSION>`
     - `quay.io/aipcc/agentic-ci/podman:<VERSION>`

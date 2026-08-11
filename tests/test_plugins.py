@@ -187,6 +187,15 @@ class TestEnablePluginsOpenCode:
         enable_plugins()
 
 
+class TestEnablePluginsCursor:
+    def test_cursor_filtering_noop(self, monkeypatch, capsys):
+        monkeypatch.setenv("AGENT_TOOL", "cursor")
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha")
+        enable_plugins()
+        captured = capsys.readouterr()
+        assert "plugin filtering not yet implemented for Cursor, skipping" in captured.out
+
+
 # -- install_opencode_skills -------------------------------------------------
 
 
@@ -281,11 +290,15 @@ class TestInstallOpencodeSkills:
         assert "helper-skill" in data["helpers"]
 
     def test_fallback_collects_all_matching_dirs(self, tmp_path):
-        """Skills in both .claude/skills/ and skills/ are installed."""
+        """Skills in .claude/skills/, .cursor/skills/, and skills/ are installed."""
         repo = tmp_path / "mock-repo"
         (repo / ".claude" / "skills" / "debug-skill").mkdir(parents=True)
         (repo / ".claude" / "skills" / "debug-skill" / "SKILL.md").write_text(
             "---\nname: debug-skill\n---\n"
+        )
+        (repo / ".cursor" / "skills" / "cursor-skill").mkdir(parents=True)
+        (repo / ".cursor" / "skills" / "cursor-skill" / "SKILL.md").write_text(
+            "---\nname: cursor-skill\n---\n"
         )
         (repo / "skills" / "main-skill").mkdir(parents=True)
         (repo / "skills" / "main-skill" / "SKILL.md").write_text("---\nname: main-skill\n---\n")
@@ -302,9 +315,10 @@ class TestInstallOpencodeSkills:
             install_opencode_skills(mkt, skills_dir=skills_dir, manifest_path=manifest)
 
         assert (skills_dir / "debug-skill" / "SKILL.md").is_file()
+        assert (skills_dir / "cursor-skill" / "SKILL.md").is_file()
         assert (skills_dir / "main-skill" / "SKILL.md").is_file()
         data = json.loads(manifest.read_text())
-        assert sorted(data["mock-greet"]) == ["debug-skill", "main-skill"]
+        assert sorted(data["mock-greet"]) == ["cursor-skill", "debug-skill", "main-skill"]
 
     def test_empty_marketplace(self, tmp_path):
         mkt = tmp_path / "marketplace.json"

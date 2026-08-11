@@ -61,7 +61,7 @@ ENTRYPOINT="$REPO_ROOT/images/runner/shared/entrypoint.sh"
 _DETECT_SCRIPT='
 source "'"$ENTRYPOINT"'" --source-only
 _detect_tool "$1"
-for v in CLAUDE_CODE_USE_VERTEX DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE; do
+for v in CLAUDE_CODE_USE_VERTEX DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE CURSOR_DISABLE_AUTOUPDATE; do
     if val=$(printenv "$v" 2>/dev/null); then printf "%s=%s\n" "$v" "$val"; fi
 done
 '
@@ -89,6 +89,16 @@ OC_ENV=$(run_detect "opencode")
 assert_contains "opencode: sets OPENCODE_DISABLE_AUTOUPDATE=1" "$OC_ENV" "OPENCODE_DISABLE_AUTOUPDATE=1"
 assert_not_contains "opencode: does not set DISABLE_AUTOUPDATER" "$OC_ENV" "DISABLE_AUTOUPDATER"
 
+print_header "=== Entrypoint tool detection: cursor (agent) ==="
+
+CURSOR_ENV=$(run_detect "agent")
+assert_contains "agent: sets CURSOR_DISABLE_AUTOUPDATE=1" "$CURSOR_ENV" "CURSOR_DISABLE_AUTOUPDATE=1"
+assert_not_contains "agent: does not set DISABLE_AUTOUPDATER" "$CURSOR_ENV" "DISABLE_AUTOUPDATER"
+assert_not_contains "agent: does not set OPENCODE_DISABLE_AUTOUPDATE" "$CURSOR_ENV" "OPENCODE_DISABLE_AUTOUPDATE"
+
+CURSOR_ENV2=$(run_detect "cursor")
+assert_contains "cursor: sets CURSOR_DISABLE_AUTOUPDATE=1" "$CURSOR_ENV2" "CURSOR_DISABLE_AUTOUPDATE=1"
+
 print_header "=== Entrypoint tool detection: AGENT_TOOL fallback ==="
 
 AGENT_TOOL_CLAUDE_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=claude bash -c "
@@ -104,6 +114,20 @@ AGENT_TOOL_OC_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=opencode bash -c
     printenv OPENCODE_DISABLE_AUTOUPDATE 2>/dev/null && echo 'OPENCODE_DISABLE_AUTOUPDATE='\$(printenv OPENCODE_DISABLE_AUTOUPDATE) || true
 " 2>/dev/null)
 assert_contains "AGENT_TOOL=opencode: sets OPENCODE_DISABLE_AUTOUPDATE=1" "$AGENT_TOOL_OC_ENV" "OPENCODE_DISABLE_AUTOUPDATE=1"
+
+AGENT_TOOL_CURSOR_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=cursor bash -c "
+    source '$ENTRYPOINT' --source-only
+    _detect_tool 'some-other-cmd'
+    printenv CURSOR_DISABLE_AUTOUPDATE 2>/dev/null && echo 'CURSOR_DISABLE_AUTOUPDATE='\$(printenv CURSOR_DISABLE_AUTOUPDATE) || true
+" 2>/dev/null)
+assert_contains "AGENT_TOOL=cursor: sets CURSOR_DISABLE_AUTOUPDATE=1" "$AGENT_TOOL_CURSOR_ENV" "CURSOR_DISABLE_AUTOUPDATE=1"
+
+print_header "=== Entrypoint prepend: AGENT_TOOL=cursor maps to agent ==="
+# The default branch must exec `agent`, not `cursor` (binary name mismatch).
+assert_ok "entrypoint maps AGENT_TOOL=cursor to agent binary" \
+    grep -q '\[\[ "${AGENT_TOOL:-}" == "cursor" \]\]' "$ENTRYPOINT"
+assert_ok "entrypoint execs agent for cursor fallback" \
+    grep -q 'exec agent "$@"' "$ENTRYPOINT"
 
 print_header "=== Entrypoint tool detection: with vertex credentials ==="
 

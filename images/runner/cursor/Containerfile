@@ -1,0 +1,24 @@
+FROM localhost/base:latest
+
+ARG CURSOR_VERSION=2026.07.16-899851b
+ARG CURSOR_SHA256=106acf6b3a3781cd279038726abc4f79f987449b9f5219b0f6e62d96c88fee6d
+
+USER root
+
+RUN microdnf install -y --nodocs tar gzip && microdnf clean all
+
+RUN curl -fsSL -o /tmp/cursor-agent.tar.gz \
+        "https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/x64/agent-cli-package.tar.gz" \
+    && echo "${CURSOR_SHA256}  /tmp/cursor-agent.tar.gz" | sha256sum -c - \
+    && mkdir -p /opt/cursor-agent \
+    && tar -xzf /tmp/cursor-agent.tar.gz --strip-components=1 -C /opt/cursor-agent \
+    && ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent \
+    && rm -f /tmp/cursor-agent.tar.gz
+
+USER agent-ci
+
+ENV AGENT_TOOL=cursor
+ENV CURSOR_DISABLE_AUTOUPDATE=1
+WORKDIR /home/agent-ci
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["agent"]

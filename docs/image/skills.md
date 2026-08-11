@@ -2,9 +2,10 @@
 
 Skills from the
 [opendatahub-io/skills-registry](https://github.com/opendatahub-io/skills-registry)
-are pre-installed into every runner and sandbox image at build time. Each
-harness (Claude Code, OpenCode) uses a different installation mechanism
-that matches the tool's native plugin system.
+are pre-installed into Claude Code and OpenCode runner and sandbox images at
+build time. Each of these harnesses uses a different installation mechanism
+that matches the tool's native plugin system. Cursor images do not pre-install
+skills (see the [Cursor section](#cursor-no-native-plugin-system) below).
 
 ## Claude Code: plugin seed
 
@@ -109,6 +110,18 @@ RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registr
 
 All skills are flat in one directory — no plugin namespacing. OpenCode
 discovers them by scanning for `SKILL.md` files.
+
+## Cursor: no native plugin system
+
+Cursor Agent does not have a native plugin marketplace or skill loading
+mechanism at this time. The Cursor runner and sandbox images include the
+Cursor Agent CLI binary but do not pre-install skills from the
+skills-registry.
+
+Plugin installation and filtering (`install-plugins`, `enable-plugins`)
+gracefully skip for Cursor with an INFO message. When Cursor adds a
+plugin/extension system in the future, the corresponding installation
+and filtering logic will be implemented.
 
 ## Plugin-skills manifest
 

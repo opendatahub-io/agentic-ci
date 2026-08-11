@@ -52,6 +52,21 @@ via `write_sandbox_config()`.
 - `OTEL_METRIC_EXPORT_INTERVAL` — no OTel metrics to export
 - `OTEL_LOG_USER_PROMPTS` / `OTEL_LOG_TOOL_*` — Claude-specific flags
 
+## Cursor
+
+Cursor Agent does not currently export OpenTelemetry data. The
+`CursorHarness` sets `supports_otel = False`, so:
+
+- `build_otel_exec_env()` returns an empty list
+- The OTEL collector is not started for Cursor runs
+- No telemetry env vars are injected
+
+Token usage and cost tracking for Cursor runs rely on the stream-json
+output parsing (`CursorStreamProcessor`) rather than the OTEL pipeline.
+
+When Cursor Agent adds OTEL export support, the harness can be updated
+to set `supports_otel = True` and implement the appropriate env vars.
+
 ## Sandbox config
 
 The `opencode.json` config is written by `write_sandbox_config()` and
