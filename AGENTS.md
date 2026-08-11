@@ -86,8 +86,8 @@ scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
 
-OpenShell is consumed from UBI9 artifacts: the CLI as a wheel from the
-RHOAI package index, the gateway binary copied from
+OpenShell is consumed from UBI9 artifacts: the CLI binary copied from
+`quay.io/opendatahub/odh-openshell-cli`, the gateway binary copied from
 `quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
 runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The
 OpenShell-path images (`Containerfile.openshell`,

@@ -1,6 +1,10 @@
 """Tests for policy resolution."""
 
-from agentic_ci.backends.openshell.policy import DEFAULT_ENDPOINTS, resolve_endpoints
+from agentic_ci.backends.openshell.policy import (
+    DEFAULT_ENDPOINTS,
+    build_credential_binding_patch,
+    resolve_endpoints,
+)
 
 
 def test_default_endpoints_returned_when_no_flag(tmp_path):
@@ -59,3 +63,70 @@ def test_endpoints_include_vertex_ai():
 def test_endpoints_include_anthropic_api():
     result = resolve_endpoints()
     assert any("api.anthropic.com" in ep for ep in result)
+
+
+def test_credential_binding_patch_adds_binding_to_gcp():
+    policy_get_output = {
+        "scope": "sandbox",
+        "sandbox": "ci",
+        "version": 2,
+        "policy": {
+            "version": 1,
+            "network_policies": {
+                "ci": {
+                    "endpoints": [
+                        {"host": "github.com", "port": 443, "access": "full"},
+                        {"host": "aiplatform.googleapis.com", "port": 443, "access": "read-write"},
+                        {"host": "oauth2.googleapis.com", "port": 443, "access": "read-write"},
+                    ],
+                    "binaries": [{"path": "/usr/local/bin/claude"}],
+                }
+            },
+        },
+    }
+    patched = build_credential_binding_patch(policy_get_output)
+    assert patched is not None
+    assert "scope" not in patched
+    endpoints = patched["network_policies"]["ci"]["endpoints"]
+    github_ep = [e for e in endpoints if e["host"] == "github.com"][0]
+    assert "credential_binding" not in github_ep
+    gcp_ep = [e for e in endpoints if e["host"] == "aiplatform.googleapis.com"][0]
+    assert gcp_ep["credential_binding"]["provider"] == "ci-gcp"
+    oauth_ep = [e for e in endpoints if e["host"] == "oauth2.googleapis.com"][0]
+    assert oauth_ep["credential_binding"]["provider"] == "ci-gcp"
+
+
+def test_credential_binding_patch_returns_none_when_no_gcp():
+    policy_get_output = {
+        "scope": "sandbox",
+        "policy": {
+            "version": 1,
+            "network_policies": {
+                "ci": {
+                    "endpoints": [{"host": "github.com", "port": 443, "access": "full"}],
+                }
+            },
+        },
+    }
+    assert build_credential_binding_patch(policy_get_output) is None
+
+
+def test_credential_binding_patch_preserves_existing_binding():
+    policy_get_output = {
+        "scope": "sandbox",
+        "policy": {
+            "version": 1,
+            "network_policies": {
+                "ci": {
+                    "endpoints": [
+                        {
+                            "host": "aiplatform.googleapis.com",
+                            "port": 443,
+                            "credential_binding": {"provider": "other-provider"},
+                        },
+                    ],
+                }
+            },
+        },
+    }
+    assert build_credential_binding_patch(policy_get_output) is None

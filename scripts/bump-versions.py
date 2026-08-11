@@ -226,59 +226,46 @@ def bump_opencode(check_only):
     return result
 
 
-# OpenShell CLI wheel index (PEP 503 simple index) and the equivalent
-# container-image tag form. The CLI ships as a wheel; the gateway and
-# supervisor ship as images tagged v<version-with-dashes>.
-OPENSHELL_INDEX = (
-    "https://packages.redhat.com/api/pypi/public-rhai/rhoai/3.6-EA1/cpu-ubi9-test/simple/openshell/"
+OPENSHELL_QUAY_TAGS = (
+    "https://quay.io/api/v1/repository/opendatahub/odh-openshell-cli/tag/"
+    "?limit=50&onlyActiveTags=true&filter_tag_name=like:v"
 )
 
 
-def _openshell_image_tag(version):
-    """Derive the gateway/supervisor image tag from the wheel version.
+def _quay_latest_openshell():
+    """Return the latest openshell image tag from quay.io.
 
-    Image tags cannot contain '+', so 0.0.94+rhaiv.0 -> v0.0.94-rhaiv.0.
+    Fetches tags from the odh-openshell-cli repository and picks the highest
+    semver release. Only tags matching the v<major>.<minor>.<patch>-rhaiv.<n>
+    pattern are considered (arch suffixes and build metadata tags are excluded).
+    Paginates through all result pages.
     """
-    return "v" + version.replace("+", "-")
-
-
-def _pypi_latest_openshell():
-    """Return the latest openshell version from the wheel simple index.
-
-    Parses wheel filenames (name-version-build-pytag-abi-platform.whl) and
-    picks the highest release. The index carries both plain upstream builds
-    (e.g. 0.0.95) and Red Hat rebuilds (0.0.95+rhaiv.0); the +rhaiv build is
-    preferred on an equal release, since that is what the gateway/supervisor
-    images are tagged from. A higher wheel build tag breaks any remaining tie.
-    """
-    html = _fetch_text(OPENSHELL_INDEX)
+    tag_re = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-rhaiv\.(\d+)$")
     best_key = None
-    best_version = None
-    for fname in re.findall(r"openshell-[^\"'#]+\.whl", html):
-        parts = fname[: -len(".whl")].split("-")
-        # name, version, [build], pytag, abitag, platform
-        if len(parts) == 6:
-            version, build = parts[1], int(parts[2])
-        elif len(parts) == 5:
-            version, build = parts[1], 0
-        else:
-            continue
-        release = tuple(int(n) for n in version.split("+")[0].split("."))
-        has_rhaiv = 1 if "+rhaiv" in version else 0
-        key = (release, has_rhaiv, build)
-        if best_key is None or key > best_key:
-            best_key, best_version = key, version
-    if not best_version:
-        raise RuntimeError("openshell wheel not found in package index")
-    return best_version
+    best_tag = None
+    page = 1
+    while True:
+        data = _fetch_json(f"{OPENSHELL_QUAY_TAGS}&page={page}")
+        for entry in data.get("tags", []):
+            m = tag_re.match(entry["name"])
+            if not m:
+                continue
+            key = tuple(int(g) for g in m.groups())
+            if best_key is None or key > best_key:
+                best_key, best_tag = key, entry["name"]
+        if not data.get("has_additional", False):
+            break
+        page += 1
+    if not best_tag:
+        raise RuntimeError("openshell tag not found on quay.io")
+    return best_tag
 
 
 def bump_openshell(check_only):
-    version = _pypi_latest_openshell()
-    result = {"tool": "openshell", "version": version}
+    tag = _quay_latest_openshell()
+    result = {"tool": "openshell", "version": tag}
     if not check_only and OPENSHELL_CI_CF.exists():
-        _update_arg(OPENSHELL_CI_CF, "OPENSHELL_VERSION", version)
-        _update_arg(OPENSHELL_CI_CF, "OPENSHELL_IMAGE_TAG", _openshell_image_tag(version))
+        _update_arg(OPENSHELL_CI_CF, "OPENSHELL_IMAGE_TAG", tag)
     return result
 
 
@@ -540,7 +527,7 @@ def sync_opencode():
 
 
 def sync_openshell():
-    return {"tool": "openshell", "skipped": "wheel/image-based, no checksum arg"}
+    return {"tool": "openshell", "skipped": "image-based, no checksum arg"}
 
 
 def sync_acli():
@@ -698,7 +685,7 @@ def main():
             "vale": "VALE_VERSION",
             "claude": "CLAUDE_VERSION",
             "opencode": "OPENCODE_VERSION",
-            "openshell": "OPENSHELL_VERSION",
+            "openshell": "OPENSHELL_IMAGE_TAG",
             "acli": "ACLI_VERSION",
         }
         pip_packages = {"agentic-ci", "ruff"}
