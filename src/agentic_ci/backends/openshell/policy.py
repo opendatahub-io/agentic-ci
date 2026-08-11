@@ -1,8 +1,11 @@
 """Policy resolution for OpenShell sandbox."""
 
+import copy
 import os
 
 import yaml
+
+from agentic_ci.backends.openshell.provider import PROVIDER_NAME
 
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
 
@@ -69,3 +72,44 @@ def resolve_endpoints(flag_path=None, workdir="."):
             endpoints.append(ep)
             seen.add(ep)
     return endpoints
+
+
+# GCP hosts that need credential_binding.provider for the endpointless
+# google-cloud profile.
+_GCP_CREDENTIAL_HOSTS = {
+    "aiplatform.googleapis.com",
+    "*.aiplatform.googleapis.com",
+    "oauth2.googleapis.com",
+}
+
+
+def build_credential_binding_patch(policy_get_output, provider_name=PROVIDER_NAME):
+    """Patch a policy to add credential_binding on GCP endpoints.
+
+    Takes the JSON output of ``openshell policy get --base -o json``
+    (which wraps the policy under a ``policy`` key), extracts the raw
+    policy, adds ``credential_binding.provider`` to GCP endpoints, and
+    returns the raw policy dict suitable for ``openshell policy set``.
+    Returns None if no changes are needed.
+    """
+    raw_policy = policy_get_output.get("policy")
+    if not isinstance(raw_policy, dict):
+        return None
+
+    patched = copy.deepcopy(raw_policy)
+    network_policies = patched.get("network_policies")
+    if not isinstance(network_policies, dict):
+        return None
+
+    changed = False
+    for rule in network_policies.values():
+        endpoints = rule.get("endpoints")
+        if not isinstance(endpoints, list):
+            continue
+        for ep in endpoints:
+            host = ep.get("host", "")
+            if host in _GCP_CREDENTIAL_HOSTS and "credential_binding" not in ep:
+                ep["credential_binding"] = {"provider": provider_name}
+                changed = True
+
+    return patched if changed else None

@@ -110,14 +110,11 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^images/ci/Containerfile\\.openshell$",
-        "^images/openshell-supervisor/Containerfile$"
+        "^images/ci/Containerfile\\.openshell$"
       ],
-      "matchStrings": ["ARG OPENSHELL_VERSION=(?<currentValue>[^\\n]+)"],
-      "depNameTemplate": "openshell",
-      "datasourceTemplate": "rpm",
-      "registryUrlTemplate": "https://download.copr.fedorainfracloud.org/results/maxamillion/nvidia-openshell/rhel+epel-10-x86_64/repodata/",
-      "versioningTemplate": "rpm"
+      "matchStrings": ["ARG OPENSHELL_IMAGE_TAG=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "quay.io/opendatahub/odh-openshell-cli",
+      "datasourceTemplate": "docker"
     },
     {
       "customType": "regex",

@@ -10,7 +10,7 @@
 # inside OpenShell sandboxes (containers managed by podman).
 #
 # OpenShell artifacts (UBI9-based):
-#   - CLI:        openshell wheel from the RHOAI package index
+#   - CLI:        binary copied from the odh-openshell-cli image
 #   - gateway:    binary copied from the odh-openshell-gateway image
 #   - supervisor: pulled at runtime via OPENSHELL_SUPERVISOR_IMAGE
 # Because these artifacts are UBI9, this image is UBI9 too (the podman
@@ -18,14 +18,11 @@
 #
 # x86_64 only.
 
-# OpenShell component version. The CLI wheel uses a PEP 440 local version
-# (0.0.95+rhaiv.0); the container images use the equivalent tag form
-# (v0.0.95-rhaiv.0) since '+' is not allowed in image tags.
-ARG OPENSHELL_VERSION=0.0.95+rhaiv.0
-ARG OPENSHELL_IMAGE_TAG=v0.0.95-rhaiv.0
+# OpenShell component version (image tag shared by CLI, gateway, supervisor).
+ARG OPENSHELL_IMAGE_TAG=v0.0.101-rhaiv.0
 
-# Gateway binary source. The server is not shipped in the CLI wheel, so
-# the standalone binary is copied out of the published gateway image.
+# CLI and gateway binaries copied from the published images.
+FROM quay.io/opendatahub/odh-openshell-cli:${OPENSHELL_IMAGE_TAG} AS cli
 FROM quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_IMAGE_TAG} AS gateway
 
 FROM registry.access.redhat.com/ubi9/ubi:9.6
@@ -76,13 +73,8 @@ RUN curl -fsSL -o /tmp/uv.tar.gz \
     && chmod +x /usr/local/bin/uv \
     && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
 
-# OpenShell CLI (wheel). Only the `openshell` CLI binary is used (invoked
-# as a subprocess by agentic-ci); it is a standalone binary that needs no
-# Python at runtime, so --no-deps skips the unused Python SDK deps.
-ARG OPENSHELL_VERSION
-RUN uv pip install --system --python python3.12 --no-deps \
-        --index-url https://packages.redhat.com/api/pypi/public-rhai/rhoai/3.6-EA1/cpu-ubi9-test/simple/ \
-        "openshell==${OPENSHELL_VERSION}"
+# OpenShell CLI (binary from the published CLI image).
+COPY --from=cli /usr/local/bin/openshell /usr/local/bin/openshell
 
 # OpenShell gateway server (binary from the published gateway image).
 COPY --from=gateway /usr/local/bin/openshell-gateway /usr/local/bin/openshell-gateway
