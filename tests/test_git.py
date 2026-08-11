@@ -524,6 +524,23 @@ class TestCollectCandidates:
             "https://github.com/org/alpha",
         ]
 
+    def test_gitlab_jobs_url_discarded(self):
+        text = "CI run https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/jobs/15834312117"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+
+    def test_gitlab_pipelines_url_discarded(self):
+        text = "Pipeline https://gitlab.com/group/project/-/pipelines/98765"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+
+    def test_gitlab_jobs_url_not_masking_real_repo(self):
+        text = (
+            "Repo https://gitlab.com/group/real-project "
+            "CI https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/jobs/123"
+        )
+        assert _collect_candidates(text, _GITLAB_URL_RE) == [
+            "https://gitlab.com/group/real-project"
+        ]
+
     def test_empty_text(self):
         assert _collect_candidates("", _GITHUB_URL_RE) == []
         assert _collect_candidates("", _GITLAB_URL_RE) == []
@@ -629,6 +646,17 @@ class TestExtractAllRepoUrls:
         assert extract_all_repo_urls(text) == [
             "https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix"
         ]
+
+    def test_gitlab_ci_links_discarded(self):
+        text = (
+            "Target repo https://github.com/opendatahub-io/feast "
+            "CI: https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/jobs/15834312117"
+        )
+        assert extract_all_repo_urls(text) == ["https://github.com/opendatahub-io/feast"]
+
+    def test_gitlab_pipelines_links_discarded(self):
+        text = "Pipeline https://gitlab.com/group/project/-/pipelines/42 only"
+        assert extract_all_repo_urls(text) == []
 
     def test_gitlab_file_level_urls_extract_repo_root(self):
         text = (
