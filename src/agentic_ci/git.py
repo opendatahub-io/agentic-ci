@@ -37,9 +37,11 @@ _GITHUB_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _SUBPATH_RE = re.compile(
-    r"/-/(merge_requests|issues|blob|tree|raw|commits|pipelines|jobs)/|"
+    r"/-/(merge_requests|issues|blob|tree|raw|commits|pipelines|jobs)(?:/|$)|"
     r"/(pull|issues|blob|tree|raw|commits|actions|releases)/",
 )
+_GITLAB_CI_SUBPATH_RE = re.compile(r"/-/(pipelines|jobs)(?:/|$)")
+
 _FILE_EXT_RE = re.compile(r"\.(md|txt|py|sh|yml|yaml|json)$")
 _PLACEHOLDER_RE = re.compile(r"(your-org|your-repo|example|placeholder)", re.IGNORECASE)
 
@@ -59,7 +61,7 @@ def _collect_candidates(text: str, pattern: re.Pattern) -> list[str]:
         url = _clean_url(m.group(0))
         if _SUBPATH_RE.search(url):
             idx = url.find("/-/")
-            if idx != -1:
+            if idx != -1 and not _GITLAB_CI_SUBPATH_RE.search(url):
                 url = url[:idx]
             else:
                 continue
