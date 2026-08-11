@@ -532,6 +532,14 @@ class TestCollectCandidates:
         text = "Pipeline https://gitlab.com/group/project/-/pipelines/98765"
         assert _collect_candidates(text, _GITLAB_URL_RE) == []
 
+    def test_gitlab_jobs_url_no_trailing_slash_discarded(self):
+        text = "CI run https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/jobs"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+
+    def test_gitlab_pipelines_url_no_trailing_slash_discarded(self):
+        text = "Pipeline https://gitlab.com/group/project/-/pipelines"
+        assert _collect_candidates(text, _GITLAB_URL_RE) == []
+
     def test_gitlab_jobs_url_not_masking_real_repo(self):
         text = (
             "Repo https://gitlab.com/group/real-project "
