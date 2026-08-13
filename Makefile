@@ -22,12 +22,8 @@ opencode-build: base-build ## Build the OpenCode runner image locally
 ci-build: ## Build the CI podman image locally
 	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
 
-.PHONY: openshell-base-build
-openshell-base-build: ## Build the OpenShell sandbox base image locally
-	podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
-
 .PHONY: openshell-claude-build
-openshell-claude-build: openshell-base-build ## Build the OpenShell Claude sandbox image locally
+openshell-claude-build: ## Build the OpenShell Claude sandbox image locally (builds on the agentic base image, not openshell-base)
 	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell .
 
 .PHONY: openshell-opencode-build

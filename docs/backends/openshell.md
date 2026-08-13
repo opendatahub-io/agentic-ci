@@ -239,8 +239,8 @@ in `images/ci/Containerfile.openshell`:
 | Supervisor (`openshell-sandbox`) | `quay.io/opendatahub/odh-openshell-supervisor` | pulled at runtime by the gateway's podman driver |
 
 Because these artifacts are UBI9, the OpenShell CI image
-(`Containerfile.openshell`) and the sandbox base
-(`Containerfile.openshell-base`) are UBI9 too. UBI9 defaults `python3` to
+(`Containerfile.openshell`) and the sandbox images are UBI9 too (via
+the agentic base images). UBI9 defaults `python3` to
 3.9, so `python3.12` is installed and linked as the default for
 agentic-ci and its tooling. The podman backend images
 (`Containerfile.podman`, `Containerfile.base`) are unaffected and remain

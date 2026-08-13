@@ -72,4 +72,4 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 
 ### agentic-ci fails to run in OpenShell image (Python too old)
 - **Likely cause**: UBI9 defaults `python3` to 3.9; agentic-ci needs 3.10+. The images install `python3.12` and symlink it as the default `python3`/`python` in `/usr/local/bin`. A missing symlink or missing `python3.12` breaks the `uv pip install --system` step.
-- **Where to look**: `images/ci/Containerfile.openshell`, `images/runner/shared/Containerfile.openshell-base` python setup
+- **Where to look**: `images/ci/Containerfile.openshell`, `images/runner/claude-code/Containerfile.openshell`, `images/runner/opencode/Containerfile.openshell` python setup
