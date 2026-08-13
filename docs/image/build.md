@@ -19,10 +19,17 @@ schedule triggers builds. Images are tagged with:
 | `openshell` | `images/ci/Containerfile.openshell` | CI env with OpenShell gateway |
 | `claude-runner` | `images/runner/claude-code/Containerfile` | Claude Code runner |
 | `opencode-runner` | `images/runner/opencode/Containerfile` | OpenCode runner |
-| `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Claude Code sandbox |
-| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/opencode`, not `openshell-base`) |
+| `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Claude Code sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/claude-code`) |
+| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/opencode`) |
 
 ## Local builds
+
+The sandbox images pull private base images from `quay.io/aipcc/base-images/`.
+Log in before building them:
+
+```bash
+podman login quay.io
+```
 
 ```bash
 make ci-build                  # podman CI image
@@ -30,7 +37,6 @@ make openshell-ci-build        # openshell CI image
 make base-build                # runner base
 make claude-build              # claude-runner (depends on base-build)
 make opencode-build            # opencode-runner (depends on base-build)
-make openshell-base-build      # sandbox base (used by claude-sandbox)
-make openshell-claude-build    # claude-sandbox (depends on openshell-base-build)
+make openshell-claude-build    # claude-sandbox (builds on the agentic base image)
 make openshell-opencode-build  # opencode-sandbox (builds on the agentic base image)
 ```

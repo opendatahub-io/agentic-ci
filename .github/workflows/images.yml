@@ -303,7 +303,8 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/podman:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # claude-sandbox: OpenShell sandbox, requires openshell-base built first
+  # claude-sandbox: OpenShell sandbox, builds on the agentic base image
+  # (quay.io/aipcc/base-images/agentic/claude-code), not openshell-base
   # --------------------------------------------------------------------------
   build-claude-sandbox:
     name: Build claude-sandbox
@@ -330,9 +331,6 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
-
-      - name: Build openshell-base
-        run: podman build -t localhost/openshell-base:latest -f images/runner/shared/Containerfile.openshell-base .
 
       - name: Build claude-sandbox
         run: |
