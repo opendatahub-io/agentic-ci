@@ -63,8 +63,8 @@ RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
     && ln -sf /usr/bin/pip3.12 /usr/local/bin/pip
 
 # uv
-ARG UV_VERSION=0.12.1
-ARG UV_SHA256=47823f814693bab8623308341369190de30b5c621eec5b1ee20352eae8c7982c
+ARG UV_VERSION=0.12.2
+ARG UV_SHA256=2dbe8209c9592f6d1009b8565f4bf29813427907bee2236023c013101ede343f
 RUN curl -fsSL -o /tmp/uv.tar.gz \
         "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
