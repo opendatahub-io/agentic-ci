@@ -93,6 +93,12 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
+# The base image installs claude as a symlink chain through node_modules.
+# OpenShell's sandbox supervisor cannot follow symlinks across mount
+# boundaries, so replace the symlink with a hard-link to the real binary.
+RUN rm /usr/local/bin/claude \
+    && ln /opt/claude-code/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
+
 # Sandbox home directories. The base image provides the sandbox user
 # (uid 1001, with the dedicated sandbox group) and /sandbox home;
 # create the dirs agentic-ci and Claude Code expect.
