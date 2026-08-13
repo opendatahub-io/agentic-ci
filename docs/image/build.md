@@ -24,6 +24,13 @@ schedule triggers builds. Images are tagged with:
 
 ## Local builds
 
+The sandbox images pull private base images from `quay.io/aipcc/base-images/`.
+Log in before building them:
+
+```bash
+podman login quay.io
+```
+
 ```bash
 make ci-build                  # podman CI image
 make openshell-ci-build        # openshell CI image

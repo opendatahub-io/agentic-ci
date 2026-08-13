@@ -107,6 +107,9 @@ standalone image. Do not add a CI job to push runner-base separately.
 
 ### Building locally
 
+The sandbox images pull private base images from `quay.io/aipcc/base-images/`.
+Log in before building them: `podman login quay.io`
+
 ```bash
 make base-build              # build runner base image locally
 make claude-build            # build Claude Code runner image (includes base)
