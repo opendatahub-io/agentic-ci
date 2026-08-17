@@ -161,6 +161,47 @@ class TestVerdictPathGuard:
         assert stream_complete is False
 
 
+class TestOutputFileTee:
+    """Verify _process_stream tees raw lines to output_file when set."""
+
+    def test_streaming_writes_raw_lines(self, tmp_path):
+        lines = ['{"type": "system"}\n', '{"type": "stream_event"}\n']
+        backend = ConcreteBackend(harness=FakeHarness())
+        backend.output_file = tmp_path / "out.jsonl"
+        proc = _make_proc(lines, returncode=0)
+        backend._process_stream(proc, streaming=True)
+        assert backend.output_file.read_text() == "".join(lines)
+
+    def test_non_streaming_writes_raw_lines(self, tmp_path):
+        lines = ['{"type": "system"}\n', '{"type": "stream_event"}\n']
+        backend = ConcreteBackend(harness=FakeHarness())
+        backend.output_file = tmp_path / "out.jsonl"
+        proc = _make_proc(lines, returncode=0)
+        backend._process_stream(proc, streaming=False)
+        assert backend.output_file.read_text() == "".join(lines)
+
+    def test_no_output_file_does_not_fail(self):
+        backend = ConcreteBackend(harness=FakeHarness())
+        proc = _make_proc(['{"type": "system"}\n'], returncode=0)
+        rc, _ = backend._process_stream(proc, streaming=True)
+        assert rc == 0
+
+    def test_creates_parent_dirs(self, tmp_path):
+        backend = ConcreteBackend(harness=FakeHarness())
+        backend.output_file = tmp_path / "sub" / "dir" / "out.jsonl"
+        proc = _make_proc(['{"type": "system"}\n'], returncode=0)
+        backend._process_stream(proc, streaming=True)
+        assert backend.output_file.exists()
+
+    def test_stream_completion_still_writes(self, tmp_path):
+        backend = ConcreteBackend(harness=FakeHarness())
+        backend.output_file = tmp_path / "out.jsonl"
+        proc = _make_proc([FULL_RUN_MSG + "\n"], returncode=-9)
+        _, stream_complete = backend._process_stream(proc, streaming=True)
+        assert stream_complete is True
+        assert FULL_RUN_MSG in backend.output_file.read_text()
+
+
 class TestOpenShellDownloadBeforeVerdict:
     """Verify OpenShellBackend downloads the workdir before checking the verdict."""
 

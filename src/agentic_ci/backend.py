@@ -32,6 +32,7 @@ class Backend(ABC):
         self.image = image
         self.harness = harness
         self.verdict_path: Path | None = None
+        self.output_file: Path | None = None
 
     @abstractmethod
     def setup(self, otel_port: int | None = None):
@@ -77,18 +78,33 @@ class Backend(ABC):
 
         stream_complete = False
 
-        processor = None
-        if streaming:
-            processor = self.harness.create_stream_processor(pid=proc.pid)
-            for line in proc.stdout:
-                text = line.decode("utf-8", errors="replace")
-                if processor.process_line(text):
-                    stream_complete = True
-                    break
-        else:
-            for line in proc.stdout:
-                sys.stdout.buffer.write(line)
-                sys.stdout.buffer.flush()
+        out_fh = None
+        if self.output_file is not None:
+            self.output_file.parent.mkdir(parents=True, exist_ok=True)
+            out_fh = open(self.output_file, "w", encoding="utf-8")
+
+        try:
+            processor = None
+            if streaming:
+                processor = self.harness.create_stream_processor(pid=proc.pid)
+                for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace")
+                    if out_fh is not None:
+                        out_fh.write(text)
+                        out_fh.flush()
+                    if processor.process_line(text):
+                        stream_complete = True
+                        break
+            else:
+                for line in proc.stdout:
+                    if out_fh is not None:
+                        out_fh.write(line.decode("utf-8", errors="replace"))
+                        out_fh.flush()
+                    sys.stdout.buffer.write(line)
+                    sys.stdout.buffer.flush()
+        finally:
+            if out_fh is not None:
+                out_fh.close()
 
         if stream_complete:
             # Stream processor detected the run is done but the process is
