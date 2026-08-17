@@ -84,7 +84,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -168,7 +168,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -252,7 +252,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -326,7 +326,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -400,7 +400,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -473,7 +473,7 @@ jobs:
 
       - name: Log in to quay.io
         if: env.HAS_SECRETS == 'true'
-        uses: redhat-actions/podman-login@1c5f0391532e46658ea26d8906324252e09497a9 # v1 (node24)
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
