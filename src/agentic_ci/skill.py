@@ -151,6 +151,7 @@ def _default_run_container(
     )
     if verdict_path is not None:
         backend.verdict_path = verdict_path
+    backend.output_file = output_file
 
     otel_proc = None
     otel_port = None
