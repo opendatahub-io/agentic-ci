@@ -146,6 +146,80 @@ class TestSearch:
         assert results[0]["key"] == "TEST-1"
 
 
+class TestGetIssueLinks:
+    @staticmethod
+    def _resp(payload):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = payload
+        return resp
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_normalises_inward_and_outward(self, mock_requests, client):
+        mock_requests.get.return_value = self._resp(
+            {
+                "fields": {
+                    "issuelinks": [
+                        {
+                            "type": {"name": "Blocks", "inward": "is blocked by"},
+                            "inwardIssue": {
+                                "key": "TEST-2",
+                                "fields": {"status": {"name": "Open"}},
+                            },
+                        },
+                        {
+                            "type": {"name": "Blocks", "outward": "blocks"},
+                            "outwardIssue": {
+                                "key": "TEST-3",
+                                "fields": {"status": {"name": "Done"}},
+                            },
+                        },
+                    ]
+                }
+            }
+        )
+
+        links = client.get_issue_links("TEST-1")
+        assert links == [
+            {"type": "Blocks", "direction": "inward", "key": "TEST-2", "status": "Open"},
+            {"type": "Blocks", "direction": "outward", "key": "TEST-3", "status": "Done"},
+        ]
+        assert "fields=issuelinks" in mock_requests.get.call_args.args[0]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_missing_status_defaults_to_empty(self, mock_requests, client):
+        mock_requests.get.return_value = self._resp(
+            {
+                "fields": {
+                    "issuelinks": [{"type": {"name": "Relates"}, "outwardIssue": {"key": "TEST-9"}}]
+                }
+            }
+        )
+
+        links = client.get_issue_links("TEST-1")
+        assert links == [{"type": "Relates", "direction": "outward", "key": "TEST-9", "status": ""}]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_no_links_returns_empty(self, mock_requests, client):
+        mock_requests.get.return_value = self._resp({"fields": {}})
+        assert client.get_issue_links("TEST-1") == []
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_null_issuelinks_returns_empty(self, mock_requests, client):
+        mock_requests.get.return_value = self._resp({"fields": {"issuelinks": None}})
+        assert client.get_issue_links("TEST-1") == []
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_api_error_raises(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 404
+        resp.text = "not found"
+        mock_requests.get.return_value = resp
+
+        with pytest.raises(JiraError):
+            client.get_issue_links("TEST-1")
+
+
 class TestEditLabels:
     @patch("agentic_ci.jira.client.requests")
     def test_add_labels(self, mock_requests, client):
