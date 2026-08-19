@@ -521,6 +521,48 @@ class JiraClient:
 
         return sorted(parent_keys)
 
+    def get_issue_links(self, key: str) -> list[dict]:
+        """Return an issue's links as a normalised list.
+
+        Each entry describes one link and the issue on the other end:
+
+          - ``type``: the link type name (e.g. ``"Blocks"``).
+          - ``direction``: ``"inward"`` or ``"outward"`` -- which side the
+            linked issue sits on. For a ``"Blocks"`` link, ``"inward"``
+            means *this* issue is blocked by the linked issue; ``"outward"``
+            means this issue blocks it.
+          - ``key``: the linked issue key (e.g. ``"PROJ-123"``).
+          - ``status``: the linked issue's status name (e.g. ``"Open"``),
+            or ``""`` if unavailable.
+
+        Returns an empty list if the issue has no links.
+        """
+        resp = self._request(
+            "get",
+            self._api_url(f"issue/{key}") + "?fields=issuelinks",
+            headers=self._headers(),
+        )
+        self._check(resp)
+
+        links: list[dict] = []
+        for link in resp.json().get("fields", {}).get("issuelinks") or []:
+            if link.get("inwardIssue"):
+                direction, issue = "inward", link["inwardIssue"]
+            elif link.get("outwardIssue"):
+                direction, issue = "outward", link["outwardIssue"]
+            else:
+                continue
+            status = ((issue.get("fields") or {}).get("status") or {}).get("name", "")
+            links.append(
+                {
+                    "type": (link.get("type") or {}).get("name", ""),
+                    "direction": direction,
+                    "key": issue.get("key", ""),
+                    "status": status,
+                }
+            )
+        return links
+
     # ------------------------------------------------------------------
     # Write operations
     # ------------------------------------------------------------------
