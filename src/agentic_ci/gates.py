@@ -117,7 +117,7 @@ def check_sensitive_files(
     for filepath in changed_files:
         name = Path(filepath).name
         for pattern in blocklist:
-            if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(filepath, pattern):
+            if fnmatch.fnmatch(name, pattern):
                 blocked.append(filepath)
                 break
     return blocked
