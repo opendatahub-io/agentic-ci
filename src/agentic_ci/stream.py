@@ -578,7 +578,7 @@ class CodexStreamProcessor:
         self.agent_pid = agent_pid
 
         if color:
-            self.THINK = "\033[3;31m"
+            self.THINK = "\033[3;36m"
             self.TOOL = "\033[1;90m"
             self.AGENT = ""
             self.RED = "\033[31m"
@@ -594,10 +594,15 @@ class CodexStreamProcessor:
     def _print_text(self, label, text, style=""):
         lines = str(text).splitlines() or [""]
         first_prefix = f"{self._INDENT}{style}{label}"
+        # Width must be measured against visible characters only; the ANSI
+        # ``style`` escape is non-printing, so excluding it keeps wrapping at
+        # the intended column instead of wrapping early when color is enabled.
+        first_prefix_width = len(self._INDENT) + len(label)
         continuation = self._INDENT * 2
         for index, line in enumerate(lines):
             prefix = first_prefix if index == 0 else continuation
-            if self.wrap and len(prefix) + len(line) > self.wrap:
+            prefix_width = first_prefix_width if index == 0 else len(continuation)
+            if self.wrap and prefix_width + len(line) > self.wrap:
                 available = max(self.wrap - len(continuation), 20)
                 words = line.split()
                 chunks = []
@@ -657,7 +662,14 @@ class CodexStreamProcessor:
             if item_id not in self._started_items:
                 self._print_command(item)
             exit_code = item.get("exit_code")
-            if exit_code not in (None, 0):
+            # Codex may serialize exit_code as a number or a numeric string;
+            # normalize before comparing so a successful "0" is not rendered
+            # as a failure.
+            try:
+                normalized = int(exit_code) if exit_code is not None else None
+            except (TypeError, ValueError):
+                normalized = exit_code
+            if normalized not in (None, 0):
                 self._print_text("  exit=", str(exit_code), self.RED)
         elif item_type == "file_change":
             changes = item.get("changes", [])
@@ -720,6 +732,15 @@ class CodexStreamProcessor:
             return False
 
         if msg_type == "turn.completed":
+            # ``codex exec`` runs a single turn per invocation and reports its
+            # terminal token usage here, so the first turn.completed marks the
+            # end of the run. Returning True is load-bearing for telemetry:
+            # backend._process_stream uses it to wait for the OTEL batch
+            # exporter to flush (otherwise the root span is often lost) and to
+            # promote a post-completion non-zero exit code to success. If a
+            # future Codex exec mode emits multiple turns, completion should be
+            # keyed off a thread-level terminal event instead of this first
+            # turn.completed to avoid truncating the run.
             usage = msg.get("usage", {})
             inp = usage.get("input_tokens", 0)
             out = usage.get("output_tokens", 0)

@@ -197,9 +197,10 @@ every missing variable and which gate needs it.
 
 ## Credentials
 
-Anthropic, Vertex AI, and OpenAI authentication are supported. The mode is
-auto-detected
-and logged at startup.
+Anthropic, Vertex AI, and OpenAI authentication are supported. The auth family
+follows the selected harness — Claude Code auto-detects Anthropic API key vs
+Vertex AI, while Codex always uses OpenAI — and the resolved mode is logged at
+startup.
 
 ### Anthropic API key (direct)
 

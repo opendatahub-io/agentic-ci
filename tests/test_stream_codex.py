@@ -84,6 +84,46 @@ class TestProcessLine:
         assert "Shell $ false" in output
         assert "exit=1" in output
 
+    def test_string_exit_code_zero_not_failure(self, capsys):
+        """Codex may serialize exit_code as the string "0"; treat it as success."""
+        proc = CodexStreamProcessor(color=False)
+        line = _make_event(
+            "item.completed",
+            item=_item(
+                "command_execution",
+                command="true",
+                exit_code="0",
+                status="completed",
+            ),
+        )
+        proc.process_line(line)
+        assert "exit=" not in capsys.readouterr().out
+
+    def test_string_exit_code_nonzero_is_failure(self, capsys):
+        """A string exit_code like "2" is still rendered as a failure."""
+        proc = CodexStreamProcessor(color=False)
+        line = _make_event(
+            "item.completed",
+            item=_item(
+                "command_execution",
+                command="false",
+                exit_code="2",
+                status="failed",
+            ),
+        )
+        proc.process_line(line)
+        assert "exit=2" in capsys.readouterr().out
+
+    def test_thinking_uses_cyan_color(self, capsys):
+        """Reasoning output uses cyan (not red, which is reserved for errors)."""
+        proc = CodexStreamProcessor(color=True)
+        line = _make_event(
+            "item.completed",
+            item=_item("reasoning", text="Checking the repository"),
+        )
+        proc.process_line(line)
+        assert "\033[3;36m" in capsys.readouterr().out
+
     def test_file_change(self, capsys):
         proc = CodexStreamProcessor(color=False)
         line = _make_event(

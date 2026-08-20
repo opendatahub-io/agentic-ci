@@ -244,6 +244,11 @@ def install_codex_plugins(
     marketplace_root = _codex_marketplace_root(marketplace_json)
     added = _run_codex_json(["plugin", "marketplace", "add", str(marketplace_root)])
     marketplace_name = added.get("marketplaceName") if added else None
+    if added and not marketplace_name:
+        print(
+            "  WARN: codex plugin marketplace add succeeded but returned no "
+            "marketplaceName; falling back to skills compatibility layer"
+        )
 
     listing = None
     if marketplace_name:
@@ -343,22 +348,8 @@ def _filter_claude(wanted: set[str]) -> None:
 def _filter_opencode(wanted: set[str]) -> None:
     config_dir = Path(os.environ.get("OPENCODE_CONFIG_DIR", Path.home() / ".config" / "opencode"))
 
-    manifest_path = _manifest_path()
-    if not manifest_path.is_file():
-        print(
-            f"WARNING: AGENT_ENABLED_PLUGINS is set but {manifest_path} not found",
-            file=sys.stderr,
-        )
-        return
-
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        print(
-            f"WARNING: {manifest_path} contains invalid JSON",
-            file=sys.stderr,
-        )
+    manifest = _load_plugin_manifest(warn_if_missing=True)
+    if manifest is None:
         return
 
     matched = wanted & set(manifest.keys())
@@ -379,10 +370,27 @@ def _filter_opencode(wanted: set[str]) -> None:
                     shutil.rmtree(entry)
 
 
-def _load_plugin_manifest() -> dict[str, list[str]]:
+def _load_plugin_manifest(warn_if_missing: bool = False) -> dict[str, list[str]] | None:
+    """Load the plugin-to-skills manifest.
+
+    Returns the parsed mapping, or ``None`` when the manifest is missing or
+    unreadable (invalid JSON). Callers for which the manifest is the sole
+    source of truth (OpenCode) should treat ``None`` as "do not filter";
+    callers with another source of truth (Codex native plugins) can fall back
+    to ``{}``. A manifest whose top-level JSON is not an object is treated as
+    an empty mapping.
+
+    Set ``warn_if_missing`` to emit the "manifest not found" warning when the
+    file is absent (OpenCode); Codex loads it silently.
+    """
     manifest_path = _manifest_path()
     if not manifest_path.is_file():
-        return {}
+        if warn_if_missing:
+            print(
+                f"WARNING: AGENT_ENABLED_PLUGINS is set but {manifest_path} not found",
+                file=sys.stderr,
+            )
+        return None
     try:
         with open(manifest_path) as f:
             data = json.load(f)
@@ -391,14 +399,14 @@ def _load_plugin_manifest() -> dict[str, list[str]]:
             f"WARNING: {manifest_path} contains invalid JSON",
             file=sys.stderr,
         )
-        return {}
+        return None
     return data if isinstance(data, dict) else {}
 
 
 def _filter_codex(wanted: set[str]) -> None:
     installed = _run_codex_json(["plugin", "list"])
     native_plugins = installed.get("installed", []) if installed else []
-    manifest = _load_plugin_manifest()
+    manifest = _load_plugin_manifest() or {}
 
     native_names = {
         entry.get("name") for entry in native_plugins if isinstance(entry.get("name"), str)

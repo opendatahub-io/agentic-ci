@@ -556,3 +556,80 @@ class TestInjectRootSpans:
         span = records[1]["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert int(span["startTimeUnixNano"]) == 500
         assert int(span["endTimeUnixNano"]) == 12000
+
+
+class TestParseMetricsRobustness:
+    """parse_metrics must tolerate malformed OTLP attribute entries."""
+
+    def test_metrics_attribute_missing_key_is_skipped(self):
+        records = [
+            {
+                "path": "/v1/metrics",
+                "payload": {
+                    "resourceMetrics": [
+                        {
+                            "scopeMetrics": [
+                                {
+                                    "metrics": [
+                                        {
+                                            "name": "claude_code.token.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asInt": 5,
+                                                        "attributes": [
+                                                            {"value": {"stringValue": "orphan"}},
+                                                            {
+                                                                "key": "model",
+                                                                "value": {"stringValue": "gpt-5"},
+                                                            },
+                                                            {
+                                                                "key": "type",
+                                                                "value": {"stringValue": "input"},
+                                                            },
+                                                        ],
+                                                    }
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+        token_totals, _, _, _ = parse_metrics(records)
+        assert token_totals[("gpt-5", "input")] == 5
+
+    def test_logs_attribute_missing_key_is_skipped(self):
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "logRecords": [
+                                        {
+                                            "attributes": [
+                                                {"value": {"stringValue": "orphan"}},
+                                                {
+                                                    "key": "event.name",
+                                                    "value": {"stringValue": "codex.api_request"},
+                                                },
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+        _, _, api_requests, _ = parse_metrics(records)
+        assert len(api_requests) == 1
+        assert api_requests[0]["event.name"] == "codex.api_request"

@@ -219,11 +219,9 @@ def parse_metrics(records):
                         data = metric.get("sum", metric.get("gauge", metric.get("histogram", {})))
                         for dp in data.get("dataPoints", []):
                             attrs = {
-                                a["key"]: a["value"].get(
-                                    "stringValue",
-                                    a["value"].get("intValue", a["value"].get("doubleValue")),
-                                )
+                                a.get("key"): _otel_attribute_value(a.get("value"))
                                 for a in dp.get("attributes", [])
+                                if a.get("key")
                             }
                             value = dp.get("asDouble", dp.get("asInt", 0))
 
@@ -245,7 +243,9 @@ def parse_metrics(records):
                         event_name = ""
                         event_attrs = {}
                         for a in lr.get("attributes", []):
-                            key = a["key"]
+                            key = a.get("key")
+                            if not key:
+                                continue
                             v = _otel_attribute_value(a.get("value"))
                             event_attrs[key] = v
                             if key == "event.name":
@@ -262,6 +262,12 @@ def parse_metrics(records):
                             cache_write_tokens = _numeric_attribute(
                                 event_attrs, "cache_write_token_count"
                             )
+                            # Codex reports input_token_count inclusive of the
+                            # cached and cache-write tokens, so subtract them to
+                            # get the fresh prompt tokens. The max(..., 0) guards
+                            # against exporters that report them separately (in
+                            # which case fresh_input clamps to 0 rather than
+                            # going negative).
                             fresh_input = max(
                                 input_tokens - cached_tokens - cache_write_tokens,
                                 0,

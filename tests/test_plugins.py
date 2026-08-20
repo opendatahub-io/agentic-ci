@@ -184,12 +184,30 @@ class TestEnablePluginsOpenCode:
         assert not orphan.exists()
         assert (tmp_path / "skills" / "skill-a1" / "SKILL.md").is_file()
 
-    def test_missing_manifest_returns_ok(self, monkeypatch, tmp_path):
+    def test_missing_manifest_returns_ok(self, monkeypatch, tmp_path, capsys):
         monkeypatch.setenv("AGENT_TOOL", "opencode")
         monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
         monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "plugin-a")
-        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(tmp_path / "nonexistent.json"))
+        manifest = tmp_path / "nonexistent.json"
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
         enable_plugins()
+        assert f"{manifest} not found" in capsys.readouterr().err
+
+    def test_invalid_manifest_returns_ok(self, monkeypatch, tmp_path, capsys):
+        """An unreadable (invalid JSON) manifest warns and skips filtering."""
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text("{ not valid json")
+        skills_dir = tmp_path / "skills" / "skill-a1"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "SKILL.md").write_text("---\nname: skill-a1\n---\n")
+        monkeypatch.setenv("AGENT_TOOL", "opencode")
+        monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "plugin-a")
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+        enable_plugins()
+        # Filtering is skipped, so the on-disk skill is left untouched.
+        assert (tmp_path / "skills" / "skill-a1" / "SKILL.md").is_file()
+        assert "invalid JSON" in capsys.readouterr().err
 
 
 # -- enable_plugins: Codex filtering -----------------------------------------
@@ -481,6 +499,33 @@ class TestInstallCodexPlugins:
                 manifest_path=manifest,
             )
 
+        install_skills.assert_called_once_with(
+            marketplace,
+            skills_dir=skills_dir,
+            manifest_path=manifest,
+        )
+
+    def test_marketplace_add_without_name_falls_back_and_warns(self, tmp_path, capsys):
+        """A marketplace add that returns no marketplaceName warns and falls back."""
+        marketplace = tmp_path / "marketplace.json"
+        marketplace.write_text("{}")
+        manifest = tmp_path / "manifest.json"
+        skills_dir = tmp_path / "skills"
+
+        with (
+            mock.patch(
+                "agentic_ci.plugins._run_codex_json",
+                side_effect=[{"ok": True}],
+            ),
+            mock.patch("agentic_ci.plugins.install_opencode_skills") as install_skills,
+        ):
+            install_codex_plugins(
+                marketplace,
+                skills_dir=skills_dir,
+                manifest_path=manifest,
+            )
+
+        assert "returned no marketplaceName" in capsys.readouterr().out
         install_skills.assert_called_once_with(
             marketplace,
             skills_dir=skills_dir,
