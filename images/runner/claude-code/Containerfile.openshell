@@ -16,7 +16,7 @@
 #
 # x86_64 only.
 
-ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:0.0.1-1786606767@sha256:5878f73d40fc109756054ba3d1ec1469e82849585da9271d5753aea4d20db20c
+ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:0.0.1-1787088150@sha256:b80d9844271b690cbeb70810a32b1fb091f710bdc8e238a5e15efe46516a3193
 FROM ${CLAUDE_CODE_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.1
