@@ -6,7 +6,6 @@
     "commands": ["python3 scripts/bump-versions.py --sync"],
     "fileFilters": [
       "images/runner/shared/Containerfile.base",
-      "images/runner/shared/Containerfile.openshell-base",
       "images/runner/claude-code/Containerfile",
       "images/runner/claude-code/Containerfile.openshell",
       "images/runner/opencode/Containerfile",
@@ -31,7 +30,15 @@
     },
     {
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["quay.io/aipcc/base-images/agentic/opencode"],
+      "matchPackageNames": [
+        "quay.io/aipcc/base-images/agentic/opencode",
+        "quay.io/aipcc/base-images/agentic/claude-code"
+      ],
+      "minimumReleaseAge": "0 days"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["quay.io/opendatahub/odh-openshell-cli"],
       "minimumReleaseAge": "0 days"
     }
   ],
@@ -40,7 +47,6 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
@@ -55,7 +61,6 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ARG SHELLCHECK_VERSION=(?<currentValue>[^\\n]+)"],
@@ -68,7 +73,6 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
@@ -83,7 +87,6 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
@@ -114,7 +117,8 @@
       ],
       "matchStrings": ["ARG OPENSHELL_IMAGE_TAG=(?<currentValue>[^\\n]+)"],
       "depNameTemplate": "quay.io/opendatahub/odh-openshell-cli",
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-rhaiv\\.(?<build>\\d+)$"
     },
     {
       "customType": "regex",
@@ -143,30 +147,7 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^images/runner/claude-code/Containerfile$",
-        "^images/runner/claude-code/Containerfile\\.openshell$"
-      ],
-      "matchStrings": ["ARG CLAUDE_VERSION=(?<currentValue>[^\\n]+)"],
-      "depNameTemplate": "@anthropic-ai/claude-code",
-      "datasourceTemplate": "npm",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": [
-        "^images/runner/opencode/Containerfile$"
-      ],
-      "matchStrings": ["ARG OPENCODE_VERSION=(?<currentValue>[^\\n]+)"],
-      "depNameTemplate": "anomalyco/opencode",
-      "datasourceTemplate": "github-releases",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v?(?<version>.+)$"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ruff==(?<currentValue>[^\\s]+)"],
@@ -177,7 +158,6 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/shared/Containerfile\\.openshell-base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
@@ -199,10 +179,20 @@
     {
       "customType": "regex",
       "fileMatch": [
+        "^images/runner/claude-code/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG CLAUDE_CODE_BASE_IMAGE=(?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
         "^images/runner/opencode/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ARG OPENCODE_BASE_IMAGE=(?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"],
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
     }
   ]
 }
