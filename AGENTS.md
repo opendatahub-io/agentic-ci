@@ -38,7 +38,7 @@ src/agentic_ci/
 
 - **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` and `--harness` flags. Creates harness and backend, handles OTEL lifecycle.
 
-- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor.
+- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees every raw output line to disk for transcript capture.
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`.
 
@@ -159,6 +159,8 @@ Fix any failures before moving on. Do not skip any of these checks.
 - Fix lint errors at the source. Don't suppress with `# noqa` or exclude files from linting.
 - All tests live under `tests/`.
 - `pytest` for tests.
+- When functionality could be reused by multiple SDLC pipelines (e.g. autofix), expose it in `agentic-ci` as a public API rather than letting consumers call private internals across the pinned dependency boundary.
+- Public API methods return curated, agentic-ci-owned data shapes — not raw wire formats. Keep field scope minimal (YAGNI); additional fields can be added later without breaking changes.
 
 ## Debugging
 

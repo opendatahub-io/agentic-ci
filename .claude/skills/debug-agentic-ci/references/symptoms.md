@@ -60,6 +60,12 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: `adf_to_text()` was stripping markdown formatting. Fixed to preserve it during conversion.
 - **Where to look**: `jira.py:adf_to_text()`
 
+## Gates
+
+### Sensitive-files gate blocks files in directories named `secrets/`
+- **Likely cause**: `check_sensitive_files` was matching patterns against both the filename and the full path. Python's `fnmatch` treats `*` as matching path separators, so the `*secret*` blocklist pattern matched directory components like `secrets/`. Fixed by restricting matching to the filename only (`os.path.basename`).
+- **Where to look**: `gates.py:check_sensitive_files()`, fnmatch pattern matching
+
 ## Container images
 
 ### AGENTS.md not found in container
