@@ -21,7 +21,7 @@
 #
 # x86_64 only.
 
-ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:latest@sha256:e18cac063ab3a5a01d4a0fec352b6d80796d6d44b8c3a0899ff964c3030c42b8
+ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:0.0.1-1787087831@sha256:e18cac063ab3a5a01d4a0fec352b6d80796d6d44b8c3a0899ff964c3030c42b8
 FROM ${OPENCODE_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.2
