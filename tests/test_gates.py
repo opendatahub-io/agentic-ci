@@ -36,6 +36,17 @@ class TestCheckSensitiveFiles:
         result = check_sensitive_files(["my-secret-file.txt"])
         assert result == ["my-secret-file.txt"]
 
+    def test_secret_directory_not_blocked(self):
+        files = [
+            "src/app/secrets/SecretKeyValuePairInput.tsx",
+            "src/app/secrets/SecretsAttachModal.tsx",
+        ]
+        assert check_sensitive_files(files) == []
+
+    def test_secret_in_filename_still_blocked(self):
+        result = check_sensitive_files(["config/secret.yaml"])
+        assert result == ["config/secret.yaml"]
+
 
 class TestCheckCommitAuthor:
     def test_match(self):
