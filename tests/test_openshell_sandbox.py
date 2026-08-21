@@ -111,3 +111,23 @@ def test_apply_policy_allows_hummingbird_binary_aliases():
         if argument == "--binary"
     ]
     assert binary_paths == list(sandbox.AGENT_BINARY_PATHS)
+
+
+class TestExistingSandboxKeepsItsAllocation:
+    """Resource limits are fixed at creation, so reuse cannot apply new ones."""
+
+    def test_a_reused_sandbox_says_the_request_was_not_applied(self):
+        backend = create_backend("openshell", harness=mock.Mock(), memory="8Gi", gpu=1)
+        with mock.patch("agentic_ci.backends.openshell.log.info") as logged:
+            backend._warn_unapplied_resources()
+
+        warning = logged.call_args.args[0]
+        assert "memory=8Gi" in warning and "gpu=1" in warning
+        assert "Delete it" in warning
+
+    def test_nothing_is_said_when_nothing_was_requested(self):
+        backend = create_backend("openshell", harness=mock.Mock())
+        with mock.patch("agentic_ci.backends.openshell.log.info") as logged:
+            backend._warn_unapplied_resources()
+
+        logged.assert_not_called()
