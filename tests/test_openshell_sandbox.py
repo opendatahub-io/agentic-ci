@@ -127,3 +127,41 @@ class TestBackendPassesResourcesThrough:
         backend = create_backend("openshell", harness=mock.Mock(auth_mode="vertex"))
 
         assert (backend.memory, backend.cpu, backend.gpu) == (None, None, None)
+
+
+class TestExistingSandboxKeepsItsAllocation:
+    """Resource limits are fixed at creation, so reuse cannot apply new ones."""
+
+    @staticmethod
+    def _setup_with_existing_sandbox(**resources):
+        backend = OpenShellBackend(harness=mock.Mock(auth_mode="vertex"), **resources)
+        with ExitStack() as patches:
+            for target in ("gateway.is_running", "provider.setup"):
+                patches.enter_context(mock.patch(f"agentic_ci.backends.openshell.{target}"))
+            patches.enter_context(
+                mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True)
+            )
+            create = patches.enter_context(
+                mock.patch("agentic_ci.backends.openshell.sandbox.create")
+            )
+            logged = patches.enter_context(mock.patch("agentic_ci.backends.openshell.log.info"))
+            backend.setup()
+        return create, logged
+
+    def test_a_reused_sandbox_says_the_request_was_not_applied(self):
+        """Silently keeping the old allocation is the same failure the limits
+        themselves cause: work runs against a ceiling nobody chose, and the
+        symptom shows up somewhere else entirely."""
+        create, logged = self._setup_with_existing_sandbox(memory="8Gi", gpu=1)
+
+        create.assert_not_called()
+        warning = logged.call_args.args[0]
+        assert "memory=8Gi" in warning and "gpu=1" in warning
+        assert "Delete it" in warning
+
+    def test_nothing_is_said_when_nothing_was_requested(self):
+        """The common path. A warning on every reused sandbox would train
+        people to ignore the one that matters."""
+        _, logged = self._setup_with_existing_sandbox()
+
+        logged.assert_not_called()
