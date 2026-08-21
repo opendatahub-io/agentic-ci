@@ -45,6 +45,9 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             policy=kwargs.get("policy"),
             extra_env=kwargs.get("extra_env"),
             approval_mode=kwargs.get("approval_mode"),
+            memory=kwargs.get("memory"),
+            cpu=kwargs.get("cpu"),
+            gpu=kwargs.get("gpu"),
             harness=harness,
         )
     else:

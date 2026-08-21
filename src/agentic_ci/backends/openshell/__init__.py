@@ -91,6 +91,9 @@ class OpenShellBackend(Backend):
         policy=None,
         extra_env=None,
         approval_mode=None,
+        memory=None,
+        cpu=None,
+        gpu=None,
         *,
         harness: Harness,
     ):
@@ -98,6 +101,9 @@ class OpenShellBackend(Backend):
         self.policy_path = policy
         self._extra_env = extra_env or {}
         self.approval_mode = approval_mode
+        self.memory = memory
+        self.cpu = cpu
+        self.gpu = gpu
 
     def setup(self, otel_port=None):
         if not gateway.is_running():
@@ -111,6 +117,7 @@ class OpenShellBackend(Backend):
 
         if sandbox.exists():
             log.section("Sandbox already exists")
+            self._warn_unapplied_resources()
             return
 
         image_info = f", image: {self.image}" if self.image else ""
@@ -122,6 +129,9 @@ class OpenShellBackend(Backend):
             otel_port=otel_port,
             workdir=self.workdir,
             approval_mode=self.approval_mode,
+            memory=self.memory,
+            cpu=self.cpu,
+            gpu=self.gpu,
         )
 
         self._run_setup_steps()
@@ -130,6 +140,31 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
+
+    def _warn_unapplied_resources(self):
+        """Say so when a reused sandbox keeps an allocation the caller did not ask for.
+
+        Resource limits are fixed when the sandbox is created, so reuse silently
+        discards whatever ``memory``, ``cpu`` or ``gpu`` this backend was given.
+        Left unsaid, that is the same failure the limits themselves cause: work
+        runs against a ceiling nobody chose and the symptom appears somewhere else
+        entirely.
+
+        A warning rather than an error, because reuse is a deliberate feature and
+        the existing allocation may already be correct. Verifying that would mean
+        parsing ``openshell sandbox get`` and comparing units -- ``1``, ``1000m``
+        and ``1.0`` are the same CPU -- which is a contract worth adding only once
+        something needs to depend on it.
+        """
+        requested = {"memory": self.memory, "cpu": self.cpu, "gpu": self.gpu}
+        asked_for = {k: v for k, v in requested.items() if v}
+        if not asked_for:
+            return
+        values = ", ".join(f"{k}={v}" for k, v in asked_for.items())
+        log.info(
+            f"WARNING: {values} not applied -- resource limits are set at creation "
+            f"and this sandbox already exists. Delete it to apply new values."
+        )
 
     def _upload_sandbox_config(self, otel_enabled=False):
         """Write harness-specific config and upload it to the sandbox."""

@@ -29,12 +29,41 @@ def exists():
     return result.returncode == 0
 
 
-def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_mode=None):
+def create(
+    image: str | None = None,
+    policy_path: str | None = None,
+    otel_port: int | None = None,
+    workdir: str = ".",
+    approval_mode: str | None = None,
+    memory: str | None = None,
+    cpu: str | None = None,
+    gpu: int | None = None,
+) -> None:
     """Create a persistent sandbox with the CI provider attached.
 
     The sandbox is created first, then the network policy is applied
     via ``openshell policy update --wait`` to ensure the supervisor
     has compiled and activated the rules before the agent starts.
+
+    ``memory``, ``cpu`` and ``gpu`` size the sandbox. All three default to
+    ``None``, which leaves OpenShell's own defaults in place -- notably a
+    memory ceiling of roughly 4Gi, which applies no matter how large the CI
+    runner is. An agent that exceeds it is OOM-killed by the cgroup, and from
+    inside the sandbox that looks like the sandbox simply vanishing: the
+    supervisor's log stops mid-line and the next command reports
+    ``sandbox is not ready``.
+
+    Args:
+        image: Sandbox image to create from.
+        policy_path: Path to a network policy file to merge in.
+        otel_port: Port for the OTEL collector on the host.
+        workdir: Directory the policy file is resolved relative to.
+        approval_mode: Enables agent policy proposals when set.
+        memory: Memory limit, e.g. ``"8Gi"``. None uses OpenShell's default.
+        cpu: CPU limit, e.g. ``"4"`` or ``"2.5"``. None uses OpenShell's default.
+        gpu: GPU count to request, e.g. ``1``. None requests no GPU, which
+            means an accelerator on the host is not visible to the agent even
+            when the container running this can see it.
     """
     args = [
         "openshell",
@@ -51,6 +80,12 @@ def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_m
         args.extend(["--approval-mode", approval_mode])
     if image:
         args.extend(["--from", image])
+    if memory:
+        args.extend(["--memory", str(memory)])
+    if cpu:
+        args.extend(["--cpu", str(cpu)])
+    if gpu:
+        args.extend(["--gpu", str(gpu)])
     args.extend(["--", "true"])
     _run(args, check=True)
 
