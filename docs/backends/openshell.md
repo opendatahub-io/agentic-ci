@@ -127,17 +127,50 @@ openshell provider create \
   --credential ANTHROPIC_API_KEY
 ```
 
+### Sandbox Resources
+
+By default the sandbox uses OpenShell's own resource limits, which include a
+memory ceiling of roughly 4Gi regardless of how large the CI runner is. Pass
+`memory`, `cpu` and `gpu` to size it to the machine:
+
+```python
+backend = create_backend(
+    "openshell",
+    harness=harness,
+    memory="8Gi",  # accepts 512Mi, 4Gi, 8G
+    cpu="4",  # accepts 500m, 1, 2.5
+    gpu=1,  # GPU count
+)
+```
+
+All three default to `None`, which passes no flag and leaves current behavior
+unchanged.
+
+Two failure modes worth recognizing, because neither says what it is:
+
+- **Exceeding the memory ceiling** does not raise. The cgroup OOM-kills the
+  process, the supervisor log stops mid-line, and the next command reports
+  `sandbox is not ready`. The kernel is the only witness — `journalctl -k` on the
+  host shows `Memory cgroup out of memory: Killed process`.
+- **Not requesting a GPU** leaves the accelerator invisible to the agent even
+  when the host has one and the container running agentic-ci can see it.
+  `nvidia-smi -L` inside the sandbox returns nothing.
+
 ### Sandbox Lifecycle
 
 ```bash
 openshell sandbox get ci                         # check if exists
 
-# Create sandbox with the provider attached
+# Create sandbox with the provider attached.
+# --memory / --cpu / --gpu are only passed when the caller sets them.
 openshell sandbox create \
   --name ci \
   --no-tty \
   --provider ci-gcp \
   --from <SANDBOX_IMAGE> \
+  --memory 8Gi \
+  --cpu 4 \
+  --gpu 1 \
   -- true
 
 # Apply network policy and wait for the supervisor to compile and load it.

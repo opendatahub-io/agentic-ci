@@ -91,6 +91,9 @@ class OpenShellBackend(Backend):
         policy=None,
         extra_env=None,
         approval_mode=None,
+        memory=None,
+        cpu=None,
+        gpu=None,
         *,
         harness: Harness,
     ):
@@ -98,6 +101,9 @@ class OpenShellBackend(Backend):
         self.policy_path = policy
         self._extra_env = extra_env or {}
         self.approval_mode = approval_mode
+        self.memory = memory
+        self.cpu = cpu
+        self.gpu = gpu
 
     def setup(self, otel_port=None):
         if not gateway.is_running():
@@ -122,6 +128,9 @@ class OpenShellBackend(Backend):
             otel_port=otel_port,
             workdir=self.workdir,
             approval_mode=self.approval_mode,
+            memory=self.memory,
+            cpu=self.cpu,
+            gpu=self.gpu,
         )
 
         self._run_setup_steps()
