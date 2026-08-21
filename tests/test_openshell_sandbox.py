@@ -2,7 +2,86 @@
 
 from unittest import mock
 
+import pytest
+
+from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import sandbox
+from agentic_ci.backends.openshell.provider import PROVIDER_NAME
+
+
+@pytest.fixture
+def created():
+    """Create a sandbox and return the argv passed to OpenShell."""
+
+    def _create(**kwargs):
+        with (
+            mock.patch.object(sandbox, "_run") as run,
+            mock.patch.object(sandbox, "_apply_policy"),
+        ):
+            sandbox.create(**kwargs)
+        return run.call_args_list[0].args[0]
+
+    return _create
+
+
+class TestCreateResourceFlags:
+    def test_no_resource_flags_by_default(self, created):
+        assert created() == [
+            "openshell",
+            "sandbox",
+            "create",
+            "--name",
+            sandbox.SANDBOX_NAME,
+            "--no-tty",
+            "--no-auto-providers",
+            "--provider",
+            PROVIDER_NAME,
+            "--detach",
+            "--",
+            "sleep",
+            "infinity",
+        ]
+
+    def test_resource_limits_are_passed(self, created):
+        args = created(memory="8Gi", cpu="2.5", gpu=1)
+        assert args[args.index("--memory") + 1] == "8Gi"
+        assert args[args.index("--cpu") + 1] == "2.5"
+        assert args[args.index("--gpu") + 1] == "1"
+
+    def test_resource_flags_precede_the_command_terminator(self, created):
+        args = created(memory="8Gi", cpu="4", gpu=1)
+        terminator = args.index("--")
+        for flag in ("--memory", "--cpu", "--gpu"):
+            assert args.index(flag) < terminator
+
+    def test_resource_flags_combine_with_image_and_approval_mode(self, created):
+        args = created(image="quay.io/example/sandbox:1", approval_mode="ask", memory="8Gi")
+        assert args[args.index("--from") + 1] == "quay.io/example/sandbox:1"
+        assert args[args.index("--approval-mode") + 1] == "ask"
+        assert args[args.index("--memory") + 1] == "8Gi"
+
+    @pytest.mark.parametrize("value", [None, "", 0])
+    def test_falsy_values_leave_the_flag_off(self, created, value):
+        args = created(memory=value, cpu=value, gpu=value)
+        assert "--memory" not in args
+        assert "--cpu" not in args
+        assert "--gpu" not in args
+
+
+class TestBackendPassesResourcesThrough:
+    def test_create_backend_accepts_resource_kwargs(self):
+        backend = create_backend(
+            "openshell",
+            harness=mock.Mock(),
+            memory="8Gi",
+            cpu="4",
+            gpu=1,
+        )
+        assert (backend.memory, backend.cpu, backend.gpu) == ("8Gi", "4", 1)
+
+    def test_defaults_to_no_resource_request(self):
+        backend = create_backend("openshell", harness=mock.Mock())
+        assert (backend.memory, backend.cpu, backend.gpu) == (None, None, None)
 
 
 def test_create_uses_detached_persistent_main_process():
