@@ -89,6 +89,12 @@ OC_ENV=$(run_detect "opencode")
 assert_contains "opencode: sets OPENCODE_DISABLE_AUTOUPDATE=1" "$OC_ENV" "OPENCODE_DISABLE_AUTOUPDATE=1"
 assert_not_contains "opencode: does not set DISABLE_AUTOUPDATER" "$OC_ENV" "DISABLE_AUTOUPDATER"
 
+print_header "=== Entrypoint tool detection: codex ==="
+
+CODEX_ENV=$(run_detect "codex")
+assert_not_contains "codex: does not set Claude auto-update vars" "$CODEX_ENV" "DISABLE_AUTOUPDATER"
+assert_not_contains "codex: does not set OpenCode auto-update vars" "$CODEX_ENV" "OPENCODE_DISABLE_AUTOUPDATE"
+
 print_header "=== Entrypoint tool detection: AGENT_TOOL fallback ==="
 
 AGENT_TOOL_CLAUDE_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=claude bash -c "

@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from agentic_ci.harness import Harness
 
 
+_OPENAI_CREDENTIAL_ENV_VARS = frozenset({"OPENAI_API_KEY"})
+
+
 class PodmanBackend(Backend):
     """Runs an AI agent inside a persistent Podman container.
 
@@ -41,8 +44,11 @@ class PodmanBackend(Backend):
         self._extra_env = extra_env or {}
 
     def setup(self, otel_port=None):
+        env = {**os.environ, **self._extra_env}
+        auth_mode = self.harness.auth_mode_for_env(env)
+        self.harness.validate_credentials(env)
         self._resolve_image()
-        if self.harness.auth_mode == "vertex":
+        if auth_mode == "vertex":
             self._resolve_credentials()
         self._resolve_sandbox_config(otel_enabled=otel_port is not None)
         self._run_setup_steps()
@@ -62,7 +68,7 @@ class PodmanBackend(Backend):
         else:
             log.detail("Container user", "rootless (userns keep-id)")
 
-        env_args = self._build_env_args()
+        env_args = self._build_env_args(env)
         vol_args = self._build_vol_args()
 
         user_args = (
@@ -105,7 +111,7 @@ class PodmanBackend(Backend):
             f"sleep {self.timeout}",
         ]
 
-        subprocess.run(cmd, check=True, capture_output=True)
+        subprocess.run(cmd, check=True, capture_output=True, env=env)
         log.section("Podman container started")
 
     def run(
@@ -119,11 +125,12 @@ class PodmanBackend(Backend):
         traceparent=None,
     ):
         if not self.is_running():
-            self.setup()
+            self.setup(otel_port=otel_port)
 
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         proc = subprocess.Popen(
             [
@@ -226,10 +233,16 @@ class PodmanBackend(Backend):
 
         log.section(f"Credentials staged ({creds_source})")
 
-    def _build_env_args(self):
-        args = list(self.harness.build_env_args())
+    def _build_env_args(self, env=None):
+        args = list(self.harness.build_env_args(env))
+        credential_env = os.environ if env is None else env
+        openai_mode = self.harness.auth_mode_for_env(credential_env) == "openai"
         for key, val in self._extra_env.items():
-            args.extend(["--env", f"{key}={val}"])
+            if key in _OPENAI_CREDENTIAL_ENV_VARS:
+                if openai_mode and key not in args:
+                    args.extend(["--env", key])
+            else:
+                args.extend(["--env", f"{key}={val}"])
         return args
 
     def _resolve_sandbox_config(self, otel_enabled=False):

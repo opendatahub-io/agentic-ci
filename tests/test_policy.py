@@ -1,6 +1,7 @@
 """Tests for policy resolution."""
 
 from agentic_ci.backends.openshell.policy import (
+    AUTH_ENDPOINTS,
     DEFAULT_ENDPOINTS,
     build_credential_binding_patch,
     resolve_endpoints,
@@ -56,13 +57,17 @@ def test_duplicate_endpoints_deduplicated(tmp_path):
 
 
 def test_endpoints_include_vertex_ai():
-    result = resolve_endpoints()
+    result = resolve_endpoints(auth_mode="vertex")
     assert any("aiplatform.googleapis.com" in ep for ep in result)
+    assert not any("api.anthropic.com" in ep for ep in result)
+    assert not any("api.openai.com" in ep for ep in result)
 
 
 def test_endpoints_include_anthropic_api():
-    result = resolve_endpoints()
+    result = resolve_endpoints(auth_mode="api-key")
     assert any("api.anthropic.com" in ep for ep in result)
+    assert not any("aiplatform.googleapis.com" in ep for ep in result)
+    assert not any("api.openai.com" in ep for ep in result)
 
 
 def test_credential_binding_patch_adds_binding_to_gcp():
@@ -130,3 +135,12 @@ def test_credential_binding_patch_preserves_existing_binding():
         },
     }
     assert build_credential_binding_patch(policy_get_output) is None
+
+
+def test_endpoints_include_openai_apis():
+    result = resolve_endpoints(auth_mode="openai")
+    assert result == list(DEFAULT_ENDPOINTS) + AUTH_ENDPOINTS["openai"]
+    assert "api.openai.com:443:read-write" in result
+    assert "chatgpt.com:443:read-write" in result
+    assert not any("aiplatform.googleapis.com" in ep for ep in result)
+    assert not any("api.anthropic.com" in ep for ep in result)

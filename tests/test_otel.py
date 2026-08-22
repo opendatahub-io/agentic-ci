@@ -11,6 +11,7 @@ from agentic_ci.otel import (
     _has_any_traces,
     generate_trace_context,
     inject_root_spans,
+    parse_metrics,
     start_collector,
     stop_collector,
 )
@@ -212,6 +213,160 @@ class TestGenerateTraceContext:
         trace_id, span_id, _ = generate_trace_context()
         int(trace_id, 16)
         int(span_id, 16)
+
+
+class TestParseMetrics:
+    def test_parses_codex_token_usage_and_api_requests(self):
+        attributes = {
+            "event.name": "codex.sse_event",
+            "event.kind": "response.completed",
+            "model": "gpt-test",
+            "input_token_count": "100",
+            "cached_token_count": 40,
+            "cache_write_token_count": 10,
+            "output_token_count": "20",
+        }
+
+        def attr(key, value):
+            value_key = "intValue" if isinstance(value, int) else "stringValue"
+            return {"key": key, "value": {value_key: value}}
+
+        response_record = {"attributes": [attr(key, value) for key, value in attributes.items()]}
+        request_record = {
+            "attributes": [
+                attr("event.name", "codex.api_request"),
+                attr("duration_ms", "123"),
+            ]
+        }
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "logRecords": [
+                                        response_record,
+                                        request_record,
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        token_totals, _, api_requests, _ = parse_metrics(records)
+
+        assert token_totals[("gpt-test", "input")] == 50
+        assert token_totals[("gpt-test", "cacheRead")] == 40
+        assert token_totals[("gpt-test", "cacheCreation")] == 10
+        assert token_totals[("gpt-test", "output")] == 20
+        assert api_requests == [{"event.name": "codex.api_request", "duration_ms": "123"}]
+
+    def test_parses_codex_estimated_cost_and_response_request_fallback(self):
+        attributes = {
+            "event.name": "codex.sse_event",
+            "event.kind": "response.completed",
+            "model": "gpt-5.6-sol",
+            "input_token_count": "100",
+            "cached_token_count": 40,
+            "cache_write_token_count": 10,
+            "output_token_count": "20",
+            "service_tier": "priority",
+        }
+
+        def attr(key, value):
+            value_key = "intValue" if isinstance(value, int) else "stringValue"
+            return {"key": key, "value": {value_key: value}}
+
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "scope": {"name": "codex"},
+                                    "logRecords": [
+                                        {
+                                            "attributes": [
+                                                attr(key, value)
+                                                for key, value in attributes.items()
+                                            ]
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        token_totals, cost_totals, api_requests, _ = parse_metrics(records)
+
+        assert token_totals[("gpt-5.6-sol", "input")] == 50
+        assert token_totals[("gpt-5.6-sol", "cacheRead")] == 40
+        assert token_totals[("gpt-5.6-sol", "cacheCreation")] == 10
+        assert token_totals[("gpt-5.6-sol", "output")] == 20
+        assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.001865)
+        assert len(api_requests) == 1
+        assert api_requests[0]["event.kind"] == "response.completed"
+
+    def test_prefers_codex_reported_cost_over_estimate(self):
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "logRecords": [
+                                        {
+                                            "attributes": [
+                                                {
+                                                    "key": "event.name",
+                                                    "value": {"stringValue": "codex.sse_event"},
+                                                },
+                                                {
+                                                    "key": "event.kind",
+                                                    "value": {"stringValue": "response.completed"},
+                                                },
+                                                {
+                                                    "key": "model",
+                                                    "value": {"stringValue": "gpt-5.6-sol"},
+                                                },
+                                                {
+                                                    "key": "input_token_count",
+                                                    "value": {"intValue": 10},
+                                                },
+                                                {
+                                                    "key": "output_token_count",
+                                                    "value": {"intValue": 10},
+                                                },
+                                                {
+                                                    "key": "cost_usd",
+                                                    "value": {"doubleValue": 0.25},
+                                                },
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        _, cost_totals, _, _ = parse_metrics(records)
+
+        assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.25)
 
 
 class TestFindOrphanTraces:
@@ -503,3 +658,80 @@ class TestInjectRootSpans:
         span = records[1]["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert int(span["startTimeUnixNano"]) == 500
         assert int(span["endTimeUnixNano"]) == 12000
+
+
+class TestParseMetricsRobustness:
+    """parse_metrics must tolerate malformed OTLP attribute entries."""
+
+    def test_metrics_attribute_missing_key_is_skipped(self):
+        records = [
+            {
+                "path": "/v1/metrics",
+                "payload": {
+                    "resourceMetrics": [
+                        {
+                            "scopeMetrics": [
+                                {
+                                    "metrics": [
+                                        {
+                                            "name": "claude_code.token.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asInt": 5,
+                                                        "attributes": [
+                                                            {"value": {"stringValue": "orphan"}},
+                                                            {
+                                                                "key": "model",
+                                                                "value": {"stringValue": "gpt-5"},
+                                                            },
+                                                            {
+                                                                "key": "type",
+                                                                "value": {"stringValue": "input"},
+                                                            },
+                                                        ],
+                                                    }
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+        token_totals, _, _, _ = parse_metrics(records)
+        assert token_totals[("gpt-5", "input")] == 5
+
+    def test_logs_attribute_missing_key_is_skipped(self):
+        records = [
+            {
+                "path": "/v1/logs",
+                "payload": {
+                    "resourceLogs": [
+                        {
+                            "scopeLogs": [
+                                {
+                                    "logRecords": [
+                                        {
+                                            "attributes": [
+                                                {"value": {"stringValue": "orphan"}},
+                                                {
+                                                    "key": "event.name",
+                                                    "value": {"stringValue": "codex.api_request"},
+                                                },
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+        _, _, api_requests, _ = parse_metrics(records)
+        assert len(api_requests) == 1
+        assert api_requests[0]["event.name"] == "codex.api_request"

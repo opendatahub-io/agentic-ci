@@ -3,11 +3,12 @@
 import json
 import os
 import subprocess as _subprocess
+from unittest import mock
 
 import pytest
 
 from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, OpenCodeHarness
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, OpenCodeHarness
 
 
 @pytest.fixture()
@@ -45,6 +46,19 @@ def test_build_env_args_extra_env(tmp_path, claude_harness):
     )
     args = backend._build_env_args()
     assert "MY_VAR=value" in args
+
+
+def test_build_env_args_does_not_forward_openai_credentials_to_claude(tmp_path, claude_harness):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        harness=claude_harness,
+        extra_env={"OPENAI_API_KEY": "unrelated-key"},
+    )
+
+    args = backend._build_env_args()
+
+    assert not any("OPENAI_API_KEY" in arg for arg in args)
+    assert not any("unrelated-key" in arg for arg in args)
 
 
 def test_resolve_credentials_creates_config(monkeypatch, tmp_path, claude_harness):
@@ -91,6 +105,19 @@ def test_resolve_image_raises_with_correct_env_var(monkeypatch, tmp_path, openco
     backend = PodmanBackend(workdir=str(tmp_path), harness=opencode_harness)
     with pytest.raises(RuntimeError, match="OPENCODE_CONTAINER_IMAGE"):
         backend._resolve_image()
+
+
+def test_setup_codex_credentials_fail_fast(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/codex:test",
+        harness=CodexHarness(),
+    )
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        backend.setup()
 
 
 def test_build_vol_args_claude_mount_target(monkeypatch, tmp_path, claude_harness):
@@ -290,3 +317,22 @@ def test_is_local_image_missing_remote(monkeypatch, tmp_path, claude_harness):
     monkeypatch.setattr(_subprocess, "run", mock_run)
 
     assert backend._is_local_image() is False
+
+
+def test_run_passes_otel_port_to_implicit_setup(tmp_path, claude_harness):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    with (
+        mock.patch.object(backend, "is_running", return_value=False),
+        mock.patch.object(backend, "setup") as setup,
+        mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+        mock.patch.object(backend, "_wait_for_otel_flush"),
+        mock.patch("agentic_ci.backends.podman.subprocess.Popen"),
+    ):
+        assert backend.run("test", "test-model", otel_port=4318) == 0
+
+    setup.assert_called_once_with(otel_port=4318)

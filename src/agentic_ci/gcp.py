@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from collections.abc import Mapping
 
 _ADC_PATH = "~/.config/gcloud/application_default_credentials.json"
 
@@ -19,7 +20,7 @@ def adc_path() -> str:
     return os.path.expanduser(_ADC_PATH)
 
 
-def find_credentials() -> tuple[str, str]:
+def find_credentials(env: Mapping[str, str] | None = None) -> tuple[str, str]:
     """Locate GCP credentials. Returns (json_string, source_label).
 
     Search order:
@@ -30,7 +31,9 @@ def find_credentials() -> tuple[str, str]:
 
     Raises RuntimeError if no valid credentials are found.
     """
-    raw = os.environ.get("GCLOUD_CREDENTIALS", "")
+    credential_env = env if env is not None else os.environ
+
+    raw = credential_env.get("GCLOUD_CREDENTIALS", "")
     if raw:
         content, is_b64 = _resolve_json(raw)
         if content:
@@ -38,7 +41,7 @@ def find_credentials() -> tuple[str, str]:
             return content, f"GCLOUD_CREDENTIALS env var{suffix}"
         raise RuntimeError("GCLOUD_CREDENTIALS is not valid JSON or base64-encoded JSON")
 
-    sa_key = os.environ.get("GCP_SERVICE_ACCOUNT_KEY", "")
+    sa_key = credential_env.get("GCP_SERVICE_ACCOUNT_KEY", "")
     if sa_key:
         if os.path.isfile(sa_key):
             try:
@@ -57,7 +60,7 @@ def find_credentials() -> tuple[str, str]:
         raise RuntimeError("GCP_SERVICE_ACCOUNT_KEY is not valid JSON or base64-encoded JSON")
 
     adc = adc_path()
-    ga_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    ga_creds = credential_env.get("GOOGLE_APPLICATION_CREDENTIALS", "")
     for path, label in [
         (adc, "default ADC file"),
         (ga_creds, "GOOGLE_APPLICATION_CREDENTIALS file"),
@@ -74,7 +77,7 @@ def find_credentials() -> tuple[str, str]:
     )
 
 
-def ensure_adc() -> str:
+def ensure_adc(env: Mapping[str, str] | None = None) -> str:
     """Ensure the gcloud ADC file exists, writing it from env vars if needed.
 
     When env vars are set they take precedence over an existing ADC file,
@@ -85,14 +88,15 @@ def ensure_adc() -> str:
     Raises RuntimeError if no credentials are found.
     """
     adc = adc_path()
+    credential_env = env if env is not None else os.environ
     has_env_creds = bool(
-        os.environ.get("GCLOUD_CREDENTIALS") or os.environ.get("GCP_SERVICE_ACCOUNT_KEY")
+        credential_env.get("GCLOUD_CREDENTIALS") or credential_env.get("GCP_SERVICE_ACCOUNT_KEY")
     )
     if os.path.isfile(adc) and not has_env_creds:
         cred_type = _read_credential_type(adc)
         return f"existing ADC file ({cred_type})"
 
-    creds_json, source = find_credentials()
+    creds_json, source = find_credentials(credential_env)
     os.makedirs(os.path.dirname(adc), exist_ok=True)
     with open(adc, "w") as f:
         f.write(creds_json)

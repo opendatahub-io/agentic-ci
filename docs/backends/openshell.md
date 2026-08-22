@@ -12,7 +12,7 @@ a **provider** (credentials), and a **sandbox** (isolated execution
 environment). On each `agentic-ci run --backend openshell`, it:
 
 1. Starts the OpenShell gateway with TLS and mTLS auth
-2. Creates a GCP or Anthropic credential provider
+2. Creates a GCP, Anthropic, or OpenAI credential provider
 3. Creates a sandbox container from the specified image
 4. Applies a network policy and waits for it to activate
 5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
@@ -127,6 +127,28 @@ openshell provider create \
   --credential ANTHROPIC_API_KEY
 ```
 
+For Codex, agentic-ci creates an OpenAI provider and uses `OPENAI_API_KEY`.
+The current backend follows the same L4 pattern as its existing API-key path:
+the sandbox environment script contains the real key, and Codex's
+`login --with-api-key` command writes its login state before execution.
+
+```bash
+openshell provider create \
+  --name ci-gcp \
+  --type openai \
+  --credential OPENAI_API_KEY
+```
+
+<!-- markdownlint-disable MD046 -->
+!!! warning "L4 API-key exposure"
+
+    L4 CONNECT policy cannot replace credentials at the HTTP layer, so the
+    real API key is available inside the sandbox. This preserves the backend's
+    existing behavior but does not provide OpenShell's L7 credential-isolation
+    benefit. API-key providers should be migrated together to profile-backed
+    L7 inspection in a follow-up rather than changing only Codex here.
+<!-- markdownlint-enable MD046 -->
+
 ### Sandbox Lifecycle
 
 ```bash
@@ -138,7 +160,9 @@ openshell sandbox create \
   --no-tty \
   --provider ci-gcp \
   --from <SANDBOX_IMAGE> \
-  -- true
+  -- sleep infinity
+
+# Keep the sandbox's main process alive; agent commands run via exec.
 
 # Apply network policy and wait for the supervisor to compile and load it.
 # Built-in defaults are always included. If .agentic-ci/openshell-policy.yml
