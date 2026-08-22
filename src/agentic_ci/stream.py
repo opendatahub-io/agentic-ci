@@ -563,3 +563,205 @@ class OpenCodeStreamProcessor:
             if self.process_line(line):
                 return True
         return False
+
+
+class CodexStreamProcessor:
+    """Processes Codex CLI --json JSONL output and prints human-readable CI logs.
+
+    Codex emits ``thread.started``, ``turn.*``, ``item.*``, and ``error``
+    events. Items cover assistant messages, reasoning, command executions,
+    file changes, MCP calls, web searches, and plan updates.
+    """
+
+    def __init__(self, color=True, wrap=0, agent_pid=0):
+        self.wrap = wrap
+        self.agent_pid = agent_pid
+
+        if color:
+            self.THINK = "\033[3;36m"
+            self.TOOL = "\033[1;90m"
+            self.AGENT = ""
+            self.RED = "\033[31m"
+            self.RESET = "\033[0m"
+        else:
+            self.THINK = self.TOOL = self.AGENT = self.RED = self.RESET = ""
+
+        self._errors: list[str] = []
+        self._started_items: set[str] = set()
+
+    _INDENT = "  "
+
+    def _print_text(self, label, text, style=""):
+        lines = str(text).splitlines() or [""]
+        first_prefix = f"{self._INDENT}{style}{label}"
+        # Width must be measured against visible characters only; the ANSI
+        # ``style`` escape is non-printing, so excluding it keeps wrapping at
+        # the intended column instead of wrapping early when color is enabled.
+        first_prefix_width = len(self._INDENT) + len(label)
+        continuation = self._INDENT * 2
+        for index, line in enumerate(lines):
+            prefix = first_prefix if index == 0 else continuation
+            prefix_width = first_prefix_width if index == 0 else len(continuation)
+            if self.wrap and prefix_width + len(line) > self.wrap:
+                available = max(self.wrap - len(continuation), 20)
+                words = line.split()
+                chunks = []
+                current = ""
+                for word in words:
+                    candidate = f"{current} {word}".strip()
+                    if current and len(candidate) > available:
+                        chunks.append(current)
+                        current = word
+                    else:
+                        current = candidate
+                chunks.append(current)
+                for chunk_index, chunk in enumerate(chunks):
+                    chunk_prefix = prefix if chunk_index == 0 else continuation
+                    print(f"{chunk_prefix}{chunk}{self.RESET}", flush=True)
+            else:
+                print(f"{prefix}{line}{self.RESET}", flush=True)
+
+    @staticmethod
+    def _error_message(error):
+        if isinstance(error, dict):
+            return error.get("message", str(error))
+        return str(error)
+
+    def _print_command(self, item):
+        command = item.get("command", "")
+        self._print_text("\U0001f527 Shell $ ", command, self.TOOL)
+
+    @staticmethod
+    def _mcp_name(item):
+        server = item.get("server", "")
+        tool = item.get("tool", item.get("name", "unknown"))
+        return f"{server}/{tool}" if server else tool
+
+    def _process_item(self, event_type, item):
+        item_id = item.get("id", "")
+        item_type = item.get("type", "")
+
+        if event_type == "item.started":
+            if item_id:
+                self._started_items.add(item_id)
+            if item_type == "command_execution":
+                self._print_command(item)
+            elif item_type == "mcp_tool_call":
+                self._print_text("\U0001f527 MCP ", self._mcp_name(item), self.TOOL)
+            elif item_type == "web_search":
+                self._print_text("\U0001f50d Web search ", item.get("query", ""), self.TOOL)
+            return
+
+        if item_type == "agent_message":
+            self._print_text("\U0001f4ac Codex ", item.get("text", ""), self.AGENT)
+        elif item_type == "reasoning":
+            text = item.get("text", item.get("summary", ""))
+            if text:
+                self._print_text("\U0001f9e0 Thinking ", text, self.THINK)
+        elif item_type == "command_execution":
+            if item_id not in self._started_items:
+                self._print_command(item)
+            exit_code = item.get("exit_code")
+            # Codex may serialize exit_code as a number or a numeric string;
+            # normalize before comparing so a successful "0" is not rendered
+            # as a failure.
+            try:
+                normalized = int(exit_code) if exit_code is not None else None
+            except (TypeError, ValueError):
+                normalized = exit_code
+            if normalized not in (None, 0):
+                self._print_text("  exit=", str(exit_code), self.RED)
+        elif item_type == "file_change":
+            changes = item.get("changes", [])
+            if changes:
+                for change in changes:
+                    if isinstance(change, dict):
+                        path = change.get("path", "")
+                        kind = change.get("kind", change.get("type", ""))
+                        detail = f"{kind} {path}".strip()
+                    else:
+                        detail = str(change)
+                    self._print_text("\U0001f527 File change ", detail, self.TOOL)
+            else:
+                self._print_text("\U0001f527 File change ", item.get("path", ""), self.TOOL)
+        elif item_type == "mcp_tool_call":
+            error = item.get("error")
+            if error or item.get("status") in ("failed", "error"):
+                message = self._error_message(error or "MCP tool call failed")
+                label = f"❌ MCP {self._mcp_name(item)} failed: "
+                self._print_text(label, message, self.RED)
+        elif item_type == "plan":
+            text = item.get("text", item.get("plan", ""))
+            if text:
+                self._print_text("\U0001f4cb Plan ", text, self.TOOL)
+
+    def flush_errors(self):
+        """Print collected errors."""
+        if not self._errors:
+            return
+        for error_msg in dict.fromkeys(self._errors):
+            print(
+                f"{self._INDENT}{self.RED}❌ Error: {error_msg}{self.RESET}",
+                flush=True,
+            )
+
+    def process_line(self, line):
+        """Process a single JSONL line from Codex. Returns True when run is complete."""
+        line = line.strip()
+        if not line:
+            return False
+
+        try:
+            msg = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+        msg_type = msg.get("type", "")
+
+        if msg_type == "error":
+            error_msg = msg.get("message", self._error_message(msg.get("error", "unknown error")))
+            self._errors.append(error_msg)
+            return False
+
+        if msg_type in ("item.started", "item.completed"):
+            self._process_item(msg_type, msg.get("item", {}))
+            return False
+
+        if msg_type == "turn.failed":
+            self._errors.append(self._error_message(msg.get("error", "Codex turn failed")))
+            return False
+
+        if msg_type == "turn.completed":
+            # ``codex exec`` runs a single turn per invocation and reports its
+            # terminal token usage here, so the first turn.completed marks the
+            # end of the run. Returning True is load-bearing for telemetry:
+            # backend._process_stream uses it to wait for the OTEL batch
+            # exporter to flush (otherwise the root span is often lost) and to
+            # promote a post-completion non-zero exit code to success. If a
+            # future Codex exec mode emits multiple turns, completion should be
+            # keyed off a thread-level terminal event instead of this first
+            # turn.completed to avoid truncating the run.
+            usage = msg.get("usage", {})
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            cache_r = usage.get("cached_input_tokens", 0)
+            cache_w = usage.get("cache_write_input_tokens", 0)
+            total = inp + out
+            print(
+                f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS in={inp} "
+                f"out={out} cache_r={cache_r} cache_w={cache_w} "
+                f"total={total}{self.RESET}",
+                flush=True,
+            )
+            return True
+
+        return False
+
+    def process(self, input_stream):
+        """Process a stream of lines. Returns True if run completed normally."""
+        for line in input_stream:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="replace")
+            if self.process_line(line):
+                return True
+        return False

@@ -70,6 +70,12 @@ def cmd_install_plugins(args):
             sys.exit(1)
         manifest = Path(args.manifest) if args.manifest else None
         plugins.install_opencode_skills(Path(args.marketplace_json), manifest_path=manifest)
+    elif harness_name == "codex":
+        if not args.marketplace_json:
+            print("ERROR: --marketplace-json is required for codex", file=sys.stderr)
+            sys.exit(1)
+        manifest = Path(args.manifest) if args.manifest else None
+        plugins.install_codex_plugins(Path(args.marketplace_json), manifest_path=manifest)
     else:
         print(f"ERROR: unknown harness {harness_name!r}", file=sys.stderr)
         sys.exit(1)
@@ -236,7 +242,7 @@ def main():
     common.add_argument("--image", default=None, metavar="IMAGE", help="Container/sandbox image")
     common.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "codex"],
         default="claude-code",
         help="AI agent harness (default: claude-code)",
     )
@@ -328,7 +334,7 @@ def main():
     )
     p_install.add_argument(
         "--harness",
-        choices=["claude-code", "opencode"],
+        choices=["claude-code", "opencode", "codex"],
         default=None,
         help="Harness to install for (default: from AGENT_TOOL env or claude-code)",
     )
@@ -374,7 +380,12 @@ def main():
 
     log.section(f"Backend: {args.backend}")
     log.detail("Harness", harness.name)
-    log.detail("Auth", "API key" if harness.auth_mode == "api-key" else "Vertex AI")
+    auth_label = {
+        "api-key": "Anthropic API key",
+        "openai": "OpenAI",
+        "vertex": "Vertex AI",
+    }.get(harness.auth_mode, harness.auth_mode)
+    log.detail("Auth", auth_label)
     log.detail("Workdir", os.path.abspath(args.workdir))
     backend = create_backend(
         args.backend,

@@ -5,6 +5,7 @@ tracks token usage over a sliding window, and prints a summary.
 """
 
 import json
+import math
 import os
 import signal
 import subprocess
@@ -14,6 +15,8 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from agentic_ci.cost import estimate_cost
 
 _token_samples: list[tuple[float, int]] = []
 _WINDOW_SECS = 60
@@ -175,11 +178,52 @@ def stop_collector(proc):
         proc.wait()
 
 
+def _otel_attribute_value(value):
+    if not isinstance(value, dict):
+        return None
+    for key in (
+        "stringValue",
+        "intValue",
+        "doubleValue",
+        "boolValue",
+        "string_value",
+        "int_value",
+        "double_value",
+        "bool_value",
+    ):
+        if key in value:
+            return value[key]
+    return None
+
+
+def _numeric_attribute(attributes, key):
+    try:
+        return float(attributes.get(key, 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _optional_numeric_attribute(attributes, *keys):
+    """Return the first finite numeric attribute, or None if none exists."""
+    for key in keys:
+        if key not in attributes:
+            continue
+        try:
+            value = float(attributes[key])
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value):
+            return value
+    return None
+
+
 def parse_metrics(records):
     """Parse OTLP JSONL records into structured token/cost data."""
     token_totals = defaultdict(float)
     cost_totals = defaultdict(float)
     api_requests = []
+    codex_api_requests = []
+    codex_response_requests = []
     active_time = defaultdict(float)
 
     for rec in records:
@@ -194,11 +238,9 @@ def parse_metrics(records):
                         data = metric.get("sum", metric.get("gauge", metric.get("histogram", {})))
                         for dp in data.get("dataPoints", []):
                             attrs = {
-                                a["key"]: a["value"].get(
-                                    "stringValue",
-                                    a["value"].get("intValue", a["value"].get("doubleValue")),
-                                )
+                                a.get("key"): _otel_attribute_value(a.get("value"))
                                 for a in dp.get("attributes", [])
+                                if a.get("key")
                             }
                             value = dp.get("asDouble", dp.get("asInt", 0))
 
@@ -220,14 +262,77 @@ def parse_metrics(records):
                         event_name = ""
                         event_attrs = {}
                         for a in lr.get("attributes", []):
-                            key = a["key"]
-                            val = a["value"]
-                            v = val.get("stringValue", val.get("intValue", val.get("doubleValue")))
+                            key = a.get("key")
+                            if not key:
+                                continue
+                            v = _otel_attribute_value(a.get("value"))
                             event_attrs[key] = v
                             if key == "event.name":
                                 event_name = v
                         if event_name == "claude_code.api_request":
                             api_requests.append(event_attrs)
+                        elif event_name == "codex.api_request":
+                            api_requests.append(event_attrs)
+                            codex_api_requests.append(event_attrs)
+                        elif (
+                            event_name == "codex.sse_event"
+                            and event_attrs.get("event.kind") == "response.completed"
+                        ):
+                            codex_response_requests.append(event_attrs)
+                            model = str(event_attrs.get("model") or "unknown")
+                            input_tokens = _numeric_attribute(event_attrs, "input_token_count")
+                            cached_tokens = _numeric_attribute(event_attrs, "cached_token_count")
+                            cache_write_tokens = _numeric_attribute(
+                                event_attrs, "cache_write_token_count"
+                            )
+                            # Codex reports input_token_count inclusive of the
+                            # cached and cache-write tokens, so subtract them to
+                            # get the fresh prompt tokens. The max(..., 0) guards
+                            # against exporters that report them separately (in
+                            # which case fresh_input clamps to 0 rather than
+                            # going negative).
+                            fresh_input = max(
+                                input_tokens - cached_tokens - cache_write_tokens,
+                                0,
+                            )
+                            token_totals[(model, "input")] += fresh_input
+                            token_totals[(model, "cacheRead")] += cached_tokens
+                            token_totals[(model, "cacheCreation")] += cache_write_tokens
+                            token_totals[(model, "output")] += _numeric_attribute(
+                                event_attrs, "output_token_count"
+                            )
+
+                            direct_cost = _optional_numeric_attribute(
+                                event_attrs,
+                                "cost_usd",
+                                "total_cost_usd",
+                                "cost",
+                                "total_cost",
+                            )
+                            if direct_cost is not None and direct_cost >= 0:
+                                cost_totals[model] += direct_cost
+                            else:
+                                service_tier = event_attrs.get("service_tier")
+                                if not isinstance(service_tier, str):
+                                    service_tier = None
+                                estimated_cost = estimate_cost(
+                                    model,
+                                    input_tokens=fresh_input,
+                                    output_tokens=_numeric_attribute(
+                                        event_attrs, "output_token_count"
+                                    ),
+                                    cached_input_tokens=cached_tokens,
+                                    cache_creation_input_tokens=cache_write_tokens,
+                                    service_tier=service_tier,
+                                )
+                                if estimated_cost is not None:
+                                    cost_totals[model] += estimated_cost
+
+    # Recent Codex versions emit response.completed events but no separate
+    # codex.api_request log event. Keep the explicit event when available and
+    # use completed responses as a conservative request-count fallback.
+    if not codex_api_requests:
+        api_requests.extend(codex_response_requests)
 
     return token_totals, cost_totals, api_requests, active_time
 

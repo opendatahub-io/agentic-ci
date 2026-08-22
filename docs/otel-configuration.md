@@ -52,6 +52,35 @@ via `write_sandbox_config()`.
 - `OTEL_METRIC_EXPORT_INTERVAL` — no OTel metrics to export
 - `OTEL_LOG_USER_PROMPTS` / `OTEL_LOG_TOOL_*` — Claude-specific flags
 
+## Codex
+
+Codex configures OTel through its `[otel]` configuration rather than standard
+OTel environment variables. For each run, the Codex harness passes `-c`
+overrides for three OTLP/HTTP JSON exporters:
+
+| Signal | Endpoint |
+|--------|----------|
+| Logs | `http://...:{port}/v1/logs` |
+| Metrics | `http://...:{port}/v1/metrics` |
+| Traces | `http://...:{port}/v1/traces` |
+
+The log stream includes API requests, response events with token counts, tool
+decisions/results, and redacted prompt metadata. User prompt content remains
+disabled by default. The metrics stream includes Codex API, streaming, and tool
+counters and duration histograms. Exporters flush when Codex shuts down.
+
+Codex reports token usage rather than dollar cost. agentic-ci estimates USD
+cost from a generated snapshot of LiteLLM's OpenAI model-price map, including
+cache and `priority`/`flex` service-tier rates. `make update-cost-map` resolves
+LiteLLM `main` to an immutable commit SHA, fetches the map from that revision,
+and records the SHA alongside the generated pricing data. Set
+`AGENTIC_CI_LITELLM_COST_MAP` to a path containing a LiteLLM-format JSON map to
+override the bundled snapshot. Token usage is still shown when a model has no
+known price; the cost table omits that model.
+
+The endpoint host is backend-specific: loopback for local and host-networked
+Podman runs, and `host.openshell.internal` for OpenShell.
+
 ## Sandbox config
 
 The `opencode.json` config is written by `write_sandbox_config()` and
@@ -60,5 +89,6 @@ mounted into the container by the backend:
 - **Podman**: mounted as a read-only volume via `sandbox_config_mounts()`
 - **OpenShell**: uploaded and moved into place via `_upload_sandbox_config()`
 
-Claude Code does not require sandbox config for OTel — env vars are
-sufficient.
+Claude Code and Codex do not require a mounted sandbox config for OTel.
+Claude Code uses environment variables; Codex receives per-run CLI config
+overrides.

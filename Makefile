@@ -42,6 +42,10 @@ bump-versions: ## Bump pinned dependency versions in Containerfiles
 check-versions: ## Check for available dependency updates
 	python3 scripts/bump-versions.py --check
 
+.PHONY: update-cost-map
+update-cost-map: ## Update bundled OpenAI pricing from LiteLLM main
+	uv run python scripts/update_litellm_cost_map.py
+
 .PHONY: image-lint
 image-lint: ## Run linting checks on image scripts
 	shellcheck --severity=warning images/runner/shared/*.sh tests/images/*.sh tests/e2e/*.sh

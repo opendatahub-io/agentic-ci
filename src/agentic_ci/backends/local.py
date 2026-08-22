@@ -27,6 +27,8 @@ class LocalBackend(Backend):
         self._extra_env = extra_env or {}
 
     def setup(self, otel_port=None):
+        env = {**os.environ, **self._extra_env}
+        self.harness.validate_credentials(env, allow_auth_file=True)
         log.section("Local backend (direct execution)")
         self._run_setup_steps()
 
@@ -45,14 +47,19 @@ class LocalBackend(Backend):
     ):
         log.section(f"Executing {self.harness.name} locally")
 
+        base_env = {**os.environ, **self._extra_env}
         env = {
-            **os.environ,
-            **self.harness.build_local_env(otel_port, otel_rate_file, traceparent=traceparent),
+            **base_env,
+            **self.harness.build_local_env(
+                otel_port,
+                otel_rate_file,
+                traceparent=traceparent,
+                env=base_env,
+            ),
             "AGENT_MODEL": model,
-            **self._extra_env,
         }
-
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         proc = subprocess.Popen(
             agent_args,
