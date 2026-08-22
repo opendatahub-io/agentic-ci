@@ -2,7 +2,7 @@
 
 import pytest
 
-from scripts.update_litellm_cost_map import build_snapshot
+from scripts.update_litellm_cost_map import REPO_ROOT, build_snapshot, display_output_path
 
 
 def test_build_snapshot_filters_openai_and_preserves_cost_fields():
@@ -46,3 +46,10 @@ def test_build_snapshot_rejects_too_few_openai_models():
             {"model": {"litellm_provider": "openai", "input_cost_per_token": 1e-6}},
             "a" * 40,
         )
+
+
+def test_display_output_path_supports_repo_relative_and_external_paths(tmp_path):
+    assert display_output_path(REPO_ROOT / "map.json") == (REPO_ROOT / "map.json").relative_to(
+        REPO_ROOT
+    )
+    assert display_output_path(tmp_path / "map.json") == tmp_path / "map.json"

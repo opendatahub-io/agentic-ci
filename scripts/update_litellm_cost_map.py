@@ -109,6 +109,14 @@ def write_snapshot(snapshot: dict[str, Any], output: Path) -> None:
     )
 
 
+def display_output_path(output: Path) -> Path:
+    """Return a concise output path without rejecting external destinations."""
+    try:
+        return output.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return output
+
+
 def main() -> None:
     """Generate the bundled cost map."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -120,7 +128,7 @@ def main() -> None:
     snapshot = build_snapshot(fetch_cost_map(commit), commit)
     write_snapshot(snapshot, args.output)
     print(
-        f"Updated {args.output.relative_to(REPO_ROOT)} from LiteLLM {commit} "
+        f"Updated {display_output_path(args.output)} from LiteLLM {commit} "
         f"({len(snapshot['models'])} OpenAI models)"
     )
 
