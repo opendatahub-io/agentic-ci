@@ -58,8 +58,10 @@ def create(
         args.extend(["--approval-mode", approval_mode])
     if image:
         args.extend(["--from", image])
-    # Keep the sandbox's main process alive; agent commands run via exec.
-    args.extend(["--", "sleep", "infinity"])
+    # OpenShell keeps the sandbox after the initial command exits unless
+    # --no-keep is supplied.  Use a terminating command so `sandbox create`
+    # returns before subsequent commands are run via `sandbox exec`.
+    args.extend(["--", "true"])
     _run(args, check=True)
 
     if approval_mode:
