@@ -20,10 +20,6 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Plugin env var wasn't being passed through to the sandbox environment. Fixed by explicitly forwarding it.
 - **Where to look**: `backends/openshell/sandbox.py` env var injection, `harness.py`
 
-### OpenShell E2E hangs at "Requesting compute" during sandbox creation
-- **Likely cause**: The initial `openshell sandbox create` command does not terminate. OpenShell keeps the sandbox by default, so use a short-lived initial command such as `true`; agent commands run later through `sandbox exec`.
-- **Where to look**: `backends/openshell/sandbox.py` sandbox creation command
-
 ## Skill engine
 
 ### Verdict file missing but agent exited 0
