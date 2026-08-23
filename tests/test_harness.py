@@ -1,5 +1,9 @@
 """Tests for harness abstraction."""
 
+import json
+import os
+import subprocess
+
 import pytest
 
 from agentic_ci.harness import (
@@ -463,13 +467,15 @@ class TestCodexHarness:
         assert args[0:2] == ["bash", "-c"]
         assert "codex login --with-api-key" in args[2]
         assert "codex login --with-api-key failed" in args[2]
-        assert "2>&1" not in args[2]
+        assert ">/dev/null 2>&1" in args[2]
+        assert "unset OPENAI_API_KEY" in args[2]
         assert 'exec codex "$@"' in args[2]
         assert "exec" in args
-        assert "--dangerously-bypass-approvals-and-sandbox" in args
+        assert "--approve-for-me" in args
+        assert "--dangerously-bypass-approvals-and-sandbox" not in args
         assert "--json" in args
         assert "--skip-git-repo-check" in args
-        assert "--ephemeral" in args
+        assert "--ephemeral" not in args
         assert "--ignore-user-config" not in args
         config_values = [args[index + 1] for index, arg in enumerate(args) if arg == "-c"]
         assert "check_for_update_on_startup=false" in config_values
@@ -491,8 +497,25 @@ class TestCodexHarness:
     def test_build_args_with_extra(self):
         harness = CodexHarness()
         args = harness.build_args("prompt", "model", extra_args=["--foo", "bar"])
-        assert "--foo" in args
-        assert "bar" in args
+        model_index = args.index("-m")
+        assert args[model_index - 2 : model_index] == ["--foo", "bar"]
+
+    def test_build_args_with_resume_keeps_options_before_model_and_prompt(self):
+        args = CodexHarness().build_args(
+            "follow-up prompt", "model", extra_args=["resume", "--last"]
+        )
+
+        model_index = args.index("-m")
+        delimiter_index = args.index("--", model_index)
+        prompt_index = args.index("follow-up prompt")
+        assert args[args.index("resume") : model_index] == ["resume", "--last"]
+        assert model_index < delimiter_index < prompt_index
+        assert args[delimiter_index : prompt_index + 1] == ["--", "follow-up prompt"]
+
+    def test_build_args_without_resume_keeps_normal_command_valid(self):
+        args = CodexHarness().build_args("normal prompt", "model")
+
+        assert args[-4:] == ["-m", "model", "--", "normal prompt"]
 
     def test_build_args_keeps_prompt_after_option_delimiter(self):
         args = CodexHarness().build_args("--help", "model", extra_args=["--color", "never"])
@@ -500,6 +523,45 @@ class TestCodexHarness:
         assert args[-1] == "--help"
         assert args[-2] == "--"
         assert args.index("--color") < len(args) - 2
+
+    def test_api_key_login_is_silent_and_unsets_key_before_jsonl_process(self, tmp_path):
+        fake_codex = tmp_path / "codex"
+        fake_codex.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = login ]; then\n'
+            "  printf 'login stdout\\n'\n"
+            "  printf 'login stderr\\n' >&2\n"
+            "  cat >/dev/null\n"
+            "  exit 0\n"
+            "fi\n"
+            'if [ -n "${OPENAI_API_KEY+x}" ]; then\n'
+            "  printf '{\"api_key_unset\":false}\\n'\n"
+            "else\n"
+            "  printf '{\"api_key_unset\":true}\\n'\n"
+            "fi\n"
+        )
+        fake_codex.chmod(0o755)
+
+        secret = "sk-test-secret"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "OPENAI_API_KEY": secret,
+        }
+        completed = subprocess.run(
+            CodexHarness().build_args("prompt", "model"),
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+
+        assert [json.loads(line) for line in completed.stdout.splitlines()] == [
+            {"api_key_unset": True}
+        ]
+        assert completed.stderr == ""
+        assert secret not in completed.stdout
+        assert secret not in completed.stderr
 
     def test_build_env_args(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")

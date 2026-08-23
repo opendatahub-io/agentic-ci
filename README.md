@@ -237,6 +237,16 @@ invocation. An existing login under `CODEX_HOME` is also supported by the local
 backend. When an API key is present, agentic-ci uses Codex's non-interactive
 `login --with-api-key` flow before executing the prompt.
 
+Codex runs use `--approve-for-me` by default; they do not enable the dangerous
+approval/sandbox bypass or ephemeral mode. Sessions therefore remain available
+for follow-up turns. Pass additional Codex arguments after `--` and before the
+prompt is sent to Codex, for example:
+
+```bash
+agentic-ci run --backend local --harness codex \
+    "What unique fact did you remember?" -- resume --last
+```
+
 OpenShell currently follows agentic-ci's existing L4 API-key pattern: the real
 key is written into the sandbox environment and Codex login state. This matches
 the existing backend behavior but does not provide OpenShell's stronger L7

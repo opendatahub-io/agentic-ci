@@ -135,8 +135,8 @@ if [[ -s "$TMPDIR_E2E/nostream-out.txt" ]]; then
     echo "--- end non-streaming output ---"
 fi
 
-# -- Codex streaming + OTEL test ---------------------------------------------
-print_header "=== agentic-ci run --backend local: Codex + OTEL ==="
+# -- Codex streaming, resume + OTEL test -------------------------------------
+print_header "=== agentic-ci run --backend local: Codex + resume + OTEL ==="
 
 _has_codex_creds() {
     [[ -n "${OPENAI_API_KEY:-}" ]] || \
@@ -145,12 +145,14 @@ _has_codex_creds() {
 
 if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
     WORKDIR="$TMPDIR_E2E/codex"
+    CODEX_HOME="$TMPDIR_E2E/codex-home"
     mkdir -p "$WORKDIR"
+    mkdir -p "$CODEX_HOME"
 
     print_step "Running Codex via local backend with OTEL..."
     RC=0
-    agentic-ci run --backend local \
-        "Reply with only the word codex-pong" \
+    CODEX_HOME="$CODEX_HOME" agentic-ci run --backend local \
+        "Remember this unique fact exactly: codex-resume-fact-7f3c. Reply with only codex-first-pong." \
         --harness codex \
         --model gpt-5.6-sol \
         --workdir "$WORKDIR" \
@@ -163,6 +165,20 @@ if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "API Requests:"
     assert_contains "Codex cost summary is present" \
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "Cost (USD)"
+
+    print_step "Resuming the Codex session with --last..."
+    RC=0
+    CODEX_HOME="$CODEX_HOME" agentic-ci run --backend local \
+        "Reply with only the unique fact from the previous turn." \
+        --harness codex \
+        --model gpt-5.6-sol \
+        --workdir "$WORKDIR" \
+        -- resume --last \
+        > "$TMPDIR_E2E/codex-resume-out.txt" 2>"$TMPDIR_E2E/codex-resume-err.txt" || RC=$?
+
+    assert_ok "Codex resume local run exited successfully" test "$RC" -eq 0
+    assert_contains "Codex resume remembered the unique fact" \
+        "$(cat "$TMPDIR_E2E/codex-resume-out.txt")" "codex-resume-fact-7f3c"
 else
     print_warning "Skipping Codex local test (codex CLI or credentials unavailable)"
 fi

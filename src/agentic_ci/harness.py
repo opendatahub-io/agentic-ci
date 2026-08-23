@@ -607,10 +607,9 @@ class CodexHarness(Harness):
     def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         codex_args = [
             "exec",
-            "--dangerously-bypass-approvals-and-sandbox",
+            "--approve-for-me",
             "--json",
             "--skip-git-repo-check",
-            "--ephemeral",
             # Codex has no supported auto-update env var; use its native config.
             "-c",
             "check_for_update_on_startup=false",
@@ -618,18 +617,19 @@ class CodexHarness(Harness):
         if otel_endpoint:
             codex_args.extend(self._otel_config_args(otel_endpoint))
         if extra_args:
-            # Keep every extra option before the prompt.  Codex treats a
-            # token such as ``--help`` or ``review`` after the prompt as
-            # command-line syntax rather than prompt text.
+            # Keep every extra argument before the model and prompt so Codex
+            # can interpret subcommands/options such as ``resume --last``.
             codex_args.extend(arg for arg in extra_args if arg != "--")
         codex_args.extend(["-m", model, "--", prompt])
         return [
             "bash",
             "-c",
             'set -e; if [ -n "${OPENAI_API_KEY:-}" ]; then '
-            'printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null || '
+            'if ! printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null 2>&1; then '
             '{ echo "codex login --with-api-key failed" >&2; exit 1; }; '
-            'fi; exec codex "$@"',
+            "fi; "
+            "fi; unset OPENAI_API_KEY; "
+            'exec codex "$@"',
             "--",
             *codex_args,
         ]
