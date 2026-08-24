@@ -73,7 +73,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -120,7 +120,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -214,7 +214,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -252,7 +252,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -290,7 +290,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -366,7 +366,7 @@ jobs:
         uses: ./.github/actions/setup-podman
 
       - name: Log in to quay.io
-        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        uses: redhat-actions/podman-login@753a5f85518026f7970786edd5a07b72dbee37aa # v1 (node24)
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
