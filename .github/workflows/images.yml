@@ -230,6 +230,90 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/opencode-runner:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
+  # codex-runner: requires the shared base image built first
+  # --------------------------------------------------------------------------
+  build-codex-runner:
+    name: Build codex-runner
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
+      - name: Image metadata
+        id: meta
+        run: echo "image=${IMAGE_PREFIX}/codex-runner:${CI_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to quay.io
+        if: env.HAS_SECRETS == 'true'
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build base image
+        run: |
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(--build-arg "AGENTIC_CI_VERSION=${VERSION_TAG}")
+          fi
+          podman build -t localhost/base:latest \
+            "${VERSION_ARGS[@]}" \
+            -f images/runner/shared/Containerfile.base \
+            .
+
+      - name: Build codex-runner
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${IMAGE_PREFIX}/codex-runner"
+          EPOCH=$(date +%s)
+
+          LABEL_ARGS=()
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            LABEL_ARGS=(--label "quay.expires-after=3d")
+          fi
+
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
+          podman build \
+            "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
+            -t "${IMAGE_NAME}:${CI_TAG}" \
+            -t "${IMAGE_NAME}:latest" \
+            -t "${IMAGE_NAME}:${EPOCH}" \
+            -f images/runner/codex/Containerfile \
+            .
+
+          echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
+
+      - name: Push ci-sha tag
+        if: env.HAS_SECRETS == 'true'
+        run: podman push "${IMAGE_PREFIX}/codex-runner:${CI_TAG}"
+
+      - name: Push release tags
+        if: env.PUSH_RELEASE_TAGS == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/codex-runner"
+          podman push "${IMAGE_NAME}:latest"
+          podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/codex-runner:${VERSION_TAG}"
+
+  # --------------------------------------------------------------------------
   # ci-podman: standalone, no base image dependency
   # --------------------------------------------------------------------------
   build-ci-podman:
@@ -451,6 +535,80 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/opencode-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
+  # codex-sandbox: OpenShell sandbox, builds on the agentic base image
+  # (quay.io/aipcc/base-images/agentic/codex)
+  # --------------------------------------------------------------------------
+  build-codex-sandbox:
+    name: Build codex-sandbox
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup podman
+        uses: ./.github/actions/setup-podman
+
+      - name: Image metadata
+        id: meta
+        run: echo "image=${IMAGE_PREFIX}/codex-sandbox:${CI_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to quay.io
+        if: env.HAS_SECRETS == 'true'
+        uses: redhat-actions/podman-login@da4ab030ff46fde1666bb22e53e0f32242a33255 # v1 (node24)
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Build codex-sandbox
+        run: |
+          set -euo pipefail
+
+          IMAGE_NAME="${IMAGE_PREFIX}/codex-sandbox"
+          EPOCH=$(date +%s)
+
+          LABEL_ARGS=()
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            LABEL_ARGS=(--label "quay.expires-after=3d")
+          fi
+
+          VERSION_ARGS=()
+          if [[ -n "${VERSION_TAG}" ]]; then
+            VERSION_ARGS=(-t "${IMAGE_NAME}:${VERSION_TAG}")
+          fi
+
+          podman build \
+            "${LABEL_ARGS[@]}" \
+            "${VERSION_ARGS[@]}" \
+            -t "${IMAGE_NAME}:${CI_TAG}" \
+            -t "${IMAGE_NAME}:latest" \
+            -t "${IMAGE_NAME}:${EPOCH}" \
+            -f images/runner/codex/Containerfile.openshell \
+            .
+
+          echo "EPOCH=${EPOCH}" >> "$GITHUB_ENV"
+
+      - name: Push ci-sha tag
+        if: env.HAS_SECRETS == 'true'
+        run: podman push "${IMAGE_PREFIX}/codex-sandbox:${CI_TAG}"
+
+      - name: Push release tags
+        if: env.PUSH_RELEASE_TAGS == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE_NAME="${IMAGE_PREFIX}/codex-sandbox"
+          podman push "${IMAGE_NAME}:latest"
+          podman push "${IMAGE_NAME}:${EPOCH}"
+
+      - name: Push version tag
+        if: env.VERSION_TAG != ''
+        run: podman push "${IMAGE_PREFIX}/codex-sandbox:${VERSION_TAG}"
+
+  # --------------------------------------------------------------------------
   # ci-openshell: standalone CI image with OpenShell gateway
   # --------------------------------------------------------------------------
   build-ci-openshell:
@@ -615,9 +773,35 @@ jobs:
           OPENCODE_CONTAINER_IMAGE: ${{ needs.build-opencode-runner.outputs.image }}
         run: bash tests/e2e/e2e-opencode-runner.sh
 
+  e2e-codex-runner:
+    name: E2E codex-runner
+    needs: [build-codex-runner, build-ci-podman]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.build-ci-podman.outputs.image }}
+      options: --privileged
+      credentials:
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install agentic-ci from repo
+        run: uv tool install .
+
+      - name: Run e2e tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_CONTAINER_IMAGE: ${{ needs.build-codex-runner.outputs.image }}
+        run: bash tests/e2e/e2e-codex-runner.sh
+
   e2e-openshell-sandbox:
     name: E2E openshell-sandbox
-    needs: [build-claude-sandbox, build-opencode-sandbox, build-ci-openshell]
+    needs: [build-claude-sandbox, build-opencode-sandbox, build-codex-sandbox, build-ci-openshell]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     container:
@@ -639,6 +823,8 @@ jobs:
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CLAUDE_SANDBOX_IMAGE: ${{ needs.build-claude-sandbox.outputs.image }}
           OPENCODE_SANDBOX_IMAGE: ${{ needs.build-opencode-sandbox.outputs.image }}
+          CODEX_SANDBOX_IMAGE: ${{ needs.build-codex-sandbox.outputs.image }}
         run: bash tests/e2e/e2e-openshell-sandbox.sh

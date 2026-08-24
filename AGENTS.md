@@ -13,7 +13,7 @@ Three **backends** provide execution environments:
 Three **harnesses** define which agent CLI to run:
 - **claude-code** (default): [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with `stream-json` output format.
 - **opencode**: [OpenCode](https://github.com/anomalyco/opencode) with JSON event output format.
-- **codex**: [OpenAI Codex](https://developers.openai.com/codex/cli) with JSONL event output and native OpenTelemetry export. Unlike Claude Code and OpenCode, Codex has no project-provided image or build target; container runs must supply an image containing the `codex` binary through `--image` or `CODEX_CONTAINER_IMAGE`.
+- **codex**: [OpenAI Codex](https://developers.openai.com/codex/cli) with JSONL event output and native OpenTelemetry export.
 
 ## Architecture
 
@@ -80,6 +80,10 @@ images/
       Containerfile.openshell       — OpenCode sandbox image (OpenShell); builds
                                       on the agentic base image
       opencode.json                 — Seed config for CI headless mode
+    codex/
+      Containerfile                 — Codex runner image
+      Containerfile.openshell       — Codex sandbox image (OpenShell); builds
+                                      on the agentic base image
   ci/
     Containerfile.podman            — CI environment image (podman + tools, UBI10)
     Containerfile.openshell         — CI environment image (OpenShell + podman, UBI9)
@@ -94,17 +98,18 @@ runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The
 OpenShell-path sandbox images (`Containerfile.openshell`) are UBI9; the
 podman-path images stay on UBI10.
 
-Both sandbox images build `FROM` their respective agentic base images
-(`quay.io/aipcc/base-images/agentic/claude-code` and
-`quay.io/aipcc/base-images/agentic/opencode`, pinned by digest). These
+All three sandbox images build `FROM` their respective agentic base images
+(`quay.io/aipcc/base-images/agentic/claude-code`,
+`quay.io/aipcc/base-images/agentic/opencode`, and
+`quay.io/aipcc/base-images/agentic/codex`, pinned by digest). These
 base images ship the agent binary and Node on UBI9; the Containerfiles
 layer the agentic-ci tooling (Python, uv, forge CLIs, agentic-ci, skills)
 on top.
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
-is pre-built as `localhost/base:latest` before building the Claude and
-OpenCode runner images. It is NOT published to any registry as a
-standalone image. Do not add a CI job to push runner-base separately.
+is pre-built as `localhost/base:latest` before building the Claude,
+OpenCode, and Codex runner images. It is NOT published to any registry as
+a standalone image. Do not add a CI job to push runner-base separately.
 
 ### Building locally
 
@@ -115,9 +120,11 @@ Log in before building them: `podman login quay.io`
 make base-build              # build runner base image locally
 make claude-build            # build Claude Code runner image (includes base)
 make opencode-build          # build OpenCode runner image (includes base)
+make codex-build             # build Codex runner image (includes base)
 make ci-build                # build CI podman image
 make openshell-claude-build  # build Claude sandbox (builds on the agentic base image)
 make openshell-opencode-build # build OpenCode sandbox (builds on the agentic base image)
+make openshell-codex-build   # build Codex sandbox (builds on the agentic base image)
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests

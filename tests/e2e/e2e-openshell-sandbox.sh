@@ -27,6 +27,7 @@ TMPDIR_E2E="$(mktemp -d)"
 cleanup() {
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
     agentic-ci stop --backend openshell --harness opencode 2>/dev/null || true
+    agentic-ci stop --backend openshell --harness codex 2>/dev/null || true
     rm -rf "$TMPDIR_E2E"
     echo ""
     print_header "=== Results ==="
@@ -75,12 +76,14 @@ dump_gateway_log() {
 
 # --- Resolve sandbox images ---
 # Use pre-built images from env vars (CI), or build locally (dev).
-if [[ -n "${CLAUDE_SANDBOX_IMAGE:-}" ]] && [[ -n "${OPENCODE_SANDBOX_IMAGE:-}" ]]; then
+if [[ -n "${CLAUDE_SANDBOX_IMAGE:-}" ]] && [[ -n "${OPENCODE_SANDBOX_IMAGE:-}" ]] && [[ -n "${CODEX_SANDBOX_IMAGE:-}" ]]; then
     print_header "=== Using pre-built sandbox images ==="
     CLAUDE_SANDBOX="$CLAUDE_SANDBOX_IMAGE"
     OPENCODE_SANDBOX="$OPENCODE_SANDBOX_IMAGE"
+    CODEX_SANDBOX="$CODEX_SANDBOX_IMAGE"
     print_step "claude-sandbox: $CLAUDE_SANDBOX"
     print_step "opencode-sandbox: $OPENCODE_SANDBOX"
+    print_step "codex-sandbox: $CODEX_SANDBOX"
 else
     print_header "=== Building OpenShell sandbox images ==="
 
@@ -102,6 +105,13 @@ else
         "$REPO_ROOT/images/runner/"
 
     OPENCODE_SANDBOX="localhost/opencode-sandbox:latest"
+
+    print_step "Building codex-sandbox..."
+    podman build -t localhost/codex-sandbox:latest \
+        -f "$REPO_ROOT/images/runner/codex/Containerfile.openshell" \
+        "$REPO_ROOT"
+
+    CODEX_SANDBOX="localhost/codex-sandbox:latest"
 fi
 
 # --- Resolve supervisor image ---
@@ -245,6 +255,19 @@ assert_contains "manifest has autofix-resolve" "$OC_AUTOFIX_SKILLS" "autofix-res
 assert_contains "manifest has autofix-cve-resolve" "$OC_AUTOFIX_SKILLS" "autofix-cve-resolve"
 assert_contains "manifest has autofix-triage" "$OC_AUTOFIX_SKILLS" "autofix-triage"
 
+# --- codex-sandbox checks ---
+print_header "=== codex-sandbox: binaries ==="
+assert_ok "codex is installed" run_in "$CODEX_SANDBOX" codex --version
+assert_ok "node is installed" run_in "$CODEX_SANDBOX" node --version
+print_header "=== codex-sandbox: config ==="
+assert_ok "codex home directory exists" \
+    run_in "$CODEX_SANDBOX" test -d /sandbox/.codex
+print_header "=== codex-sandbox: entrypoint ==="
+assert_ok "entrypoint.sh is installed" \
+    run_in "$CODEX_SANDBOX" test -x /usr/local/bin/entrypoint.sh
+assert_ok "agentic-ci is installed" \
+    run_in "$CODEX_SANDBOX" agentic-ci --version
+
 # --- Agent run tests (require credentials) ---
 _has_creds() {
     [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]] || \
@@ -282,6 +305,7 @@ else
     echo "  podman:            $(podman --version 2>&1 || echo unknown)"
     echo "  claude:            $(run_in "$CLAUDE_SANDBOX" claude --version 2>&1 || echo unknown)"
     echo "  opencode:          $(run_in "$OPENCODE_SANDBOX" opencode --version 2>&1 || echo unknown)"
+    echo "  codex:             $(run_in "$CODEX_SANDBOX" codex --version 2>&1 || echo unknown)"
 
     # --- Claude Code via OpenShell ---
     print_header "=== agentic-ci run: Claude Code via OpenShell ==="
@@ -324,6 +348,34 @@ else
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness opencode 2>/dev/null || true
+
+    # --- Codex via OpenShell ---
+    _has_codex_creds() {
+        [[ -n "${OPENAI_API_KEY:-}" ]]
+    }
+
+    if _has_codex_creds; then
+        print_header "=== agentic-ci run: Codex via OpenShell ==="
+
+        WORKDIR="$TMPDIR_E2E/codex"
+        mkdir -p "$WORKDIR"
+
+        print_step "Running Codex via agentic-ci (openshell backend)..."
+        RC=0
+        agentic-ci run "Reply with only the word pong" \
+            --backend openshell \
+            --image "$CODEX_SANDBOX" \
+            --harness codex \
+            --workdir "$WORKDIR" \
+            --no-otel || RC=$?
+
+        assert_ok "codex exited successfully" test "$RC" -eq 0
+        dump_gateway_log
+
+        agentic-ci stop --backend openshell --harness codex 2>/dev/null || true
+    else
+        print_warning "Skipping Codex OpenShell test (OPENAI_API_KEY not set)"
+    fi
 
     # --- Repo-level network policy test ---
     # Verifies that .agentic-ci/openshell-policy.yml in the workdir adds
