@@ -18,6 +18,10 @@ claude-build: base-build ## Build the Claude Code runner image locally
 opencode-build: base-build ## Build the OpenCode runner image locally
 	podman build -t localhost/opencode-runner:latest -f images/runner/opencode/Containerfile .
 
+.PHONY: codex-build
+codex-build: base-build ## Build the Codex runner image locally
+	podman build -t localhost/codex-runner:latest -f images/runner/codex/Containerfile .
+
 .PHONY: ci-build
 ci-build: ## Build the CI podman image locally
 	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
@@ -30,6 +34,10 @@ openshell-claude-build: ## Build the OpenShell Claude sandbox image locally (bui
 openshell-opencode-build: ## Build the OpenShell OpenCode sandbox image locally (builds on the agentic base image, not openshell-base)
 	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
 
+.PHONY: openshell-codex-build
+openshell-codex-build: ## Build the OpenShell Codex sandbox image locally (builds on the agentic base image)
+	podman build -t localhost/codex-sandbox:latest -f images/runner/codex/Containerfile.openshell .
+
 .PHONY: openshell-ci-build
 openshell-ci-build: ## Build the OpenShell CI image locally
 	podman build -t openshell:latest -f images/ci/Containerfile.openshell .
@@ -41,6 +49,10 @@ bump-versions: ## Bump pinned dependency versions in Containerfiles
 .PHONY: check-versions
 check-versions: ## Check for available dependency updates
 	python3 scripts/bump-versions.py --check
+
+.PHONY: update-cost-map
+update-cost-map: ## Update bundled OpenAI pricing from LiteLLM main
+	uv run python scripts/update_litellm_cost_map.py
 
 .PHONY: image-lint
 image-lint: ## Run linting checks on image scripts
@@ -58,6 +70,10 @@ e2e-claude: ## Run Claude Code runner e2e tests
 .PHONY: e2e-opencode
 e2e-opencode: ## Run OpenCode runner e2e tests
 	bash tests/e2e/e2e-opencode-runner.sh
+
+.PHONY: e2e-codex
+e2e-codex: ## Run Codex runner e2e tests
+	bash tests/e2e/e2e-codex-runner.sh
 
 .PHONY: e2e-openshell
 e2e-openshell: ## Run OpenShell sandbox e2e tests

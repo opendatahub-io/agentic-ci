@@ -1,7 +1,7 @@
 """Harness abstraction for AI agent CLI tools.
 
 A harness encapsulates everything specific to a particular agent CLI
-(Claude Code, OpenCode, etc.): how to build the command, what env vars
+(Claude Code, OpenCode, Codex, etc.): how to build the command, what env vars
 it needs, where credentials are mounted, and how to parse its output.
 """
 
@@ -9,9 +9,15 @@ import json
 import os
 import shlex
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
-from agentic_ci.stream import ClaudeCodeStreamProcessor, OpenCodeStreamProcessor
+from agentic_ci.stream import (
+    ClaudeCodeStreamProcessor,
+    CodexStreamProcessor,
+    OpenCodeStreamProcessor,
+)
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
@@ -22,9 +28,26 @@ class Harness(ABC):
     @property
     def auth_mode(self) -> str:
         """Return 'api-key' if ANTHROPIC_API_KEY is set, else 'vertex'."""
-        if os.environ.get("ANTHROPIC_API_KEY"):
+        return self.auth_mode_for_env(os.environ)
+
+    def auth_mode_for_env(self, env: Mapping[str, str] | None = None) -> str:
+        """Return the authentication mode selected by *env*."""
+        credential_env = env if env is not None else os.environ
+        if credential_env.get("ANTHROPIC_API_KEY"):
             return "api-key"
         return "vertex"
+
+    def validate_credentials(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        allow_auth_file: bool = False,
+    ) -> None:
+        """Fail early when harness-specific credentials are unavailable.
+
+        Harnesses without additional validation requirements use this no-op
+        implementation.
+        """
 
     @property
     @abstractmethod
@@ -32,11 +55,17 @@ class Harness(ABC):
         """Human-readable name for log messages."""
 
     @abstractmethod
-    def build_args(self, prompt: str, model: str, extra_args: list[str] | None = None) -> list[str]:
+    def build_args(
+        self,
+        prompt: str,
+        model: str,
+        extra_args: list[str] | None = None,
+        otel_endpoint: str | None = None,
+    ) -> list[str]:
         """Build the CLI argument list to run inside the container."""
 
     @abstractmethod
-    def build_env_args(self) -> list[str]:
+    def build_env_args(self, env: Mapping[str, str] | None = None) -> list[str]:
         """Return ['--env', 'K=V', ...] pairs for ``podman run`` (PodmanBackend only).
 
         Container-image ENV vars (config dirs, AGENT_TOOL) are already
@@ -49,6 +78,7 @@ class Harness(ABC):
         otel_port: int | None = None,
         otel_rate_file: str | None = None,
         traceparent: str | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> list[str]:
         """Return ``export K=V`` lines for the env script (OpenShellBackend only).
 
@@ -89,6 +119,7 @@ class Harness(ABC):
         otel_port: int | None = None,
         otel_rate_file: str | None = None,
         traceparent: str | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> dict[str, str]:
         """Return env vars as a plain dict for direct (local) execution.
 
@@ -129,7 +160,7 @@ class ClaudeCodeHarness(Harness):
     def name(self) -> str:
         return "Claude Code"
 
-    def build_args(self, prompt, model, extra_args=None):
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         args = [
             "claude",
             "--permission-mode",
@@ -147,7 +178,8 @@ class ClaudeCodeHarness(Harness):
             args.extend(extra_args)
         return args
 
-    def build_env_args(self):
+    def build_env_args(self, env=None):
+        credential_env = env if env is not None else os.environ
         common = [
             "--env",
             "AGENT_TOOL=claude",
@@ -156,29 +188,32 @@ class ClaudeCodeHarness(Harness):
             "--env",
             "DISABLE_AUTOUPDATER=1",
         ]
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
-        if self.auth_mode == "api-key":
+        if self.auth_mode_for_env(credential_env) == "api-key":
             return [
                 "--env",
                 "ANTHROPIC_API_KEY",
                 *common,
             ]
-        vertex_project = os.environ.get(
-            "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+        vertex_project = credential_env.get(
+            "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
         )
         return [
             "--env",
             "CLAUDE_CODE_USE_VERTEX=1",
             "--env",
-            f"CLOUD_ML_REGION={os.environ.get('CLOUD_ML_REGION', 'global')}",
+            f"CLOUD_ML_REGION={credential_env.get('CLOUD_ML_REGION', 'global')}",
             "--env",
             f"ANTHROPIC_VERTEX_PROJECT_ID={vertex_project}",
             *common,
         ]
 
-    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
+    def build_env_script_lines(
+        self, otel_port=None, otel_rate_file=None, traceparent=None, env=None
+    ):
+        credential_env = env if env is not None else os.environ
         common = [
             "export AGENT_TOOL=claude",
             "export CLAUDE_CONFIG_DIR=/sandbox/.claude",
@@ -186,19 +221,19 @@ class ClaudeCodeHarness(Harness):
             "export CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1",
             "export DISABLE_AUTOUPDATER=1",
         ]
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
-        if self.auth_mode == "api-key":
+        if self.auth_mode_for_env(credential_env) == "api-key":
             lines = [
-                f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
+                f"export ANTHROPIC_API_KEY={shlex.quote(credential_env['ANTHROPIC_API_KEY'])}",
                 *common,
             ]
         else:
-            vertex_project = os.environ.get(
-                "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+            vertex_project = credential_env.get(
+                "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
             )
-            cloud_region = os.environ.get("CLOUD_ML_REGION", "global")
+            cloud_region = credential_env.get("CLOUD_ML_REGION", "global")
             lines = [
                 "export CLAUDE_CODE_USE_VERTEX=1",
                 f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
@@ -259,23 +294,24 @@ class ClaudeCodeHarness(Harness):
             env.extend(["--env", f"TRACEPARENT={traceparent}"])
         return env
 
-    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None, env=None):
+        credential_env = env if env is not None else os.environ
         env = {
             "AGENT_TOOL": "claude",
             "DISABLE_AUTOUPDATER": "1",
             # -p sets sessionKind, breaking --continue lookup (claude-code#43013)
             "CLAUDE_CODE_ENTRYPOINT": "sdk-cli",
         }
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
-        if self.auth_mode == "api-key":
-            env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+        if self.auth_mode_for_env(credential_env) == "api-key":
+            env["ANTHROPIC_API_KEY"] = credential_env["ANTHROPIC_API_KEY"]
         else:
             env["CLAUDE_CODE_USE_VERTEX"] = "1"
-            env["CLOUD_ML_REGION"] = os.environ.get("CLOUD_ML_REGION", "global")
-            env["ANTHROPIC_VERTEX_PROJECT_ID"] = os.environ.get(
-                "ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")
+            env["CLOUD_ML_REGION"] = credential_env.get("CLOUD_ML_REGION", "global")
+            env["ANTHROPIC_VERTEX_PROJECT_ID"] = credential_env.get(
+                "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
             )
         if otel_port:
             env.update(
@@ -325,7 +361,7 @@ class OpenCodeHarness(Harness):
     def name(self) -> str:
         return "OpenCode"
 
-    def build_args(self, prompt, model, extra_args=None):
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         args = [
             "opencode",
             "run",
@@ -340,7 +376,8 @@ class OpenCodeHarness(Harness):
             args.extend(extra_args)
         return args
 
-    def build_env_args(self):
+    def build_env_args(self, env=None):
+        credential_env = env if env is not None else os.environ
         common = [
             "--env",
             "AGENT_TOOL=opencode",
@@ -349,22 +386,24 @@ class OpenCodeHarness(Harness):
             "--env",
             "OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
-        if self.auth_mode == "api-key":
+        if self.auth_mode_for_env(credential_env) == "api-key":
             return [
                 "--env",
                 "ANTHROPIC_API_KEY",
                 *common,
             ]
-        project = os.environ.get(
+        project = credential_env.get(
             "GOOGLE_CLOUD_PROJECT",
-            os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
+            credential_env.get(
+                "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
+            ),
         )
-        location = os.environ.get(
+        location = credential_env.get(
             "VERTEX_LOCATION",
-            os.environ.get("CLOUD_ML_REGION", "global"),
+            credential_env.get("CLOUD_ML_REGION", "global"),
         )
         mount_target = self.credential_mount_target()
         return [
@@ -377,28 +416,33 @@ class OpenCodeHarness(Harness):
             *common,
         ]
 
-    def build_env_script_lines(self, otel_port=None, otel_rate_file=None, traceparent=None):
+    def build_env_script_lines(
+        self, otel_port=None, otel_rate_file=None, traceparent=None, env=None
+    ):
+        credential_env = env if env is not None else os.environ
         common = [
             "export AGENT_TOOL=opencode",
             "export OPENCODE_CONFIG_DIR=/sandbox/.config/opencode",
             "export OPENCODE_DISABLE_AUTOUPDATE=1",
         ]
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
-        if self.auth_mode == "api-key":
+        if self.auth_mode_for_env(credential_env) == "api-key":
             lines = [
-                f"export ANTHROPIC_API_KEY={shlex.quote(os.environ['ANTHROPIC_API_KEY'])}",
+                f"export ANTHROPIC_API_KEY={shlex.quote(credential_env['ANTHROPIC_API_KEY'])}",
                 *common,
             ]
         else:
-            project = os.environ.get(
+            project = credential_env.get(
                 "GOOGLE_CLOUD_PROJECT",
-                os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
+                credential_env.get(
+                    "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
+                ),
             )
-            location = os.environ.get(
+            location = credential_env.get(
                 "VERTEX_LOCATION",
-                os.environ.get("CLOUD_ML_REGION", "global"),
+                credential_env.get("CLOUD_ML_REGION", "global"),
             )
             lines = [
                 f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
@@ -438,23 +482,26 @@ class OpenCodeHarness(Harness):
             env.extend(["--env", f"TRACEPARENT={traceparent}"])
         return env
 
-    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None):
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None, env=None):
+        credential_env = env if env is not None else os.environ
         env = {
             "AGENT_TOOL": "opencode",
             "OPENCODE_DISABLE_AUTOUPDATE": "1",
         }
-        enabled_plugins = os.environ.get("AGENT_ENABLED_PLUGINS")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
-        if self.auth_mode == "api-key":
-            env["ANTHROPIC_API_KEY"] = os.environ["ANTHROPIC_API_KEY"]
+        if self.auth_mode_for_env(credential_env) == "api-key":
+            env["ANTHROPIC_API_KEY"] = credential_env["ANTHROPIC_API_KEY"]
         else:
-            env["GOOGLE_CLOUD_PROJECT"] = os.environ.get(
+            env["GOOGLE_CLOUD_PROJECT"] = credential_env.get(
                 "GOOGLE_CLOUD_PROJECT",
-                os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", os.environ.get("GCP_PROJECT_ID", "")),
+                credential_env.get(
+                    "ANTHROPIC_VERTEX_PROJECT_ID", credential_env.get("GCP_PROJECT_ID", "")
+                ),
             )
-            env["VERTEX_LOCATION"] = os.environ.get(
-                "VERTEX_LOCATION", os.environ.get("CLOUD_ML_REGION", "global")
+            env["VERTEX_LOCATION"] = credential_env.get(
+                "VERTEX_LOCATION", credential_env.get("CLOUD_ML_REGION", "global")
             )
         if traceparent:
             env["TRACEPARENT"] = traceparent
@@ -501,11 +548,158 @@ class OpenCodeHarness(Harness):
         return []
 
 
+class CodexHarness(Harness):
+    """OpenAI Codex CLI harness."""
+
+    _CREDENTIAL_ENV_VARS = ("OPENAI_API_KEY",)
+
+    @property
+    def name(self) -> str:
+        return "Codex"
+
+    @property
+    def auth_mode(self) -> str:
+        """Codex uses OpenAI credentials, not Anthropic or Vertex."""
+        return "openai"
+
+    def auth_mode_for_env(self, env=None) -> str:
+        """Codex always uses its OpenAI-compatible authentication path."""
+        return "openai"
+
+    def validate_credentials(
+        self,
+        env: Mapping[str, str] | None = None,
+        *,
+        allow_auth_file: bool = False,
+    ) -> None:
+        credential_env = env if env is not None else os.environ
+        if any(credential_env.get(name) for name in self._CREDENTIAL_ENV_VARS):
+            return
+
+        home = Path(credential_env.get("HOME", str(Path.home())))
+        codex_home = Path(credential_env.get("CODEX_HOME", str(home / ".codex")))
+        auth_path = codex_home / "auth.json"
+        if allow_auth_file and auth_path.is_file():
+            return
+
+        expected = ", ".join(self._CREDENTIAL_ENV_VARS)
+        if allow_auth_file:
+            expected = f"{expected}, or {auth_path}"
+        raise RuntimeError(f"Codex credentials not found. Set one of: {expected}.")
+
+    @staticmethod
+    def _otel_config_args(endpoint):
+        endpoint = endpoint.rstrip("/")
+
+        def exporter(signal):
+            url = json.dumps(f"{endpoint}/v1/{signal}")
+            return f'{{ "otlp-http" = {{ endpoint = {url}, protocol = "json" }} }}'
+
+        return [
+            "-c",
+            f"otel.exporter={exporter('logs')}",
+            "-c",
+            f"otel.metrics_exporter={exporter('metrics')}",
+            "-c",
+            f"otel.trace_exporter={exporter('traces')}",
+        ]
+
+    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
+        codex_args = [
+            "exec",
+            "--approve-for-me",
+            "--json",
+            "--skip-git-repo-check",
+            # Codex has no supported auto-update env var; use its native config.
+            "-c",
+            "check_for_update_on_startup=false",
+        ]
+        if otel_endpoint:
+            codex_args.extend(self._otel_config_args(otel_endpoint))
+        if extra_args:
+            # Keep every extra argument before the model and prompt so Codex
+            # can interpret subcommands/options such as ``resume --last``.
+            codex_args.extend(arg for arg in extra_args if arg != "--")
+        codex_args.extend(["-m", model, "--", prompt])
+        return [
+            "bash",
+            "-c",
+            'set -e; if [ -n "${OPENAI_API_KEY:-}" ]; then '
+            'if ! printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null 2>&1; then '
+            '{ echo "codex login --with-api-key failed" >&2; exit 1; }; '
+            "fi; "
+            "fi; unset OPENAI_API_KEY; "
+            'exec codex "$@"',
+            "--",
+            *codex_args,
+        ]
+
+    def build_env_args(self, env=None):
+        credential_env = env if env is not None else os.environ
+        args = ["--env", "AGENT_TOOL=codex"]
+        if credential_env.get("OPENAI_API_KEY"):
+            args.extend(["--env", "OPENAI_API_KEY"])
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            args.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
+        return args
+
+    def build_env_script_lines(
+        self, otel_port=None, otel_rate_file=None, traceparent=None, env=None
+    ):
+        credential_env = env if env is not None else os.environ
+        lines = [
+            "mkdir -p /sandbox/.codex",
+            "export AGENT_TOOL=codex",
+            "export CODEX_HOME=/sandbox/.codex",
+        ]
+        if credential_env.get("OPENAI_API_KEY"):
+            lines.append(f"export OPENAI_API_KEY={shlex.quote(credential_env['OPENAI_API_KEY'])}")
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            lines.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
+        return lines
+
+    def build_otel_exec_env(self, otel_port=None, traceparent=None):
+        return []
+
+    def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None, env=None):
+        credential_env = env if env is not None else os.environ
+        env = {"AGENT_TOOL": "codex"}
+        enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
+        if enabled_plugins:
+            env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
+        return env
+
+    def credential_mount_target(self):
+        return os.environ.get("CODEX_CONTAINER_HOME", "/home/agent-ci")
+
+    def create_stream_processor(self, pid=0):
+        return CodexStreamProcessor(agent_pid=pid)
+
+    def image_env_var(self):
+        return "CODEX_CONTAINER_IMAGE"
+
+    def model_env_var(self):
+        return "CODEX_MODEL"
+
+    def default_model(self):
+        return "gpt-5.6-sol"
+
+    @property
+    def supports_otel(self) -> bool:
+        return True
+
+
 def create_harness(name: str) -> Harness:
     """Create a harness instance by name."""
     if name == "claude-code":
         return ClaudeCodeHarness()
     elif name == "opencode":
         return OpenCodeHarness()
+    elif name == "codex":
+        return CodexHarness()
     else:
-        raise ValueError(f"Unknown harness: {name!r}. Choose 'claude-code' or 'opencode'.")
+        raise ValueError(
+            f"Unknown harness: {name!r}. Choose 'claude-code', 'opencode', or 'codex'."
+        )

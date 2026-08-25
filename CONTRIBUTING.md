@@ -43,7 +43,7 @@ full execution path with real containers and API calls:
 
 - `e2e-claude-runner.sh` -- Claude Code runner (podman backend)
 - `e2e-opencode-runner.sh` -- OpenCode runner (podman backend)
-- `e2e-local-runner.sh` -- Local backend (no container)
+- `e2e-local-runner.sh` -- Local backend, including Codex when credentials are available
 - `e2e-openshell-sandbox.sh` -- OpenShell sandbox backend
 - `test_mlflow_e2e.py` -- MLflow integration
 
@@ -62,7 +62,7 @@ Update the relevant docs when your PR changes user-facing behavior:
 
 ## Harness and Backend Parity
 
-agentic-ci supports multiple harnesses (Claude Code, OpenCode) and
+agentic-ci supports multiple harnesses (Claude Code, OpenCode, Codex) and
 backends (local, podman, OpenShell). When making changes to one, you
 must update the others to keep feature parity:
 
@@ -72,12 +72,14 @@ If you add a feature or fix to one harness, apply the equivalent
 change to all harnesses. For example:
 
 - A new CLI argument added to `ClaudeCodeHarness.build_args()` needs
-  the equivalent in `OpenCodeHarness.build_args()`.
+  the equivalent in `OpenCodeHarness.build_args()` and
+  `CodexHarness.build_args()` when the CLIs support it.
 - A new env var handled in one harness's `build_env_args()` must be
   handled in all.
 - Stream processor changes in `ClaudeCodeStreamProcessor` should have
-  the corresponding update in `OpenCodeStreamProcessor` when the
-  feature applies to both (e.g., token display, tool call summaries).
+  corresponding updates in `OpenCodeStreamProcessor` and
+  `CodexStreamProcessor` when the feature applies (e.g., token display,
+  tool call summaries).
 
 ### Backends
 
@@ -88,12 +90,15 @@ and all implementations must stay consistent:
   supported by the others, or explicitly documented as backend-specific
   with a clear reason.
 - Container image changes (Containerfiles) must be applied to both
-  Claude and OpenCode variants, plus their OpenShell sandbox variants.
+  repository-provided Claude and OpenCode variants, plus their OpenShell
+  sandbox variants. Codex images are user-supplied until a Codex runner
+  exists in `images/runner/`.
 
 ### Container images
 
-Runner images come in pairs (Claude + OpenCode) and optionally in
-OpenShell sandbox variants. When changing `images/runner/`:
+Repository-provided runner images come in pairs (Claude + OpenCode) and
+optionally in OpenShell sandbox variants. Codex runner images are currently
+user-supplied. When changing `images/runner/`:
 
 - Changes to `shared/Containerfile.base` affect all runners.
 - Changes specific to one runner (e.g., `claude-code/Containerfile`)

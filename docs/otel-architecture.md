@@ -259,6 +259,14 @@ token volume (input + output + cache). Each span gets an
 MLflow aggregates these into `mlflow.trace.cost`. The per-span split is
 an approximation; the session total is exact.
 
+Codex emits token counts in `codex.sse_event` `response.completed` log events,
+but does not emit a dollar amount. The collector estimates Codex cost with a
+generated snapshot of LiteLLM's OpenAI pricing map, including cache and
+service-tier rates. `make update-cost-map` refreshes the snapshot from an exact
+LiteLLM commit and stores that source SHA with the data. Deployments can point
+`AGENTIC_CI_LITELLM_COST_MAP` at another LiteLLM-format map. Unknown models
+retain token reporting but are omitted from the cost table.
+
 #### Query source
 
 Claude tags each API call with a `query_source` (e.g., `"sdk"`,

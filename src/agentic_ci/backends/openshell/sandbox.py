@@ -29,7 +29,14 @@ def exists():
     return result.returncode == 0
 
 
-def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_mode=None):
+def create(
+    image=None,
+    policy_path=None,
+    otel_port=None,
+    workdir=".",
+    approval_mode=None,
+    auth_mode=None,
+):
     """Create a persistent sandbox with the CI provider attached.
 
     The sandbox is created first, then the network policy is applied
@@ -51,6 +58,9 @@ def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_m
         args.extend(["--approval-mode", approval_mode])
     if image:
         args.extend(["--from", image])
+    # OpenShell keeps the sandbox after the initial command exits unless
+    # --no-keep is supplied.  Use a terminating command so `sandbox create`
+    # returns before subsequent commands are run via `sandbox exec`.
     args.extend(["--", "true"])
     _run(args, check=True)
 
@@ -69,10 +79,15 @@ def create(image=None, policy_path=None, otel_port=None, workdir=".", approval_m
             check=True,
         )
 
-    _apply_policy(policy_path, otel_port=otel_port, workdir=workdir)
+    _apply_policy(
+        policy_path,
+        otel_port=otel_port,
+        workdir=workdir,
+        auth_mode=auth_mode,
+    )
 
 
-def _apply_policy(policy_path, otel_port=None, workdir="."):
+def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
     """Apply network policy endpoints and wait for activation.
 
     Two-step process:
@@ -83,7 +98,7 @@ def _apply_policy(policy_path, otel_port=None, workdir="."):
        The google-cloud provider profile is endpointless, so the gateway
        withholds credentials unless the sandbox policy explicitly binds them.
     """
-    endpoints = resolve_endpoints(policy_path, workdir=workdir)
+    endpoints = resolve_endpoints(policy_path, workdir=workdir, auth_mode=auth_mode)
     if otel_port:
         endpoints.append(f"host.openshell.internal:{otel_port}:read-write")
     if not endpoints:
@@ -98,6 +113,8 @@ def _apply_policy(policy_path, otel_port=None, workdir="."):
         "/usr/local/bin/claude",
         "--binary",
         "/usr/local/bin/opencode",
+        "--binary",
+        "/usr/local/bin/codex",
     ]
     for ep in endpoints:
         args.extend(["--add-endpoint", ep])

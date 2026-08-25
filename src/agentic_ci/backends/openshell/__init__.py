@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
 import subprocess
 import tempfile
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log
@@ -63,6 +65,38 @@ def _token_keepalive(stop: threading.Event) -> None:
 _DEFAULT_MAX_RETRIES = "20"
 
 _OPENSHELL_HOST = "host.openshell.internal"
+_OPENAI_CREDENTIAL_ENV_VARS = frozenset({"OPENAI_API_KEY"})
+_OPENSHELL_STATE_ENV = "AGENTIC_CI_OPENSHELL_STATE"
+_DEFAULT_OPENSHELL_STATE = Path.home() / ".config" / "agentic-ci" / "openshell-sandbox.json"
+
+
+def _openshell_state_path() -> Path:
+    return Path(os.environ.get(_OPENSHELL_STATE_ENV, _DEFAULT_OPENSHELL_STATE))
+
+
+def _load_sandbox_identity() -> dict | None:
+    try:
+        data = json.loads(_openshell_state_path().read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _save_sandbox_identity(identity: dict) -> None:
+    state_path = _openshell_state_path()
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(identity, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _clear_sandbox_identity() -> None:
+    try:
+        _openshell_state_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _sandbox_identity(harness_name: str, image: str | None, auth_mode: str) -> dict:
+    return {"auth_mode": auth_mode, "harness": harness_name, "image": image}
 
 
 class OpenShellBackend(Backend):
@@ -99,19 +133,60 @@ class OpenShellBackend(Backend):
         self._extra_env = extra_env or {}
         self.approval_mode = approval_mode
 
+    def _merged_env(self):
+        return {**os.environ, **self._extra_env}
+
     def setup(self, otel_port=None):
+        env = self._merged_env()
+        auth_mode = self.harness.auth_mode_for_env(env)
+        provider.validate_credentials(auth_mode, env)
+
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
             gateway.start()
         else:
             log.section("OpenShell gateway already running")
 
-        log.section("Configuring provider")
-        provider.setup(auth_mode=self.harness.auth_mode)
+        sandbox_exists = sandbox.exists()
+        existing_provider = provider.provider_exists()
+        existing_auth_mode = None
+        if existing_provider:
+            existing_auth_mode = provider.auth_mode()
+            if existing_auth_mode is None:
+                raise RuntimeError(
+                    "Could not determine the existing OpenShell provider auth mode; "
+                    "run agentic-ci stop before switching harnesses"
+                )
 
-        if sandbox.exists():
-            log.section("Sandbox already exists")
-            return
+        if sandbox_exists:
+            if not existing_provider:
+                raise RuntimeError(
+                    "The existing OpenShell sandbox has no identifiable provider; "
+                    "run agentic-ci stop before switching harnesses"
+                )
+            identity = _load_sandbox_identity()
+            expected_identity = _sandbox_identity(self.harness.name, self.image, auth_mode)
+            if identity is None:
+                raise RuntimeError(
+                    "Could not determine the existing OpenShell sandbox identity; "
+                    "run agentic-ci stop before switching harnesses"
+                )
+            if existing_auth_mode == auth_mode and identity == expected_identity:
+                log.section("Sandbox already exists")
+                return
+
+            if existing_auth_mode != auth_mode:
+                log.section("Auth mode changed; recreating OpenShell sandbox and provider")
+            else:
+                log.section("Sandbox identity changed; recreating OpenShell sandbox")
+            sandbox.delete()
+            _clear_sandbox_identity()
+
+        if existing_provider and existing_auth_mode != auth_mode:
+            provider.delete()
+
+        log.section("Configuring provider")
+        provider.setup(auth_mode=auth_mode, env=env)
 
         image_info = f", image: {self.image}" if self.image else ""
         log.section(f"Creating sandbox ({image_info.lstrip(', ') or 'default image'})")
@@ -122,6 +197,7 @@ class OpenShellBackend(Backend):
             otel_port=otel_port,
             workdir=self.workdir,
             approval_mode=self.approval_mode,
+            auth_mode=auth_mode,
         )
 
         self._run_setup_steps()
@@ -130,6 +206,7 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
+        _save_sandbox_identity(_sandbox_identity(self.harness.name, self.image, auth_mode))
 
     def _upload_sandbox_config(self, otel_enabled=False):
         """Write harness-specific config and upload it to the sandbox."""
@@ -149,8 +226,10 @@ class OpenShellBackend(Backend):
         try:
             if gateway.is_running() and sandbox.exists():
                 sandbox.delete()
+                _clear_sandbox_identity()
                 log.section("Sandbox deleted")
             else:
+                _clear_sandbox_identity()
                 log.section("No sandbox to stop")
         finally:
             gateway.stop()
@@ -166,8 +245,18 @@ class OpenShellBackend(Backend):
         extra_args=None,
         traceparent=None,
     ):
-        self._write_env_script(model, otel_port, otel_rate_file, traceparent=traceparent)
-        agent_args = self.harness.build_args(prompt, model, extra_args)
+        env = self._merged_env()
+        auth_mode = self.harness.auth_mode_for_env(env)
+        self._write_env_script(
+            model,
+            otel_port,
+            otel_rate_file,
+            traceparent=traceparent,
+            env=env,
+            auth_mode=auth_mode,
+        )
+        otel_endpoint = f"http://{_OPENSHELL_HOST}:{otel_port}" if otel_port else None
+        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
         workdir_name = os.path.basename(self.workdir)
         sandbox_workdir = f"/sandbox/{workdir_name}"
@@ -184,7 +273,7 @@ class OpenShellBackend(Backend):
 
         # The token-lapse race only affects the OpenShell gateway's minted
         # Vertex credential; the API-key auth path is unaffected.
-        if self.harness.auth_mode == "vertex":
+        if auth_mode == "vertex":
             log.section("Starting GCP token keepalive")
             keepalive = threading.Thread(
                 target=_token_keepalive, args=(stop_keepalive,), daemon=True
@@ -207,7 +296,15 @@ class OpenShellBackend(Backend):
             if keepalive:
                 keepalive.join(timeout=5)
 
-    def _write_env_script(self, model, otel_port=None, otel_rate_file=None, traceparent=None):
+    def _write_env_script(
+        self,
+        model,
+        otel_port=None,
+        otel_rate_file=None,
+        traceparent=None,
+        env=None,
+        auth_mode=None,
+    ):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
         Uses the harness's native env script (Vertex AI vars, API key, and
@@ -215,7 +312,13 @@ class OpenShellBackend(Backend):
         directly. The harness handles OTEL endpoint configuration using the
         gateway host address.
         """
-        lines = self.harness.build_env_script_lines(otel_port=otel_port, traceparent=traceparent)
+        env = self._merged_env() if env is None else env
+        auth_mode = self.harness.auth_mode_for_env(env) if auth_mode is None else auth_mode
+        lines = self.harness.build_env_script_lines(
+            otel_port=otel_port,
+            traceparent=traceparent,
+            env=env,
+        )
         if otel_port:
             # The harness sets the OTel endpoint to 10.200.0.1 (the gateway IP
             # used by the Podman backend). OpenShell sandboxes can't reach that
@@ -224,16 +327,24 @@ class OpenShellBackend(Backend):
         if not otel_port and self.harness.name == "Claude Code":
             lines.append("export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 
-        if self.harness.auth_mode == "vertex":
-            max_retries = os.environ.get("CLAUDE_CODE_MAX_RETRIES", _DEFAULT_MAX_RETRIES)
+        if auth_mode == "vertex":
+            max_retries = env.get("CLAUDE_CODE_MAX_RETRIES", _DEFAULT_MAX_RETRIES)
             lines.append(f"export CLAUDE_CODE_MAX_RETRIES={shlex.quote(max_retries)}")
 
         for key, val in self._extra_env.items():
+            if auth_mode == "openai" and key in _OPENAI_CREDENTIAL_ENV_VARS:
+                continue
             lines.append(f"export {key}={shlex.quote(val)}")
 
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
 
-        lines.append("agentic-ci enable-plugins")
+        lines.extend(
+            [
+                "if command -v agentic-ci >/dev/null 2>&1; then",
+                "    agentic-ci enable-plugins",
+                "fi",
+            ]
+        )
 
         script = "\n".join(lines) + "\n"
 

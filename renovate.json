@@ -10,6 +10,8 @@
       "images/runner/claude-code/Containerfile.openshell",
       "images/runner/opencode/Containerfile",
       "images/runner/opencode/Containerfile.openshell",
+      "images/runner/codex/Containerfile",
+      "images/runner/codex/Containerfile.openshell",
       "images/ci/Containerfile.podman",
       "images/ci/Containerfile.openshell"
     ],
@@ -32,7 +34,8 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "quay.io/aipcc/base-images/agentic/opencode",
-        "quay.io/aipcc/base-images/agentic/claude-code"
+        "quay.io/aipcc/base-images/agentic/claude-code",
+        "quay.io/aipcc/base-images/agentic/codex"
       ],
       "minimumReleaseAge": "0 days"
     },
@@ -48,6 +51,7 @@
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
       ],
@@ -61,7 +65,8 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/opencode/Containerfile\\.openshell$"
+        "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ARG SHELLCHECK_VERSION=(?<currentValue>[^\\n]+)"],
       "depNameTemplate": "koalaman/shellcheck",
@@ -74,6 +79,7 @@
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
       ],
@@ -88,6 +94,7 @@
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
       ],
@@ -148,7 +155,8 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
-        "^images/runner/opencode/Containerfile\\.openshell$"
+        "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ruff==(?<currentValue>[^\\s]+)"],
       "depNameTemplate": "ruff",
@@ -159,6 +167,7 @@
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"
       ],
@@ -191,6 +200,15 @@
         "^images/runner/opencode/Containerfile\\.openshell$"
       ],
       "matchStrings": ["ARG OPENCODE_BASE_IMAGE=(?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/codex/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG CODEX_BASE_IMAGE=(?<depName>[^:@\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
     }
