@@ -436,6 +436,43 @@ class TestInstallOpencodeSkills:
 
         assert json.loads(manifest.read_text()) == {}
 
+    def test_installs_skills_from_git_subdir_source(self, tmp_path):
+        repo = tmp_path / "mock-repo"
+        skill = repo / "plugins" / "patternfly" / "pf-react" / "skills" / "pf-react"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: pf-react\n---\n")
+        mkt = tmp_path / "marketplace.json"
+        mkt.write_text(
+            json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "pf-react",
+                            "source": {
+                                "source": "git-subdir",
+                                "url": "https://github.com/rh-uxd/ai-helpers.git",
+                                "path": "plugins/patternfly/pf-react",
+                                "ref": "main",
+                            },
+                        }
+                    ]
+                }
+            )
+        )
+        skills_dir = tmp_path / "skills"
+        manifest = tmp_path / "manifest.json"
+
+        def fake_clone(url, dest, branch=None, depth=None):
+            assert url == "https://github.com/rh-uxd/ai-helpers.git"
+            shutil.copytree(repo, dest)
+            return True
+
+        with mock.patch("agentic_ci.plugins.clone_repo", side_effect=fake_clone):
+            install_opencode_skills(mkt, skills_dir=skills_dir, manifest_path=manifest)
+
+        assert (skills_dir / "pf-react" / "SKILL.md").is_file()
+        assert json.loads(manifest.read_text()) == {"pf-react": ["pf-react"]}
+
     def test_explicit_skills_paths(self, tmp_path):
         repo = tmp_path / "mock-repo"
         helpers = repo / "helpers" / "skills" / "helper-skill"
