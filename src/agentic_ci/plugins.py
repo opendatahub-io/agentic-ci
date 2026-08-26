@@ -168,11 +168,21 @@ def install_opencode_skills(
     data = json.loads(marketplace_json.read_text())
     for entry in data.get("plugins", []):
         name = entry["name"]
-        repo = entry["source"]["repo"]
-        ref = entry["source"].get("ref", "main")
-        url = f"https://github.com/{repo}.git"
+        source = entry.get("source", {})
+        repo = source.get("repo")
+        ref = source.get("ref", "main")
+        source_path = source.get("path", "")
+        if repo:
+            url = f"https://github.com/{repo}.git"
+            source_label = repo
+        elif source.get("source") == "git-subdir" and source.get("url"):
+            url = source["url"]
+            source_label = url
+        else:
+            print(f"WARN: skipping {name}; unsupported marketplace source")
+            continue
 
-        print(f"==> Installing skills from {name} ({repo} @ {ref})")
+        print(f"==> Installing skills from {name} ({source_label} @ {ref})")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             clone_dir = Path(tmpdir) / "src"
@@ -181,7 +191,16 @@ def install_opencode_skills(
                 continue
 
             skills_sources: list[Path] = []
-            source_root = clone_dir.resolve()
+            clone_root = clone_dir.resolve()
+            source_root = (clone_root / source_path.removeprefix("./")).resolve()
+            try:
+                source_root.relative_to(clone_root)
+            except ValueError:
+                print(f"  WARN: rejected source path outside repository: {source_path}")
+                continue
+            if not source_root.is_dir():
+                print(f"  WARN: source path not found: {source_path}")
+                continue
 
             explicit_paths = entry.get("skills", [])
             if explicit_paths:

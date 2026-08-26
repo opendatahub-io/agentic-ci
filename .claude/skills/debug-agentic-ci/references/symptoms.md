@@ -95,3 +95,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 ### agentic-ci fails to run in OpenShell image (Python too old)
 - **Likely cause**: UBI9 defaults `python3` to 3.9; agentic-ci needs 3.10+. The images install `python3.12` and symlink it as the default `python3`/`python` in `/usr/local/bin`. A missing symlink or missing `python3.12` breaks the `uv pip install --system` step.
 - **Where to look**: `images/ci/Containerfile.openshell`, `images/runner/claude-code/Containerfile.openshell`, `images/runner/opencode/Containerfile.openshell` python setup
+
+### CI image build cannot find the pinned ACLI RPM
+- **Likely cause**: Atlassian removed the pinned ACLI version from its RPM repository. Query the live repository metadata and update `ACLI_VERSION` in both CI Containerfiles to the currently published version.
+- **Where to look**: `images/ci/Containerfile.podman`, `images/ci/Containerfile.openshell`, Atlassian ACLI RPM repository metadata
+
+### OpenCode image build fails with `KeyError: 'repo'`
+- **Likely cause**: A marketplace plugin uses a `git-subdir` source with `url` and `path` instead of the legacy GitHub `repo` field. The OpenCode compatibility installer must resolve both source formats and search for skills relative to the configured subdirectory.
+- **Where to look**: `plugins.py:install_opencode_skills()`, the generated marketplace entry
