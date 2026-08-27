@@ -50,6 +50,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
@@ -65,6 +66,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$"
       ],
@@ -78,6 +80,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
@@ -93,6 +96,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
@@ -155,6 +159,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$"
       ],
@@ -166,6 +171,7 @@
       "customType": "regex",
       "fileMatch": [
         "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",

@@ -19,8 +19,8 @@
 ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.241@sha256:1c274549d59a749fc1ea2f879f06de23aeb09b17d55f4a8bcb726b9adb3621f9
 FROM ${CLAUDE_CODE_BASE_IMAGE}
 
-ARG UV_VERSION=0.12.1
-ARG UV_SHA256=47823f814693bab8623308341369190de30b5c621eec5b1ee20352eae8c7982c
+ARG UV_VERSION=0.12.3
+ARG UV_SHA256=0643b9fb8c9fb27458e709ce6ff939695013c41975ff7b02d3f3b138d8d4bdb3
 
 ARG SHELLCHECK_VERSION=0.11.0
 ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
@@ -28,8 +28,8 @@ ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e
 ARG GH_VERSION=2.97.0
 ARG GH_SHA256=a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112
 
-ARG GLAB_VERSION=1.111.0
-ARG GLAB_SHA256=d3aa186428ce6668455e2e35184c6f60b013840d759c7ea4cf02bac68d2a1827
+ARG GLAB_VERSION=1.113.0
+ARG GLAB_SHA256=c265589fb2018f310b6a27df9356efee42991f858e7e3a5fa232228a13b47467
 
 USER root
 
@@ -89,7 +89,7 @@ COPY images/runner/shared/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && uv pip install --system --python python3.12 --no-cache /tmp/agentic-ci ruff==0.16.1 \
+    && uv pip install --system --python python3.12 --no-cache /tmp/agentic-ci ruff==0.16.3 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
