@@ -39,17 +39,17 @@ src/agentic_ci/
 
 - **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` and `--harness` flags. Creates harness and backend, handles OTEL lifecycle.
 
-- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees every raw output line to disk for transcript capture.
+- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees decoded stdout lines to disk until the stream processor reports completion.
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CodexHarness`.
 
-- **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`, `install_codex_plugins`) and runtime filtering (`enable_plugins`). At build time, installs plugins or skills from the skills-registry marketplace into the container image and writes a plugin-to-skill manifest. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk; Codex removes unwanted native plugins and manifest-managed compatibility skills while preserving unmanaged personal skills.
+- **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`, `install_codex_plugins`) and runtime filtering (`enable_plugins`). At build time, installs plugins or skills from the skills-registry marketplace (supporting both legacy `repo` and `git-subdir` source formats) into the container image and writes a plugin-to-skill manifest. All marketplace source paths are validated against the clone root to prevent directory traversal. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk; Codex removes unwanted native plugins and manifest-managed compatibility skills while preserving unmanaged personal skills.
 
 - **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
 - **`config.py`**: Loads project configuration from `.agentic-ci/config.yml` in the workdir. Currently supports a `setup` key with a list of commands (bare strings or `{name, run}` objects) that run on the host before sandbox upload, enabling dependency installation for repos whose agents need it.
 
-- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. `CodexStreamProcessor` parses Codex JSONL events. All produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 
@@ -168,7 +168,7 @@ Fix any failures before moving on. Do not skip any of these checks.
 - All tests live under `tests/`.
 - `pytest` for tests.
 - When functionality could be reused by multiple SDLC pipelines (e.g. autofix), expose it in `agentic-ci` as a public API rather than letting consumers call private internals across the pinned dependency boundary.
-- Public API methods return curated, agentic-ci-owned data shapes — not raw wire formats. Keep field scope minimal (YAGNI); additional fields can be added later without breaking changes.
+- Public API methods return curated, agentic-ci-owned data shapes — not raw wire formats. Keep field scope minimal (YAGNI); additional fields can be added later without breaking changes, provided consumers tolerate unknown fields.
 
 ## Debugging
 
