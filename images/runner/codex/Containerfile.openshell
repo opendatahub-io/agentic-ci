@@ -16,7 +16,7 @@
 #
 # x86_64 only.
 
-ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.0.1-1787088146@sha256:48b98c000cf4cd981b6db678a8a8974dcd8e0eab40d581f76fffbff56a8801f1
+ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.149.0@sha256:e25f7c574c29be02926f9efc3e3114d6d90eb57527936f275fbd3db3bf2af2fc
 FROM ${CODEX_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.3
