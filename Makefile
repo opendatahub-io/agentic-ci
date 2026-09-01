@@ -27,15 +27,15 @@ ci-build: ## Build the CI podman image locally
 	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
 
 .PHONY: openshell-claude-build
-openshell-claude-build: ## Build the OpenShell Claude sandbox image locally (builds on the agentic base image, not openshell-base)
+openshell-claude-build: ## Build the OpenShell Claude sandbox image locally (extends the hardened harness image)
 	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell .
 
 .PHONY: openshell-opencode-build
-openshell-opencode-build: ## Build the OpenShell OpenCode sandbox image locally (builds on the agentic base image, not openshell-base)
+openshell-opencode-build: ## Build the OpenShell OpenCode sandbox image locally (extends the hardened harness image)
 	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
 
 .PHONY: openshell-codex-build
-openshell-codex-build: ## Build the OpenShell Codex sandbox image locally (builds on the agentic base image)
+openshell-codex-build: ## Build the OpenShell Codex sandbox image locally (extends the hardened harness image)
 	podman build -t localhost/codex-sandbox:latest -f images/runner/codex/Containerfile.openshell .
 
 .PHONY: openshell-ci-build

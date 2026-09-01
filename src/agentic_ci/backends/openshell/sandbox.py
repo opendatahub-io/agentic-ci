@@ -13,6 +13,15 @@ from agentic_ci.backends.openshell.provider import PROVIDER_NAME
 
 SANDBOX_NAME = "ci"
 
+AGENT_BINARY_PATHS = (
+    "/usr/local/bin/claude",
+    "/usr/local/sbin/claude",
+    "/usr/local/bin/opencode",
+    "/usr/local/sbin/opencode",
+    "/usr/local/bin/codex",
+    "/usr/local/sbin/codex",
+)
+
 
 def _run(args, **kwargs):
     """Run an openshell command with logging."""
@@ -109,13 +118,9 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
         "policy",
         "update",
         "--wait",
-        "--binary",
-        "/usr/local/bin/claude",
-        "--binary",
-        "/usr/local/bin/opencode",
-        "--binary",
-        "/usr/local/bin/codex",
     ]
+    for binary_path in AGENT_BINARY_PATHS:
+        args.extend(["--binary", binary_path])
     for ep in endpoints:
         args.extend(["--add-endpoint", ep])
     args.append(SANDBOX_NAME)

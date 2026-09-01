@@ -19,8 +19,10 @@ schedule triggers builds. Images are tagged with:
 | `openshell` | `images/ci/Containerfile.openshell` | CI env with OpenShell gateway |
 | `claude-runner` | `images/runner/claude-code/Containerfile` | Claude Code runner |
 | `opencode-runner` | `images/runner/opencode/Containerfile` | OpenCode runner |
-| `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Claude Code sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/claude-code`) |
-| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | OpenCode sandbox (builds on the agentic base image `quay.io/aipcc/base-images/agentic/opencode`) |
+| `codex-runner` | `images/runner/codex/Containerfile` | Codex runner |
+| `claude-sandbox` | `images/runner/claude-code/Containerfile.openshell` | Hummingbird sandbox extending the hardened Claude Code image |
+| `opencode-sandbox` | `images/runner/opencode/Containerfile.openshell` | Hummingbird sandbox extending the hardened OpenCode image |
+| `codex-sandbox` | `images/runner/codex/Containerfile.openshell` | Hummingbird sandbox extending the hardened Codex image |
 
 ## Local builds
 
@@ -37,6 +39,7 @@ make openshell-ci-build        # openshell CI image
 make base-build                # runner base
 make claude-build              # claude-runner (depends on base-build)
 make opencode-build            # opencode-runner (depends on base-build)
-make openshell-claude-build    # claude-sandbox (builds on the agentic base image)
-make openshell-opencode-build  # opencode-sandbox (builds on the agentic base image)
+make openshell-claude-build    # claude-sandbox (extends the hardened harness image)
+make openshell-opencode-build  # opencode-sandbox (extends the hardened harness image)
+make openshell-codex-build     # codex-sandbox (extends the hardened harness image)
 ```

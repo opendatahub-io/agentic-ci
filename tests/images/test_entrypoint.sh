@@ -67,11 +67,11 @@ done
 '
 
 run_detect() {
-    env -i HOME="$HOME" PATH="$PATH" bash -c "$_DETECT_SCRIPT" _ "$1" 2>/dev/null
+    env -i HOME="$HOME" PATH="$PATH" bash --noprofile --norc -c "$_DETECT_SCRIPT" _ "$1" 2>/dev/null
 }
 
 run_detect_with_vertex() {
-    env -i HOME="$HOME" PATH="$PATH" bash -c "
+    env -i HOME="$HOME" PATH="$PATH" bash --noprofile --norc -c "
         _VERTEX_CONFIGURED=1; $_DETECT_SCRIPT
     " _ "$1" 2>/dev/null
 }
@@ -97,14 +97,14 @@ assert_not_contains "codex: does not set OpenCode auto-update vars" "$CODEX_ENV"
 
 print_header "=== Entrypoint tool detection: AGENT_TOOL fallback ==="
 
-AGENT_TOOL_CLAUDE_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=claude bash -c "
+AGENT_TOOL_CLAUDE_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=claude bash --noprofile --norc -c "
     source '$ENTRYPOINT' --source-only
     _detect_tool 'some-other-cmd'
     printenv DISABLE_AUTOUPDATER 2>/dev/null && echo 'DISABLE_AUTOUPDATER='\$(printenv DISABLE_AUTOUPDATER) || true
 " 2>/dev/null)
 assert_contains "AGENT_TOOL=claude: sets DISABLE_AUTOUPDATER=1" "$AGENT_TOOL_CLAUDE_ENV" "DISABLE_AUTOUPDATER=1"
 
-AGENT_TOOL_OC_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=opencode bash -c "
+AGENT_TOOL_OC_ENV=$(env -i HOME="$HOME" PATH="$PATH" AGENT_TOOL=opencode bash --noprofile --norc -c "
     source '$ENTRYPOINT' --source-only
     _detect_tool 'some-other-cmd'
     printenv OPENCODE_DISABLE_AUTOUPDATE 2>/dev/null && echo 'OPENCODE_DISABLE_AUTOUPDATE='\$(printenv OPENCODE_DISABLE_AUTOUPDATE) || true

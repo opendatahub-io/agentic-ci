@@ -134,29 +134,54 @@ run_in() {
     podman run --rm --entrypoint "" "$image" "$@"
 }
 
-# --- openshell-base checks ---
-print_header "=== openshell-base: binaries ==="
+# --- shared sandbox checks ---
+print_header "=== shared sandbox: binaries ==="
 
 assert_ok "uv is installed" run_in "$CLAUDE_SANDBOX" uv --version
 assert_ok "gh is installed" run_in "$CLAUDE_SANDBOX" gh --version
 assert_ok "glab is installed" run_in "$CLAUDE_SANDBOX" glab --version
 assert_ok "shellcheck is installed" run_in "$CLAUDE_SANDBOX" shellcheck --version
 assert_ok "git is installed" run_in "$CLAUDE_SANDBOX" git --version
+assert_ok "nsenter is installed in Claude sandbox" \
+    run_in "$CLAUDE_SANDBOX" nsenter --version
+assert_ok "nsenter is installed in OpenCode sandbox" \
+    run_in "$OPENCODE_SANDBOX" nsenter --version
+assert_ok "nsenter is installed in Codex sandbox" \
+    run_in "$CODEX_SANDBOX" nsenter --version
 assert_ok "python3 is installed" run_in "$CLAUDE_SANDBOX" python3 --version
 assert_ok "ruff is installed" run_in "$CLAUDE_SANDBOX" ruff --version
 
-print_header "=== openshell-base: user/workdir ==="
+print_header "=== shared sandbox: runtime/user/workdir ==="
 
-assert_ok "sandbox user exists (uid 998)" \
-    run_in "$CLAUDE_SANDBOX" id -u sandbox
+assert_ok "claude sandbox uses a Hummingbird runtime" \
+    run_in "$CLAUDE_SANDBOX" sh -c '. /etc/os-release; test "$ID" = "hummingbird"'
+assert_ok "opencode sandbox uses a Hummingbird runtime" \
+    run_in "$OPENCODE_SANDBOX" sh -c '. /etc/os-release; test "$ID" = "hummingbird"'
+assert_ok "codex sandbox uses a Hummingbird runtime" \
+    run_in "$CODEX_SANDBOX" sh -c '. /etc/os-release; test "$ID" = "hummingbird"'
+assert_ok "sandbox retains no package manager" \
+    run_in "$CLAUDE_SANDBOX" sh -c '! command -v dnf && ! command -v microdnf'
+assert_ok "sandbox user has uid 1001 and a matching primary group" \
+    run_in "$CLAUDE_SANDBOX" sh -c \
+        'test "$(id -u sandbox)" -eq 1001 && test "$(id -g sandbox)" -eq 1001'
 assert_ok "workdir is /sandbox" \
     run_in "$CLAUDE_SANDBOX" sh -c 'test "$(pwd)" = "/sandbox"'
+assert_ok "claude sandbox preserves the ARC entrypoint" \
+    podman run --rm "$CLAUDE_SANDBOX" sh -c 'test -f /tmp/agent-ready'
+assert_ok "opencode sandbox preserves the ARC entrypoint" \
+    podman run --rm "$OPENCODE_SANDBOX" sh -c 'test -f /tmp/agent-ready'
+assert_ok "codex sandbox preserves the ARC entrypoint" \
+    podman run --rm "$CODEX_SANDBOX" sh -c 'test -f /tmp/agent-ready'
 
 # --- claude-sandbox checks ---
 print_header "=== claude-sandbox: binaries ==="
 
 assert_ok "claude is installed" run_in "$CLAUDE_SANDBOX" claude --version
+assert_ok "claude launcher is a regular file" \
+    run_in "$CLAUDE_SANDBOX" sh -c 'test -x /usr/local/bin/claude && test ! -L /usr/local/bin/claude'
 assert_ok "node is installed" run_in "$CLAUDE_SANDBOX" node --version
+assert_ok "Node.js 26 is installed" \
+    run_in "$CLAUDE_SANDBOX" sh -c 'node --version | grep -q "^v26\\."'
 
 print_header "=== claude-sandbox: plugins (seed) ==="
 
