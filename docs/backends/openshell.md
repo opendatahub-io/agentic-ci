@@ -262,14 +262,14 @@ in `images/ci/Containerfile.openshell`:
 | Gateway (`openshell-gateway`) | `quay.io/opendatahub/odh-openshell-gateway` | binary copied into the CI image via a multi-stage `COPY --from` |
 | Supervisor (`openshell-sandbox`) | `quay.io/opendatahub/odh-openshell-supervisor` | pulled at runtime by the gateway's podman driver |
 
-Because these artifacts are UBI9, the OpenShell CI image
-(`Containerfile.openshell`) and the sandbox images are UBI9 too (via
-the agentic base images). UBI9 defaults `python3` to
-3.9, so `python3.12` is installed and linked as the default for
-agentic-ci and its tooling. The podman backend images
-(`Containerfile.podman`, `Containerfile.base`) are unaffected and remain
-on UBI10. `scripts/bump-versions.py` bumps the CLI wheel version and the
-image tag together to keep the three components in sync.
+The OpenShell CI image (`Containerfile.openshell`) uses a UBI9 final stage.
+The sandbox images build directly on their hardened Hummingbird agentic images
+and use the matching digest-pinned Hummingbird builder to install `python3`
+and supporting tools through a temporary `dnf` mount. The final sandbox images
+retain no package manager. The podman backend images (`Containerfile.podman`,
+`Containerfile.base`) are unaffected and remain on UBI10.
+`scripts/bump-versions.py` bumps the CLI wheel version and the image tag
+together to keep the three OpenShell components in sync.
 
 ## Supervisor Image
 

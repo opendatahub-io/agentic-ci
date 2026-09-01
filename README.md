@@ -467,8 +467,10 @@ published to `quay.io/aipcc/agentic-ci/`:
 |-------|-------------|
 | `claude-runner` | Claude Code CLI with pre-installed skills |
 | `opencode-runner` | OpenCode CLI with pre-installed skills |
+| `codex-runner` | Codex CLI with pre-installed skills |
 | `claude-sandbox` | Claude Code sandbox for OpenShell |
 | `opencode-sandbox` | OpenCode sandbox for OpenShell |
+| `codex-sandbox` | Codex sandbox for OpenShell |
 | `podman` | CI environment with podman, gh, glab, gitleaks, acli |
 | `openshell` | CI environment with OpenShell gateway + podman |
 
@@ -479,9 +481,11 @@ for usage details.
 ```bash
 make claude-build              # build Claude Code runner image locally
 make opencode-build            # build OpenCode runner image locally
+make codex-build               # build Codex runner image locally
 make ci-build                  # build CI podman image locally
 make openshell-claude-build    # build Claude sandbox locally
 make openshell-opencode-build  # build OpenCode sandbox locally
+make openshell-codex-build     # build Codex sandbox locally
 make openshell-ci-build        # build OpenShell CI image locally
 ```
 

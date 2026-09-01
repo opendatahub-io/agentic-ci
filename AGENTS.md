@@ -73,17 +73,17 @@ images/
       entrypoint.sh                 — Container entrypoint (credential setup + exec)
     claude-code/
       Containerfile                 — Claude Code runner image
-      Containerfile.openshell       — Claude Code sandbox image (OpenShell); builds
-                                      on the agentic base image
+      Containerfile.openshell       — Claude Code sandbox image (OpenShell); extends
+                                      the hardened Hummingbird harness image
     opencode/
       Containerfile                 — OpenCode runner image
-      Containerfile.openshell       — OpenCode sandbox image (OpenShell); builds
-                                      on the agentic base image
+      Containerfile.openshell       — OpenCode sandbox image (OpenShell); extends
+                                      the hardened Hummingbird harness image
       opencode.json                 — Seed config for CI headless mode
     codex/
       Containerfile                 — Codex runner image
-      Containerfile.openshell       — Codex sandbox image (OpenShell); builds
-                                      on the agentic base image
+      Containerfile.openshell       — Codex sandbox image (OpenShell); extends
+                                      the hardened Hummingbird harness image
   ci/
     Containerfile.podman            — CI environment image (podman + tools, UBI10)
     Containerfile.openshell         — CI environment image (OpenShell + podman, UBI9)
@@ -94,17 +94,18 @@ scripts/
 OpenShell is consumed from UBI9 artifacts: the CLI binary copied from
 `quay.io/opendatahub/odh-openshell-cli`, the gateway binary copied from
 `quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
-runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The
-OpenShell-path sandbox images (`Containerfile.openshell`) are UBI9; the
-podman-path images stay on UBI10.
+runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The OpenShell CI
+image is UBI9, the OpenShell sandbox images are Hummingbird,
+and the podman-path images stay on UBI10.
 
-All three sandbox images build `FROM` their respective agentic base images
-(`quay.io/aipcc/base-images/agentic/claude-code`,
+All three sandbox images build directly on their respective hardened
+Hummingbird agentic images (`quay.io/aipcc/base-images/agentic/claude-code`,
 `quay.io/aipcc/base-images/agentic/opencode`, and
-`quay.io/aipcc/base-images/agentic/codex`, pinned by digest). These
-base images ship the agent binary and Node on UBI9; the Containerfiles
-layer the agentic-ci tooling (Python, uv, forge CLIs, agentic-ci, skills)
-on top.
+`quay.io/aipcc/base-images/agentic/codex`, pinned by digest). The matching
+digest-pinned `hi/nodejs:26-builder` image supplies `dnf` and repository
+configuration through a temporary build mount. The final images retain the
+Hummingbird runtime, Node.js 26, harness, `/sandbox` layout, and agentic-ci
+tooling, but do not retain a package manager.
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
 is pre-built as `localhost/base:latest` before building the Claude,
@@ -122,9 +123,9 @@ make claude-build            # build Claude Code runner image (includes base)
 make opencode-build          # build OpenCode runner image (includes base)
 make codex-build             # build Codex runner image (includes base)
 make ci-build                # build CI podman image
-make openshell-claude-build  # build Claude sandbox (builds on the agentic base image)
-make openshell-opencode-build # build OpenCode sandbox (builds on the agentic base image)
-make openshell-codex-build   # build Codex sandbox (builds on the agentic base image)
+make openshell-claude-build  # build Claude sandbox (extends the hardened harness image)
+make openshell-opencode-build # build OpenCode sandbox (extends the hardened harness image)
+make openshell-codex-build   # build Codex sandbox (extends the hardened harness image)
 make openshell-ci-build      # build OpenShell CI image
 make image-lint              # shellcheck + ruff on image scripts
 make image-test              # run image unit tests

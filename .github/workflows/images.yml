@@ -387,8 +387,8 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/podman:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # claude-sandbox: OpenShell sandbox, builds on the agentic base image
-  # (quay.io/aipcc/base-images/agentic/claude-code), not openshell-base
+  # claude-sandbox: Hummingbird OpenShell sandbox extending the hardened
+  # agentic image (quay.io/aipcc/base-images/agentic/claude-code)
   # --------------------------------------------------------------------------
   build-claude-sandbox:
     name: Build claude-sandbox
@@ -461,8 +461,8 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/claude-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # opencode-sandbox: OpenShell sandbox, builds on the agentic base image
-  # (quay.io/aipcc/base-images/agentic/opencode), not openshell-base
+  # opencode-sandbox: Hummingbird OpenShell sandbox extending the hardened
+  # agentic image (quay.io/aipcc/base-images/agentic/opencode)
   # --------------------------------------------------------------------------
   build-opencode-sandbox:
     name: Build opencode-sandbox
@@ -535,8 +535,8 @@ jobs:
         run: podman push "${IMAGE_PREFIX}/opencode-sandbox:${VERSION_TAG}"
 
   # --------------------------------------------------------------------------
-  # codex-sandbox: OpenShell sandbox, builds on the agentic base image
-  # (quay.io/aipcc/base-images/agentic/codex)
+  # codex-sandbox: Hummingbird OpenShell sandbox extending the hardened agentic
+  # image (quay.io/aipcc/base-images/agentic/codex)
   # --------------------------------------------------------------------------
   build-codex-sandbox:
     name: Build codex-sandbox

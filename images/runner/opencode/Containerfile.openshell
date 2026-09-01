@@ -3,25 +3,17 @@
 # Use with: agentic-ci run --backend openshell --image <this-image> ...
 # Or:       openshell sandbox create --from <this-image> --provider ...
 #
-# Builds on the agentic base image
-# (quay.io/aipcc/base-images/agentic/opencode), which provides OpenCode (a real
-# binary at /usr/local/bin/opencode) and Node on UBI9 with the /sandbox layout,
-# the sandbox user with a non-root primary group, and iproute for OpenShell's
-# netns setup. This Containerfile layers the agentic-ci tooling (Python, uv,
-# forge CLIs, agentic-ci) on top. The base image is pinned by digest (Renovate
-# keeps it current).
-#
-# Requires a base image with the AIPCC-29106 fixes (non-root sandbox primary
-# group, iproute, and /usr/local/bin/opencode as a real binary rather than a
-# symlink into node_modules). The digest below must point at that version or
-# later.
+# Extends the hardened Hummingbird agentic image directly. Its matching
+# Hummingbird builder provides dnf through a temporary build mount, so the final
+# image does not retain a package manager. Both images are pinned by digest.
 #
 # Build:
 #   podman build -t openshell-opencode -f images/runner/opencode/Containerfile.openshell .
 #
 # x86_64 only.
 
-ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:1.18.21@sha256:386b40fe5c750b33200aa6281ef1768452192a14e8990c3a0ee563217c41a620
+ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:1.18.25@sha256:e57a38d21a432ce6644b66a4ef4bc2a9f5c4cf82c407d69a7c599679ee9d9fd8
+FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:e9f139b703346047417f912453156cd49798fc218e43cec0a899e7b3348f503a AS builder
 FROM ${OPENCODE_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.3
@@ -38,21 +30,25 @@ ARG GLAB_SHA256=c265589fb2018f310b6a27df9356efee42991f858e7e3a5fa232228a13b47467
 
 USER root
 
-# System packages the base image doesn't provide. The base already ships
-# git, node, tar, curl, gzip, findutils, shadow-utils and iproute.
-RUN microdnf install -y --nodocs \
-        python3.12 \
-        python3.12-pip \
+# System packages the agentic image does not provide. The base already ships
+# git, Node.js 26, npm, tar, gzip, findutils, shadow-utils, and iproute.
+RUN --mount=type=bind,from=builder,target=/builder \
+    LD_LIBRARY_PATH=/builder/lib64:/builder/usr/lib64 \
+    RPM_CONFIGDIR=/builder/usr/lib/rpm \
+    /builder/usr/bin/dnf install -y \
+        --installroot=/ \
+        --setopt=reposdir=/builder/etc/yum.repos.d \
+        --setopt=install_weak_deps=False \
+        --setopt=tsflags=nodocs \
+        curl \
+        python3 \
         jq \
         make \
+        util-linux-core \
         which \
         xz \
-    && microdnf clean all
-
-# UBI9 defaults python3 to 3.9; agentic-ci needs 3.10+, so make 3.12 the
-# default python3/python via /usr/local/bin (ahead of /usr/bin on PATH).
-RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
-    && ln -sf /usr/bin/python3.12 /usr/local/bin/python
+    && rm -rf /var/cache/dnf /var/cache/yum /var/cache/libdnf5 \
+        /var/log/dnf5.log /run/dnf
 
 # uv (pinned)
 RUN curl -fsSL -o /tmp/uv.tar.gz \
@@ -90,17 +86,13 @@ RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
     && chmod +x /usr/local/bin/shellcheck \
     && rm -rf /tmp/shellcheck.tar.xz /tmp/shellcheck-v${SHELLCHECK_VERSION}
 
-COPY images/runner/shared/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
-RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && uv pip install --system --python python3.12 --no-cache /tmp/agentic-ci ruff==0.16.4 \
+RUN uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.16.4 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
-# Sandbox home directories. The base image provides the sandbox user
-# (uid 1001, now with the dedicated sandbox group) and /sandbox home;
-# create the dirs agentic-ci and OpenCode expect.
+# Sandbox home directories for agentic-ci and OpenCode.
 USER sandbox
 RUN mkdir -p /sandbox/.local/bin /sandbox/.config/opencode /sandbox/.claude /sandbox/.agents
 COPY --chown=sandbox:sandbox images/runner/shared/AGENTS.openshell.md /sandbox/AGENTS.md
@@ -119,6 +111,5 @@ RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registr
        --marketplace-json /tmp/skills-registry/.claude-plugin/marketplace.json \
     && rm -rf /tmp/skills-registry
 
-ENTRYPOINT ["entrypoint.sh"]
 CMD ["opencode"]
 WORKDIR /sandbox
