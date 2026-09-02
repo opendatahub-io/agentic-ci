@@ -19,7 +19,7 @@
 # x86_64 only.
 
 # OpenShell component version (image tag shared by CLI, gateway, supervisor).
-ARG OPENSHELL_IMAGE_TAG=v0.0.101-rhaiv.0
+ARG OPENSHELL_IMAGE_TAG=v0.0.111-rhaiv.0
 
 # CLI and gateway binaries copied from the published images.
 FROM quay.io/opendatahub/odh-openshell-cli:${OPENSHELL_IMAGE_TAG} AS cli

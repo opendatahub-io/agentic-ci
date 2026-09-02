@@ -700,8 +700,7 @@ def main():
                     CLAUDE_CF,
                     OPENCODE_CF,
                     CI_CF,
-                    OPENSHELL_CLAUDE_CF,
-                    OPENSHELL_OPENCODE_CF,
+                    *ALL_SANDBOX_CFS,
                     OPENSHELL_CI_CF,
                 ]:
                     current = _current_value(cf, version_args[name])
