@@ -67,10 +67,10 @@ def create(
         args.extend(["--approval-mode", approval_mode])
     if image:
         args.extend(["--from", image])
-    # OpenShell keeps the sandbox after the initial command exits unless
-    # --no-keep is supplied.  Use a terminating command so `sandbox create`
-    # returns before subsequent commands are run via `sandbox exec`.
-    args.extend(["--", "true"])
+    # The trailing argv becomes the sandbox's canonical main process.
+    # Use a persistent process so the supervisor stays alive to accept
+    # policy updates; --detach returns control to the caller immediately.
+    args.extend(["--detach", "--", "sleep", "infinity"])
     _run(args, check=True)
 
     if approval_mode:

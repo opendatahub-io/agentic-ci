@@ -5,7 +5,7 @@ from unittest import mock
 from agentic_ci.backends.openshell import sandbox
 
 
-def test_create_uses_terminating_initial_command():
+def test_create_uses_detached_persistent_main_process():
     with (
         mock.patch.object(sandbox, "_run") as run,
         mock.patch.object(sandbox, "_apply_policy"),
@@ -13,7 +13,8 @@ def test_create_uses_terminating_initial_command():
         sandbox.create(image="codex-sandbox:latest")
 
     create_args = run.call_args.args[0]
-    assert create_args[-2:] == ["--", "true"]
+    assert "--detach" in create_args
+    assert create_args[-3:] == ["--", "sleep", "infinity"]
 
 
 def test_apply_policy_allows_hummingbird_binary_aliases():

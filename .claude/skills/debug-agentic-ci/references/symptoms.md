@@ -114,6 +114,14 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Atlassian removed the pinned ACLI version from its RPM repository. Query the live repository metadata and update `ACLI_VERSION` in both CI Containerfiles to the currently published version.
 - **Where to look**: `images/ci/Containerfile.podman`, `images/ci/Containerfile.openshell`, Atlassian ACLI RPM repository metadata
 
+### `openshell policy update --wait` times out with "Timeout waiting for policy version 2 to load"
+- **Likely cause**: The sandbox was created with a short-lived canonical main process (e.g. `-- true`). OpenShell v0.0.111+ (#2726) treats the trailing argv as the sandbox's canonical process; when it exits, the supervisor shuts down before it can acknowledge policy v2. Fixed by using `--detach -- sleep infinity` so the main process stays alive while policy updates and agent commands run via `sandbox exec`.
+- **Where to look**: `backends/openshell/sandbox.py:create()` canonical process args
+
+### `openshell policy set` rejects credential binding: "uses L4-only; configure L7 inspection or set allow_uninspected_credentials"
+- **Likely cause**: OpenShell v0.0.112+ validates that credentialed endpoints use L7 inspection. GCP endpoints use L4 CONNECT tunneling (required for Vertex AI gRPC streaming), so setting `credential_binding.provider` without `allow_uninspected_credentials: true` is now rejected. Fixed by adding `allow_uninspected_credentials: true` alongside the credential binding.
+- **Where to look**: `backends/openshell/policy.py:build_credential_binding_patch()`
+
 ### OpenCode image build fails with `KeyError: 'repo'`
 - **Likely cause**: A marketplace plugin uses a `git-subdir` source with `url` and `path` instead of the legacy GitHub `repo` field. The OpenCode compatibility installer must resolve both source formats and search for skills relative to the configured subdirectory.
 - **Where to look**: `plugins.py:install_opencode_skills()`, the generated marketplace entry
