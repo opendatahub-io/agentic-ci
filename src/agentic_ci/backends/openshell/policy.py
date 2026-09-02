@@ -124,6 +124,7 @@ def build_credential_binding_patch(policy_get_output, provider_name=PROVIDER_NAM
             host = ep.get("host", "")
             if host in _GCP_CREDENTIAL_HOSTS and "credential_binding" not in ep:
                 ep["credential_binding"] = {"provider": provider_name}
+                ep["allow_uninspected_credentials"] = True
                 changed = True
 
     return patched if changed else None

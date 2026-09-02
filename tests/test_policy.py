@@ -95,10 +95,13 @@ def test_credential_binding_patch_adds_binding_to_gcp():
     endpoints = patched["network_policies"]["ci"]["endpoints"]
     github_ep = [e for e in endpoints if e["host"] == "github.com"][0]
     assert "credential_binding" not in github_ep
+    assert "allow_uninspected_credentials" not in github_ep
     gcp_ep = [e for e in endpoints if e["host"] == "aiplatform.googleapis.com"][0]
     assert gcp_ep["credential_binding"]["provider"] == "ci-gcp"
+    assert gcp_ep["allow_uninspected_credentials"] is True
     oauth_ep = [e for e in endpoints if e["host"] == "oauth2.googleapis.com"][0]
     assert oauth_ep["credential_binding"]["provider"] == "ci-gcp"
+    assert oauth_ep["allow_uninspected_credentials"] is True
 
 
 def test_credential_binding_patch_returns_none_when_no_gcp():
