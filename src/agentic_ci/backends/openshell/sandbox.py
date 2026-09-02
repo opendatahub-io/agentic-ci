@@ -39,12 +39,12 @@ def exists():
 
 
 def create(
-    image=None,
-    policy_path=None,
-    otel_port=None,
-    workdir=".",
-    approval_mode=None,
-    auth_mode=None,
+    image: str | None = None,
+    policy_path: str | None = None,
+    otel_port: int | None = None,
+    workdir: str = ".",
+    approval_mode: str | None = None,
+    auth_mode: str | None = None,
     memory: str | None = None,
     cpu: str | None = None,
     gpu: int | None = None,
@@ -56,12 +56,11 @@ def create(
     has compiled and activated the rules before the agent starts.
 
     ``memory``, ``cpu`` and ``gpu`` size the sandbox. All three default to
-    ``None``, which leaves OpenShell's own defaults in place -- notably a
-    memory ceiling of roughly 4Gi, which applies no matter how large the CI
-    runner is. An agent that exceeds it is OOM-killed by the cgroup, and from
-    inside the sandbox that looks like the sandbox simply vanishing: the
-    supervisor's log stops mid-line and the next command reports
-    ``sandbox is not ready``.
+    ``None``, which passes no resource flag and leaves the effective limits to
+    the compute driver and host configuration. An agent that exceeds a memory
+    limit is OOM-killed by the cgroup, and from inside the sandbox that looks
+    like the sandbox simply vanishing: the supervisor's log stops mid-line and
+    the next command reports ``sandbox is not ready``.
 
     Args:
         image: Sandbox image to create from.
