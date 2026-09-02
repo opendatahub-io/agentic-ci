@@ -149,17 +149,59 @@ openshell provider create \
     L7 inspection in a follow-up rather than changing only Codex here.
 <!-- markdownlint-enable MD046 -->
 
+### Sandbox Resources
+
+When these are omitted, no `--memory`, `--cpu` or `--gpu` flag is passed and the
+effective limits come from the compute driver and host configuration rather than
+from agentic-ci. That limit can sit far below what the host has: a sandbox created
+without `--memory` on a 16 GB host was OOM-killed by its memory cgroup at under
+4 GiB. Pass `memory`, `cpu` and `gpu` to size the sandbox explicitly:
+
+```python
+backend = create_backend(
+    "openshell",
+    harness=harness,
+    memory="8Gi",  # accepts 512Mi, 4Gi, 8G
+    cpu="4",  # accepts 500m, 1, 2.5
+    gpu=1,  # GPU count
+)
+```
+
+All three default to `None`, which passes no flag and leaves current behavior
+unchanged.
+
+Resource limits are fixed when the sandbox is created. `setup()` reuses an
+existing sandbox rather than recreating it, so these values do not apply to one
+that already exists; the backend logs a warning saying so. Delete the sandbox to
+apply new values.
+
+Two failure modes worth recognizing, because neither says what it is:
+
+- **Exceeding a memory limit** does not raise. The cgroup OOM-kills the process,
+  the supervisor log stops mid-line, and the next command reports `sandbox is not
+  ready`. The kernel is the only witness — `journalctl -k` on the host shows
+  `Memory cgroup out of memory: Killed process`.
+- **Not requesting a GPU** leaves the accelerator invisible to the agent even
+  when the host has one and the container running agentic-ci can see it.
+  `nvidia-smi -L` inside the sandbox returns nothing.
+
 ### Sandbox Lifecycle
 
 ```bash
 openshell sandbox get ci                         # check if exists
 
-# Create sandbox with the provider attached
+# Create sandbox with the provider attached.
+# --memory / --cpu / --gpu are only passed when the caller sets them.
 openshell sandbox create \
   --name ci \
   --no-tty \
+  --no-auto-providers \
   --provider ci-gcp \
   --from <SANDBOX_IMAGE> \
+  --memory 8Gi \
+  --cpu 4 \
+  --gpu 1 \
+  --detach \
   -- sleep infinity
 
 # Keep the sandbox's main process alive; agent commands run via exec.
