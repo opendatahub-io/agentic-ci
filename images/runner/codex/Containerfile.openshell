@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.150.1@sha256:7df948e5ee5fd3e5e2f59a44a96247e4407b6e1aa8bec10dc511009e7f6c2e59
+ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.151.0@sha256:d2c499089e62ebc31a52671c57da059e00b590834bd752dd840622490febe91d
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:8bf9a4ea3b8160b36d5c6bca9c78115475758c74ff0058fec5e9aa9152694113 AS builder
 FROM ${CODEX_BASE_IMAGE}
 
