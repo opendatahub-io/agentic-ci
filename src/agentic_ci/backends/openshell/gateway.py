@@ -12,6 +12,7 @@ import tenacity
 from agentic_ci import log
 
 GATEWAY_PORT = 17670
+_GATEWAY_DB_PATH: str | None = None
 
 _GATEWAY_TOML = """\
 [openshell]
@@ -79,11 +80,12 @@ def start():
             suffix=".log",
             delete=False,
         )
+        database_url = _create_database_url(state_dir)
         subprocess.Popen(
             [
                 "openshell-gateway",
                 "--db-url",
-                "sqlite::memory:",
+                database_url,
                 "--log-level",
                 "info",
             ],
@@ -106,6 +108,21 @@ def start():
         raise
 
 
+def _create_database_url(state_dir):
+    """Create a temporary file-backed SQLite database for the gateway."""
+    global _GATEWAY_DB_PATH
+
+    database_file = tempfile.NamedTemporaryFile(
+        dir=state_dir,
+        prefix="gateway-",
+        suffix=".db",
+        delete=False,
+    )
+    database_file.close()
+    _GATEWAY_DB_PATH = database_file.name
+    return f"sqlite:{_GATEWAY_DB_PATH}?mode=rwc"
+
+
 def stop():
     """Terminate the gateway and podman service processes.
 
@@ -124,7 +141,22 @@ def stop():
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     _kill_gateway()
+    _remove_database()
     _kill_podman_service()
+
+
+def _remove_database():
+    """Remove the temporary gateway database and any SQLite sidecar files."""
+    global _GATEWAY_DB_PATH
+
+    if _GATEWAY_DB_PATH is None:
+        return
+    for suffix in ("", "-journal", "-shm", "-wal"):
+        try:
+            os.remove(f"{_GATEWAY_DB_PATH}{suffix}")
+        except FileNotFoundError:
+            pass
+    _GATEWAY_DB_PATH = None
 
 
 def _kill_gateway():
