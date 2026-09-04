@@ -118,6 +118,10 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: The sandbox was created with a short-lived canonical main process (e.g. `-- true`). OpenShell v0.0.111+ (#2726) treats the trailing argv as the sandbox's canonical process; when it exits, the supervisor shuts down before it can acknowledge policy v2. Fixed by using `--detach -- sleep infinity` so the main process stays alive while policy updates and agent commands run via `sandbox exec`.
 - **Where to look**: `backends/openshell/sandbox.py:create()` canonical process args
 
+### OpenShell cleanup fails with `no such table: objects`
+- **Likely cause**: The local gateway used `sqlite::memory:` and lost its schema when SQLite replaced the connection during concurrent sandbox cleanup. The gateway now uses a temporary file-backed database so replacement connections share the same schema.
+- **Where to look**: `backends/openshell/gateway.py` database URL creation and cleanup, gateway logs around `DeleteSandbox` and compute-driver watch events
+
 ### `openshell policy set` rejects credential binding: "uses L4-only; configure L7 inspection or set allow_uninspected_credentials"
 - **Likely cause**: OpenShell v0.0.112+ validates that credentialed endpoints use L7 inspection. GCP endpoints use L4 CONNECT tunneling (required for Vertex AI gRPC streaming), so setting `credential_binding.provider` without `allow_uninspected_credentials: true` is now rejected. Fixed by adding `allow_uninspected_credentials: true` alongside the credential binding.
 - **Where to look**: `backends/openshell/policy.py:build_credential_binding_patch()`
