@@ -57,6 +57,7 @@ class TestGetIssue:
             "fields": {
                 "summary": "Fix bug",
                 "description": "Some desc",
+                "created": "2026-08-01T12:34:56.000+0000",
                 "issuetype": {"name": "Bug"},
                 "labels": ["autofix"],
                 "status": {"name": "Open"},
@@ -75,8 +76,26 @@ class TestGetIssue:
         result = client.get_issue("TEST-1")
         assert result["key"] == "TEST-1"
         assert result["summary"] == "Fix bug"
+        assert result["created"] == "2026-08-01T12:34:56.000+0000"
         assert result["reporter_email"] == "j@test.com"
         assert result["labels"] == ["autofix"]
+        assert "created" in mock_requests.get.call_args_list[0].args[0]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_get_issue_missing_created_defaults_to_empty_string(self, mock_requests, client):
+        issue_resp = MagicMock()
+        issue_resp.status_code = 200
+        issue_resp.json.return_value = {"key": "TEST-1", "fields": {}}
+
+        comment_resp = MagicMock()
+        comment_resp.status_code = 200
+        comment_resp.json.return_value = {"comments": []}
+
+        mock_requests.get.side_effect = [issue_resp, comment_resp]
+
+        result = client.get_issue("TEST-1")
+
+        assert result["created"] == ""
 
     @patch("agentic_ci.jira.client.requests")
     def test_fetch_comments_includes_updated(self, mock_requests, client):
@@ -130,6 +149,7 @@ class TestSearch:
                     "fields": {
                         "summary": "Bug 1",
                         "description": "desc",
+                        "created": "2026-08-02T12:34:56.000+0000",
                         "issuetype": {"name": "Bug"},
                         "labels": [],
                         "status": {"name": "Open"},
@@ -144,6 +164,22 @@ class TestSearch:
         results = client.search("project = TEST")
         assert len(results) == 1
         assert results[0]["key"] == "TEST-1"
+        assert results[0]["created"] == "2026-08-02T12:34:56.000+0000"
+        assert "created" in mock_requests.post.call_args.kwargs["json"]["fields"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_search_missing_created_defaults_to_empty_string(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "issues": [{"key": "TEST-1", "fields": {}}],
+            "isLast": True,
+        }
+        mock_requests.post.return_value = resp
+
+        results = client.search("project = TEST")
+
+        assert results[0]["created"] == ""
 
 
 class TestGetIssueLinks:

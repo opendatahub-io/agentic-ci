@@ -11,6 +11,7 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 | [Harness](harness.md) | Harness abstraction for AI agent CLI tools |
 | [Stream Processors](stream.md) | Parsers for Claude Code and OpenCode output |
 | [OTEL Collector](otel.md) | OTLP HTTP/JSON receiver and token/cost summary |
+| [Generic Event Transport](telemetry.md) | Producer-owned event validation and OTLP export |
 
 ## Backends
 
