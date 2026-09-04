@@ -1,7 +1,7 @@
 FROM registry.access.redhat.com/ubi10/ubi-minimal:10.2
 
-ARG UV_VERSION=0.12.6
-ARG UV_SHA256=14e4172aace66a475062cebec7ca04f497d5619e95325dfcc9e4447b9c516846
+ARG UV_VERSION=0.12.7
+ARG UV_SHA256=3d64d44ed67da7908dc7f5c4d64ebb44bad326fa17f8a0a52fc9a7793017bbe1
 
 ARG SHELLCHECK_VERSION=0.11.0
 ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
@@ -68,7 +68,7 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
          python3 -c 'import sys,re; f=sys.argv[1]; v=sys.argv[2]; d=open(f).read(); open(f,"w").write(re.sub(r"^fallback-version = .*", f"fallback-version = \"{v}\"", d, flags=re.M))' \
            /tmp/agentic-ci/pyproject.toml "${AGENTIC_CI_VERSION}"; \
        fi \
-    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.4 \
+    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.5 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o agent-ci /usr/local/share/agentic-ci
 
