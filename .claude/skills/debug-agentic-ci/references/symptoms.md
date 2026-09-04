@@ -54,6 +54,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: For OpenShell backend, OTEL host networking wasn't configured. Fixed to set up OTEL endpoint forwarding.
 - **Where to look**: `otel.py` collector setup, `backends/openshell/` network config
 
+### Generic event export fails after a workflow completes
+- **Likely cause**: Producer event was not JSON-compatible, violated privacy or size limits, the runner-owned log root was unsafe, or the OTLP collector was unavailable.
+- **Expected behavior**: `agentic_ci.telemetry` raises a transport error. The caller owns failure policy and must preserve its workflow result when export is best effort.
+- **Where to look**: `telemetry.py:validate_event()`, `telemetry.py:emit_event()`, and the producer's export boundary.
+
 ### Codex starts but plugins or OTEL data are missing
 - **Likely cause**: Codex was launched with `--ignore-user-config`, which suppresses plugin state and user-level OTel configuration, or the per-run `otel.*` exporter overrides were not passed.
 - **Where to look**: `harness.py` Codex arguments, `plugins.py`, backend `otel_endpoint` argument wiring

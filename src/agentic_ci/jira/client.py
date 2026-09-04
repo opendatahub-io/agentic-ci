@@ -235,10 +235,13 @@ class JiraClient:
         """Fetch a single issue with comments. Returns a normalised dict.
 
         The returned dict has keys: ``key``, ``summary``, ``description``
-        (plain text), ``issue_type``, ``labels``, ``status``, ``project``,
-        ``components``, ``reporter_name``, ``reporter_email``, ``comments``.
+        (plain text), ``created`` (ISO 8601 timestamp), ``issue_type``,
+        ``labels``, ``status``, ``project``, ``components``, ``reporter_name``,
+        ``reporter_email``, ``comments``.
         """
-        req_fields = "summary,description,issuetype,labels,status,reporter,components,project"
+        req_fields = (
+            "summary,description,created,issuetype,labels,status,reporter,components,project"
+        )
         resp = self._request(
             "get",
             self._api_url(f"issue/{key}") + f"?fields={req_fields}",
@@ -253,6 +256,9 @@ class JiraClient:
             description = adf_to_text(desc_field)
         else:
             description = desc_field or ""
+        created = fields.get("created")
+        if not isinstance(created, str):
+            created = ""
 
         comments = self._fetch_comments(key)
         reporter = fields.get("reporter") or {}
@@ -262,6 +268,7 @@ class JiraClient:
             "key": issue.get("key", ""),
             "summary": fields.get("summary", ""),
             "description": description,
+            "created": created,
             "issue_type": fields.get("issuetype", {}).get("name", ""),
             "labels": fields.get("labels", []),
             "status": fields.get("status", {}).get("name", ""),
@@ -297,7 +304,7 @@ class JiraClient:
         return comments
 
     def search(self, jql: str, *, max_results: int = 500) -> list[dict]:
-        """Search issues by JQL. Returns a list of normalised dicts."""
+        """Search issues by JQL. Returns normalised dicts with ``created`` timestamps."""
         results: list[dict] = []
         next_page_token: str | None = None
         search_url = self._api_url("search/jql")
@@ -305,7 +312,15 @@ class JiraClient:
         while True:
             payload: dict = {
                 "jql": jql,
-                "fields": ["summary", "description", "issuetype", "labels", "comment", "status"],
+                "fields": [
+                    "summary",
+                    "description",
+                    "created",
+                    "issuetype",
+                    "labels",
+                    "comment",
+                    "status",
+                ],
                 "maxResults": min(50, max_results - len(results)),
             }
             if next_page_token:
@@ -327,6 +342,9 @@ class JiraClient:
                     description = adf_to_text(desc_field)
                 else:
                     description = desc_field or ""
+                created = fields.get("created")
+                if not isinstance(created, str):
+                    created = ""
 
                 comments_data = fields.get("comment", {})
                 comments = []
@@ -350,6 +368,7 @@ class JiraClient:
                         "key": issue.get("key", ""),
                         "summary": fields.get("summary", ""),
                         "description": description,
+                        "created": created,
                         "issue_type": fields.get("issuetype", {}).get("name", ""),
                         "labels": fields.get("labels", []),
                         "status": fields.get("status", {}).get("name", ""),

@@ -341,6 +341,7 @@ pipelines:
 - **`agentic_ci.pipeline`** — GitLab child pipeline YAML generation
   with hash-based slot distribution.
 - **`agentic_ci.verdict`** — Structured verdict JSON schema validation.
+- **`agentic_ci.telemetry`** — Generic producer-event validation and OTLP transport for the MLflow export path.
 
 ## Building a Pipeline with the Generic Skill Runner
 

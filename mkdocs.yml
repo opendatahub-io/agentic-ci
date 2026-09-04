@@ -71,6 +71,7 @@ nav:
           - Harness: api/harness.md
           - Stream Processors: api/stream.md
           - OTEL Collector: api/otel.md
+          - Generic Event Transport: api/telemetry.md
       - Backends:
           - Factory & Podman: api/backends.md
           - OpenShell: api/openshell.md

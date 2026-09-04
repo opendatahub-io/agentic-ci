@@ -57,6 +57,20 @@ and the MLflow export pipeline.
               └──────────────────────────────┘
 ```
 
+Producer-owned events use `agentic_ci.telemetry.emit_event()` to enter this
+same trace path. The transport validates JSON compatibility, preserves event
+fields in a zero-duration OTLP span, copies caller-supplied correlation IDs to
+namespaced attributes, and leaves lifecycle meaning to the producer. Existing
+`mlflow-push` can consume the same OTLP span shape without a separate MLflow
+storage or UI integration; this repository does not run the MLflow E2E path
+for the generic transport.
+
+File emission uses a runner-owned log root and a fixed
+`claude-otel.jsonl` name. The transport rejects symbolic-link sinks, sensitive
+event/correlation content, and oversized payloads before persistence or
+export. Collector endpoints and authorization headers must come from trusted
+runner configuration.
+
 ## Collector (otel.py)
 
 The collector is a lightweight OTLP HTTP/JSON receiver built on Python's
