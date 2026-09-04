@@ -97,7 +97,7 @@ RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
 
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
-RUN uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.16.4 \
+RUN uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.16.5 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
