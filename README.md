@@ -341,6 +341,8 @@ pipelines:
 - **`agentic_ci.pipeline`** — GitLab child pipeline YAML generation
   with hash-based slot distribution.
 - **`agentic_ci.verdict`** — Structured verdict JSON schema validation.
+- **`agentic_ci.lifecycle`** — Versioned, immutable SDLC lifecycle outcome
+  events with generic correlation and deterministic IDs.
 
 ## Building a Pipeline with the Generic Skill Runner
 

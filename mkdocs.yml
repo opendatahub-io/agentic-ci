@@ -78,6 +78,7 @@ nav:
           - Gates: api/gates.md
           - Skill Runner: api/skill.md
           - Verdict: api/verdict.md
+          - Lifecycle Outcomes: api/lifecycle.md
           - Git Operations: api/git.md
           - Pipeline Generation: api/pipeline.md
       - Integrations:

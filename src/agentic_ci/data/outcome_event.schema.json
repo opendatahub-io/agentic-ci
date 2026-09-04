@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opendatahub-io.github.io/agentic-ci/schemas/outcome-event-1.0.json",
+  "title": "Agentic CI SDLC lifecycle outcome event",
+  "description": "Versioned, idempotent outcome event for generic SDLC automation.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_type",
+    "event_id",
+    "correlation_id",
+    "stage",
+    "final_outcome",
+    "event_timestamp",
+    "stage_timestamp",
+    "attempt",
+    "correlation",
+    "metrics",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$"
+    },
+    "event_type": {
+      "const": "sdlc.lifecycle.outcome"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^outcome-v1-[0-9a-f]{64}$"
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "eligibility",
+        "analyzed",
+        "proposed",
+        "iterated",
+        "blocked",
+        "rejected",
+        "abandoned",
+        "stale",
+        "merged",
+        "reconciliation"
+      ]
+    },
+    "final_outcome": {
+      "type": "string",
+      "enum": [
+        "eligible",
+        "analyzed",
+        "proposed",
+        "iterated",
+        "blocked",
+        "rejected",
+        "abandoned",
+        "stale",
+        "merged",
+        "reconciled"
+      ]
+    },
+    "event_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "stage_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "correlation": {
+      "$ref": "#/$defs/correlation"
+    },
+    "harness": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "model": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "verdict": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "metrics": {
+      "$ref": "#/$defs/metrics"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "correlation": {
+      "type": "object",
+      "description": "Optional identifiers for issue trackers, repositories, forges, and telemetry.",
+      "properties": {
+        "jira_key": {"type": ["string", "null"], "minLength": 1},
+        "jira_project": {"type": ["string", "null"], "minLength": 1},
+        "repository": {"type": ["string", "null"], "minLength": 1},
+        "branch": {"type": ["string", "null"], "minLength": 1},
+        "forge_url": {"type": ["string", "null"], "minLength": 1},
+        "forge_id": {"type": ["string", "null"], "minLength": 1},
+        "pipeline_id": {"type": ["string", "null"], "minLength": 1},
+        "job_id": {"type": ["string", "null"], "minLength": 1},
+        "trace_id": {"type": ["string", "null"], "minLength": 1},
+        "session_id": {"type": ["string", "null"], "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cache_read_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cache_write_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "total_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "latency_ms": {"type": ["number", "null"], "minimum": 0}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

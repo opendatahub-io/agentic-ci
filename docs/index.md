@@ -15,6 +15,7 @@ simplicity and security.
 - **OTEL telemetry**: Token usage, cost tracking, and metrics collection
 - **Gates**: Pre- and post-agent validation (sensitive files, commit checks, secret scanning)
 - **Skill runner**: Generic framework for building AI-powered CI pipelines
+- **Lifecycle outcomes**: Versioned, idempotent outcome events for SDLC automation
 
 ## Install
 
