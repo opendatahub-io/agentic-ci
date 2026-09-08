@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:1.18.28@sha256:395c44faebc0b7f6f82c187332377108d62f4ed1d6f5db173f79d01db98b0b2b
+ARG OPENCODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/opencode:1.18.29@sha256:55eae66510d65819eeac2a4e7fee556fd40552304cd0b1daf709fe93b2748500
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:329b9215d9ac6fe42e2795cf56b1c22363928c610b53850774b02e9149767b74 AS builder
 FROM ${OPENCODE_BASE_IMAGE}
 
