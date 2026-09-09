@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.263@sha256:45c39f4ff8998fbca3bacfb1b0f0cc5622169215675b66188566604c84a66732
+ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.263@sha256:3cf45ee92da98a21b9d18e724ef6de130f7c290cfbcfba297626826b2145155f
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:329b9215d9ac6fe42e2795cf56b1c22363928c610b53850774b02e9149767b74 AS builder
 FROM ${CLAUDE_CODE_BASE_IMAGE}
 
