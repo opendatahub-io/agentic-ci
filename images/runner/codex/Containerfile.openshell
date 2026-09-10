@@ -13,7 +13,7 @@
 # x86_64 only.
 
 ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.151.0@sha256:af98a1266653db053120777bf856380c7dd94ca58531e28bcfa858c6ebd2190e
-FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:329b9215d9ac6fe42e2795cf56b1c22363928c610b53850774b02e9149767b74 AS builder
+FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:b9a4e0ec353dd30a89fc4c18775ac284b1fce6d5e19c2af6d0030be28e46eaf4 AS builder
 FROM ${CODEX_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.9
