@@ -19,7 +19,7 @@
 # x86_64 only.
 
 # OpenShell component version (image tag shared by CLI, gateway, supervisor).
-ARG OPENSHELL_IMAGE_TAG=v0.0.116-rhaiv.0
+ARG OPENSHELL_IMAGE_TAG=v0.0.116-rhaiv.1
 
 # CLI and gateway binaries copied from the published images.
 FROM quay.io/opendatahub/odh-openshell-cli:${OPENSHELL_IMAGE_TAG} AS cli
@@ -27,8 +27,8 @@ FROM quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_IMAGE_TAG} AS gateway
 
 FROM registry.access.redhat.com/ubi9/ubi:9.6
 
-ARG GH_VERSION=2.98.0
-ARG GH_SHA256=3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
+ARG GH_VERSION=2.99.0
+ARG GH_SHA256=ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832
 
 ARG GLAB_VERSION=1.116.0
 ARG GLAB_SHA256=173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea
