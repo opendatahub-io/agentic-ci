@@ -34,6 +34,7 @@ src/agentic_ci/
     config.py           # Project config loader (.agentic-ci/config.yml)
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
     stream.py           # Stream parsers for Claude Code, OpenCode, and Codex output
+    telemetry.py        # Generic event transport for the OTLP trace pipeline
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -52,6 +53,8 @@ src/agentic_ci/
 - **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. `CodexStreamProcessor` parses Codex JSONL events. All produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
+
+- **`telemetry.py`**: Generic event transport for the existing OTLP trace pipeline. Owns transport and serialization only — producers own event schemas, workflow timing, and outcome classification. Validates events for privacy (rejects sensitive keys, emails, bearer tokens, private keys) and size limits. Emits events as zero-duration OTLP spans so existing JSONL and MLflow trace exporters consume them without separate storage. File paths are constrained to a runner-owned log root with symlink and traversal protection. Raises transport errors; callers decide whether export failure is fatal.
 
 - **`otel.py`**: Lightweight OTLP HTTP/JSON receiver (stdlib `http.server`) that logs payloads to JSONL, tracks token usage over a sliding window, and prints a token/cost summary.
 
@@ -170,6 +173,7 @@ Fix any failures before moving on. Do not skip any of these checks.
 - `pytest` for tests.
 - When functionality could be reused by multiple SDLC pipelines (e.g. autofix), expose it in `agentic-ci` as a public API rather than letting consumers call private internals across the pinned dependency boundary.
 - Public API methods return curated, agentic-ci-owned data shapes — not raw wire formats. Keep field scope minimal (YAGNI); additional fields can be added later without breaking changes, provided consumers tolerate unknown fields.
+- When transitive dependency incompatibilities break E2E or integration tests, constrain the dependency only in the specific test environment (e.g. `[testenv:mlflow-e2e]` in `tox.ini`) — do not change runtime dependencies. Always include a comment explaining the incompatibility and stating the conditions for removing the constraint.
 
 ## Debugging
 
