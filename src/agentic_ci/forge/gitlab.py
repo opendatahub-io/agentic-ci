@@ -392,7 +392,16 @@ class GitLabForge(Forge):
         if raw_pipeline_status == "success":
             result = {"pipeline_status": "success", "failed_jobs": []}
             if ignored_checks:
-                result["ignored_checks_status"] = "success"
+                ignored_jobs_resp = self._session.get(
+                    f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
+                    params={"per_page": "100"},
+                )
+                if ignored_jobs_resp.status_code == 200:
+                    all_jobs = ignored_jobs_resp.json()
+                    ignored_jobs = [j for j in all_jobs if j.get("name", "") in ignored_checks]
+                    result["ignored_checks_status"] = _derive_pipeline_status(ignored_jobs)
+                else:
+                    result["ignored_checks_status"] = "success"
             return result
         ignored_checks_status: str | None = None
         if ignored_checks:
