@@ -81,11 +81,15 @@ class Forge(ABC):
         """
 
     @abstractmethod
-    def mr_status(self, mr_url: str) -> dict:
+    def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         """Get MR/PR state, source branch, and pipeline status.
 
         Returns ``{"state": str, "source_branch": str, "pipeline_status": str}``.
         State is normalized to ``"open"``, ``"merged"``, or ``"closed"``.
+
+        When *ignored_checks* is provided, check runs whose ``name`` (or
+        commit statuses whose ``context``) is in the set are excluded
+        before determining the overall pipeline status.
         """
 
     @abstractmethod
@@ -175,10 +179,17 @@ class Forge(ABC):
         """
 
     @abstractmethod
-    def pipeline_failures(self, mr_url: str) -> dict:
+    def pipeline_failures(
+        self, mr_url: str, *, ignored_checks: frozenset[str] | None = None
+    ) -> dict:
         """Get failed CI job names and log tails.
 
         Returns ``{"pipeline_status": str, "failed_jobs": [{"name", "id", "log"}]}``.
+
+        When *ignored_checks* is provided, those checks are excluded from
+        both the pipeline status derivation and the ``failed_jobs`` list.
+        An additional ``ignored_checks_status`` key reports the aggregate
+        status of the ignored checks alone.
         """
 
 

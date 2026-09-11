@@ -104,7 +104,7 @@ class GitLabForge(Forge):
             return None, error
         return resp.json().get("web_url"), None
 
-    def mr_status(self, mr_url: str) -> dict:
+    def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         project_path, mr_iid = parse_gitlab_mr_url(mr_url)
         pid = self.project_id(project_path)
         resp = self._session.get(
@@ -304,7 +304,9 @@ class GitLabForge(Forge):
         if resp.status_code != 200:
             raise ForgeError(f"HTTP {resp.status_code}: {resp.text}")
 
-    def pipeline_failures(self, mr_url: str) -> dict:
+    def pipeline_failures(
+        self, mr_url: str, *, ignored_checks: frozenset[str] | None = None
+    ) -> dict:
         project_path, mr_iid = parse_gitlab_mr_url(mr_url)
         pid = self.project_id(project_path)
         pipelines_resp = self._session.get(

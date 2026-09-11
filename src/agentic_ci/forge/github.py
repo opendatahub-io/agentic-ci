@@ -83,7 +83,7 @@ class GitHubForge(Forge):
             return None, error
         return resp.json().get("html_url"), None
 
-    def mr_status(self, mr_url: str) -> dict:
+    def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         repo_path, pr_number = parse_github_pr_url(mr_url)
         resp = self._session.get(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
@@ -104,6 +104,7 @@ class GitHubForge(Forge):
                 check_runs,
                 accessible,
                 commit_statuses=statuses,
+                ignored_checks=ignored_checks,
             )
         return {
             "state": state,
@@ -314,7 +315,9 @@ class GitHubForge(Forge):
         """
         self.graphql(mutation, {"threadId": thread_id})
 
-    def pipeline_failures(self, mr_url: str) -> dict:
+    def pipeline_failures(
+        self, mr_url: str, *, ignored_checks: frozenset[str] | None = None
+    ) -> dict:
         repo_path, pr_number = parse_github_pr_url(mr_url)
         resp = self._session.get(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
@@ -324,20 +327,38 @@ class GitHubForge(Forge):
         pr = resp.json()
         head_sha = pr.get("head", {}).get("sha", "")
         if not head_sha:
-            return {"pipeline_status": "none", "failed_jobs": []}
+            result: dict = {"pipeline_status": "none", "failed_jobs": []}
+            if ignored_checks:
+                result["ignored_checks_status"] = "none"
+            return result
         check_runs, accessible = self.check_runs(repo_path, head_sha)
         statuses = self.commit_statuses(repo_path, head_sha)
         pipeline_status = _derive_pipeline_status(
             check_runs,
             accessible,
             commit_statuses=statuses,
+            ignored_checks=ignored_checks,
         )
+        ignored_checks_status: str | None = None
+        if ignored_checks:
+            ignored_runs = [cr for cr in check_runs if cr.get("name", "") in ignored_checks]
+            ignored_statuses = [s for s in statuses if s.get("context", "") in ignored_checks]
+            ignored_checks_status = _derive_pipeline_status(
+                ignored_runs,
+                accessible,
+                commit_statuses=ignored_statuses or None,
+            )
         if pipeline_status in ("success", "none", "running", "unknown"):
-            return {"pipeline_status": pipeline_status, "failed_jobs": []}
+            result = {"pipeline_status": pipeline_status, "failed_jobs": []}
+            if ignored_checks_status is not None:
+                result["ignored_checks_status"] = ignored_checks_status
+            return result
         failed_jobs = []
         for s in statuses:
             if _STATUS_STATE_MAP.get(s.get("state", "")) == "failure":
                 context = s.get("context", "unknown")
+                if ignored_checks and context in ignored_checks:
+                    continue
                 target_url = s.get("target_url", "")
                 description = s.get("description", "")
                 log_text = f"Status: {s.get('state')}\nContext: {context}"
@@ -352,6 +373,8 @@ class GitHubForge(Forge):
             if cr.get("conclusion") not in ("failure", "timed_out", "startup_failure"):
                 continue
             job_name = cr.get("name", "unknown")
+            if ignored_checks and job_name in ignored_checks:
+                continue
             check_run_id = cr.get("id")
             log_text = ""
             log_resp = self._session.get(
@@ -367,7 +390,10 @@ class GitHubForge(Forge):
                     lines = text.splitlines()
                     log_text = "\n".join(lines[-200:])
             failed_jobs.append({"name": job_name, "id": check_run_id, "log": log_text})
-        return {"pipeline_status": pipeline_status, "failed_jobs": failed_jobs}
+        result = {"pipeline_status": pipeline_status, "failed_jobs": failed_jobs}
+        if ignored_checks_status is not None:
+            result["ignored_checks_status"] = ignored_checks_status
+        return result
 
     def graphql(self, query: str, variables: dict | None = None) -> dict:
         """Execute a GitHub GraphQL query or mutation.
@@ -482,12 +508,19 @@ def _derive_pipeline_status(
     check_runs: list[dict],
     accessible: bool = True,
     commit_statuses: list[dict] | None = None,
+    ignored_checks: frozenset[str] | None = None,
 ) -> str:
     """Derive overall pipeline status from check runs and commit statuses."""
     if not accessible:
         return "unknown"
     if not check_runs and not commit_statuses:
         return "none"
+    if ignored_checks:
+        check_runs = [cr for cr in check_runs if cr.get("name", "") not in ignored_checks]
+        if commit_statuses is not None:
+            commit_statuses = [
+                s for s in commit_statuses if s.get("context", "") not in ignored_checks
+            ]
     for cr in check_runs:
         if cr.get("status") != "completed":
             return "running"
