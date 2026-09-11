@@ -694,6 +694,207 @@ class TestDerivePipelineStatus:
         assert _derive_pipeline_status([], commit_statuses=statuses) == "success"
 
 
+class TestDerivePipelineStatusIgnoredChecks:
+    """Tests for _derive_pipeline_status with ignored_checks parameter."""
+
+    def test_ignored_in_progress_check_reveals_success(self):
+        """In-progress gate check ignored; remaining completed checks determine status."""
+        runs = [
+            {"name": "e2e-gate", "status": "in_progress", "conclusion": None},
+            {"name": "unit-tests", "status": "completed", "conclusion": "success"},
+            {"name": "lint", "status": "completed", "conclusion": "success"},
+        ]
+        assert _derive_pipeline_status(runs) == "running"
+        assert _derive_pipeline_status(runs, ignored_checks=frozenset({"e2e-gate"})) == "success"
+
+    def test_ignored_in_progress_check_reveals_failure(self):
+        """In-progress gate check ignored; remaining checks include a failure."""
+        runs = [
+            {"name": "e2e-gate", "status": "in_progress", "conclusion": None},
+            {"name": "unit-tests", "status": "completed", "conclusion": "failure"},
+            {"name": "lint", "status": "completed", "conclusion": "success"},
+        ]
+        assert _derive_pipeline_status(runs) == "running"
+        assert _derive_pipeline_status(runs, ignored_checks=frozenset({"e2e-gate"})) == "failed"
+
+    def test_all_checks_ignored_returns_success(self):
+        """When all checks are in the ignored set, status is success."""
+        runs = [
+            {"name": "e2e-gate", "status": "in_progress", "conclusion": None},
+            {"name": "e2e-smoke-gate", "status": "in_progress", "conclusion": None},
+        ]
+        ignored = frozenset({"e2e-gate", "e2e-smoke-gate"})
+        assert _derive_pipeline_status(runs, ignored_checks=ignored) == "success"
+
+    def test_no_checks_before_filtering_returns_none(self):
+        """Empty check_runs before filtering still returns 'none'."""
+        assert _derive_pipeline_status([], ignored_checks=frozenset({"e2e-gate"})) == "none"
+
+    def test_ignored_checks_with_commit_statuses(self):
+        """Ignored checks filters commit statuses by context too."""
+        runs = [{"name": "lint", "status": "completed", "conclusion": "success"}]
+        statuses = [
+            {"context": "ci/gate", "state": "pending"},
+            {"context": "ci/test", "state": "success"},
+        ]
+        assert _derive_pipeline_status(runs, commit_statuses=statuses) == "running"
+        assert (
+            _derive_pipeline_status(
+                runs,
+                commit_statuses=statuses,
+                ignored_checks=frozenset({"ci/gate"}),
+            )
+            == "success"
+        )
+
+    def test_ignored_checks_none_is_noop(self):
+        """Passing ignored_checks=None has no effect."""
+        runs = [{"name": "e2e-gate", "status": "in_progress", "conclusion": None}]
+        assert _derive_pipeline_status(runs, ignored_checks=None) == "running"
+
+    def test_ignored_checks_empty_frozenset_is_noop(self):
+        """Passing an empty frozenset has no effect."""
+        runs = [{"name": "e2e-gate", "status": "in_progress", "conclusion": None}]
+        assert _derive_pipeline_status(runs, ignored_checks=frozenset()) == "running"
+
+
+class TestPipelineFailuresIgnoredChecks:
+    """Tests for pipeline_failures() with ignored_checks parameter."""
+
+    def test_ignored_gate_reveals_failures(self, forge, mock_session):
+        """OSAC scenario: in_progress gate + real failures -> status is failed."""
+        pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
+        check_runs_resp = _make_response(
+            200,
+            {
+                "check_runs": [
+                    {
+                        "id": 101,
+                        "name": "unit-tests",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "output": {},
+                    },
+                    {
+                        "id": 102,
+                        "name": "lint",
+                        "status": "completed",
+                        "conclusion": "success",
+                    },
+                    {
+                        "id": 103,
+                        "name": "e2e-gate",
+                        "status": "in_progress",
+                        "conclusion": None,
+                    },
+                ]
+            },
+        )
+        statuses_resp = _make_response(200, [])
+        log_resp = _make_response(200)
+        log_resp.text = "FAIL: test_something"
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp, log_resp]
+
+        result = forge.pipeline_failures(
+            "https://github.com/owner/repo/pull/5",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "failed"
+        assert len(result["failed_jobs"]) == 1
+        assert result["failed_jobs"][0]["name"] == "unit-tests"
+        assert "e2e-gate" not in [j["name"] for j in result["failed_jobs"]]
+        assert result["ignored_checks_status"] == "running"
+
+    def test_ignored_checks_excluded_from_failed_jobs(self, forge, mock_session):
+        """Ignored checks that failed are excluded from failed_jobs list."""
+        pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
+        check_runs_resp = _make_response(
+            200,
+            {
+                "check_runs": [
+                    {
+                        "id": 101,
+                        "name": "unit-tests",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "output": {},
+                    },
+                    {
+                        "id": 102,
+                        "name": "e2e-gate",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "output": {},
+                    },
+                ]
+            },
+        )
+        statuses_resp = _make_response(200, [])
+        log_resp = _make_response(200)
+        log_resp.text = "FAIL: unit test error"
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp, log_resp]
+
+        result = forge.pipeline_failures(
+            "https://github.com/owner/repo/pull/5",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "failed"
+        job_names = [j["name"] for j in result["failed_jobs"]]
+        assert "unit-tests" in job_names
+        assert "e2e-gate" not in job_names
+        assert result["ignored_checks_status"] == "failed"
+
+    def test_no_ignored_checks_omits_key(self, forge, mock_session):
+        """When ignored_checks is None, result has no ignored_checks_status key."""
+        pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
+        check_runs_resp = _make_response(
+            200,
+            {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                ]
+            },
+        )
+        statuses_resp = _make_response(200, [])
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
+
+        result = forge.pipeline_failures("https://github.com/owner/repo/pull/5")
+        assert "ignored_checks_status" not in result
+
+    def test_all_pass_with_ignored_running(self, forge, mock_session):
+        """All real checks pass, ignored gate is running -> success + running."""
+        pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
+        check_runs_resp = _make_response(
+            200,
+            {
+                "check_runs": [
+                    {
+                        "id": 101,
+                        "name": "unit-tests",
+                        "status": "completed",
+                        "conclusion": "success",
+                    },
+                    {
+                        "id": 102,
+                        "name": "e2e-gate",
+                        "status": "in_progress",
+                        "conclusion": None,
+                    },
+                ]
+            },
+        )
+        statuses_resp = _make_response(200, [])
+        mock_session.get.side_effect = [pr_resp, check_runs_resp, statuses_resp]
+
+        result = forge.pipeline_failures(
+            "https://github.com/owner/repo/pull/5",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "success"
+        assert result["failed_jobs"] == []
+        assert result["ignored_checks_status"] == "running"
+
+
 class TestPipelineFailuresWithStatuses:
     def test_includes_failed_commit_statuses(self, forge, mock_session):
         pr_resp = _make_response(200, {"head": {"sha": "abc123"}})
