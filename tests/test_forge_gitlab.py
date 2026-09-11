@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agentic_ci.forge import ForgeError
-from agentic_ci.forge.gitlab import GitLabForge, _find_first_added_line, _sanitize_resp_text
+from agentic_ci.forge.gitlab import (
+    GitLabForge,
+    _derive_pipeline_status,
+    _find_first_added_line,
+    _sanitize_resp_text,
+)
 
 
 @pytest.fixture()
@@ -924,6 +929,287 @@ class TestFindFirstAddedLine:
     def test_no_newline_metadata_does_not_shift_line(self):
         diff = "@@ -1,2 +1,3 @@\n existing\n\\ No newline at end of file\n+added line"
         assert _find_first_added_line(diff) == 2
+
+
+class TestDerivePipelineStatus:
+    """Tests for _derive_pipeline_status with GitLab CI jobs."""
+
+    def test_all_jobs_passed(self):
+        jobs = [
+            {"name": "build", "status": "success"},
+            {"name": "test", "status": "success"},
+        ]
+        assert _derive_pipeline_status(jobs) == "success"
+
+    def test_job_running(self):
+        jobs = [
+            {"name": "build", "status": "success"},
+            {"name": "test", "status": "running"},
+        ]
+        assert _derive_pipeline_status(jobs) == "running"
+
+    def test_job_pending(self):
+        jobs = [{"name": "build", "status": "pending"}]
+        assert _derive_pipeline_status(jobs) == "running"
+
+    def test_job_created(self):
+        jobs = [{"name": "build", "status": "created"}]
+        assert _derive_pipeline_status(jobs) == "running"
+
+    def test_job_failed(self):
+        jobs = [
+            {"name": "build", "status": "success"},
+            {"name": "test", "status": "failed"},
+        ]
+        assert _derive_pipeline_status(jobs) == "failed"
+
+    def test_job_canceled(self):
+        jobs = [{"name": "build", "status": "canceled"}]
+        assert _derive_pipeline_status(jobs) == "failed"
+
+    def test_no_jobs(self):
+        assert _derive_pipeline_status([]) == "none"
+
+    def test_skipped_is_passed(self):
+        jobs = [
+            {"name": "build", "status": "success"},
+            {"name": "optional", "status": "skipped"},
+        ]
+        assert _derive_pipeline_status(jobs) == "success"
+
+    def test_manual_is_passed(self):
+        jobs = [
+            {"name": "deploy", "status": "manual"},
+            {"name": "build", "status": "success"},
+        ]
+        assert _derive_pipeline_status(jobs) == "success"
+
+
+class TestDerivePipelineStatusIgnoredChecks:
+    """Tests for _derive_pipeline_status with ignored_checks parameter."""
+
+    def test_ignored_running_check_reveals_success(self):
+        """Running gate check ignored; remaining completed checks determine status."""
+        jobs = [
+            {"name": "e2e-gate", "status": "running"},
+            {"name": "unit-tests", "status": "success"},
+            {"name": "lint", "status": "success"},
+        ]
+        assert _derive_pipeline_status(jobs) == "running"
+        assert _derive_pipeline_status(jobs, ignored_checks=frozenset({"e2e-gate"})) == "success"
+
+    def test_ignored_running_check_reveals_failure(self):
+        """Running gate check ignored; remaining checks include a failure."""
+        jobs = [
+            {"name": "e2e-gate", "status": "running"},
+            {"name": "unit-tests", "status": "failed"},
+            {"name": "lint", "status": "success"},
+        ]
+        assert _derive_pipeline_status(jobs) == "running"
+        assert _derive_pipeline_status(jobs, ignored_checks=frozenset({"e2e-gate"})) == "failed"
+
+    def test_all_checks_ignored_returns_success(self):
+        """When all checks are in the ignored set, status is success."""
+        jobs = [
+            {"name": "e2e-gate", "status": "running"},
+            {"name": "e2e-smoke-gate", "status": "pending"},
+        ]
+        ignored = frozenset({"e2e-gate", "e2e-smoke-gate"})
+        assert _derive_pipeline_status(jobs, ignored_checks=ignored) == "success"
+
+    def test_no_jobs_before_filtering_returns_none(self):
+        """Empty jobs list before filtering still returns 'none'."""
+        assert _derive_pipeline_status([], ignored_checks=frozenset({"e2e-gate"})) == "none"
+
+    def test_ignored_checks_none_is_noop(self):
+        """Passing ignored_checks=None has no effect."""
+        jobs = [{"name": "e2e-gate", "status": "running"}]
+        assert _derive_pipeline_status(jobs, ignored_checks=None) == "running"
+
+    def test_ignored_checks_empty_frozenset_is_noop(self):
+        """Passing an empty frozenset has no effect."""
+        jobs = [{"name": "e2e-gate", "status": "running"}]
+        assert _derive_pipeline_status(jobs, ignored_checks=frozenset()) == "running"
+
+
+class TestMrStatusIgnoredChecks:
+    """Tests for mr_status() with ignored_checks parameter."""
+
+    def test_ignored_running_check_reveals_success(self, forge, mock_session):
+        """Running gate check ignored; pipeline status derived from remaining jobs."""
+        project_resp = _make_response(200, {"id": 1})
+        mr_resp = _make_response(200, {"state": "opened", "source_branch": "fix/bug"})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "running"}])
+        jobs_resp = _make_response(
+            200,
+            [
+                {"name": "e2e-gate", "status": "running"},
+                {"name": "unit-tests", "status": "success"},
+                {"name": "lint", "status": "success"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, mr_resp, pipeline_resp, jobs_resp]
+
+        result = forge.mr_status(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["state"] == "open"
+        assert result["pipeline_status"] == "success"
+
+    def test_without_ignored_checks_uses_raw_status(self, forge, mock_session):
+        """Without ignored_checks, uses the raw pipeline status directly."""
+        project_resp = _make_response(200, {"id": 1})
+        mr_resp = _make_response(200, {"state": "opened", "source_branch": "fix/bug"})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "running"}])
+        mock_session.get.side_effect = [project_resp, mr_resp, pipeline_resp]
+
+        result = forge.mr_status(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+        )
+        assert result["pipeline_status"] == "running"
+
+    def test_ignored_running_check_reveals_failure(self, forge, mock_session):
+        """Running gate ignored; underlying failure exposed."""
+        project_resp = _make_response(200, {"id": 1})
+        mr_resp = _make_response(200, {"state": "opened", "source_branch": "fix/bug"})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "running"}])
+        jobs_resp = _make_response(
+            200,
+            [
+                {"name": "e2e-gate", "status": "running"},
+                {"name": "unit-tests", "status": "failed"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, mr_resp, pipeline_resp, jobs_resp]
+
+        result = forge.mr_status(
+            "https://gitlab.com/org/repo/-/merge_requests/10",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "failed"
+
+
+class TestPipelineFailuresIgnoredChecks:
+    """Tests for pipeline_failures() with ignored_checks parameter."""
+
+    def test_ignored_gate_reveals_failures(self, forge, mock_session):
+        """Running gate check ignored; real failure visible."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "running"}])
+        all_jobs_resp = _make_response(
+            200,
+            [
+                {"id": 501, "name": "unit-tests", "status": "failed"},
+                {"id": 502, "name": "lint", "status": "success"},
+                {"id": 503, "name": "e2e-gate", "status": "running"},
+            ],
+        )
+        trace_resp = _make_response(200)
+        trace_resp.text = "FAIL: test_something"
+        mock_session.get.side_effect = [
+            project_resp,
+            pipeline_resp,
+            all_jobs_resp,
+            trace_resp,
+        ]
+
+        result = forge.pipeline_failures(
+            "https://gitlab.com/org/repo/-/merge_requests/1",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "failed"
+        assert len(result["failed_jobs"]) == 1
+        assert result["failed_jobs"][0]["name"] == "unit-tests"
+        assert "e2e-gate" not in [j["name"] for j in result["failed_jobs"]]
+        assert result["ignored_checks_status"] == "running"
+
+    def test_ignored_checks_excluded_from_failed_jobs(self, forge, mock_session):
+        """Ignored failed checks are excluded from failed_jobs list."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "failed"}])
+        all_jobs_resp = _make_response(
+            200,
+            [
+                {"id": 501, "name": "unit-tests", "status": "failed"},
+                {"id": 502, "name": "e2e-gate", "status": "failed"},
+            ],
+        )
+        trace_resp = _make_response(200)
+        trace_resp.text = "FAIL: unit test error"
+        mock_session.get.side_effect = [
+            project_resp,
+            pipeline_resp,
+            all_jobs_resp,
+            trace_resp,
+        ]
+
+        result = forge.pipeline_failures(
+            "https://gitlab.com/org/repo/-/merge_requests/1",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "failed"
+        job_names = [j["name"] for j in result["failed_jobs"]]
+        assert "unit-tests" in job_names
+        assert "e2e-gate" not in job_names
+        assert result["ignored_checks_status"] == "failed"
+
+    def test_no_ignored_checks_omits_key(self, forge, mock_session):
+        """When ignored_checks is None, result has no ignored_checks_status key."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "success"}])
+        mock_session.get.side_effect = [project_resp, pipeline_resp]
+
+        result = forge.pipeline_failures("https://gitlab.com/org/repo/-/merge_requests/1")
+        assert "ignored_checks_status" not in result
+
+    def test_no_pipelines_with_ignored_checks(self, forge, mock_session):
+        """No pipelines with ignored_checks returns none for both statuses."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [])
+        mock_session.get.side_effect = [project_resp, pipeline_resp]
+
+        result = forge.pipeline_failures(
+            "https://gitlab.com/org/repo/-/merge_requests/1",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "none"
+        assert result["ignored_checks_status"] == "none"
+
+    def test_success_pipeline_with_ignored_checks(self, forge, mock_session):
+        """Success pipeline with ignored_checks returns success for both."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "success"}])
+        mock_session.get.side_effect = [project_resp, pipeline_resp]
+
+        result = forge.pipeline_failures(
+            "https://gitlab.com/org/repo/-/merge_requests/1",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "success"
+        assert result["ignored_checks_status"] == "success"
+        assert result["failed_jobs"] == []
+
+    def test_all_pass_with_ignored_running(self, forge, mock_session):
+        """All real checks pass, ignored gate is running -> success + running."""
+        project_resp = _make_response(200, {"id": 1})
+        pipeline_resp = _make_response(200, [{"id": 100, "status": "running"}])
+        all_jobs_resp = _make_response(
+            200,
+            [
+                {"id": 501, "name": "unit-tests", "status": "success"},
+                {"id": 502, "name": "e2e-gate", "status": "running"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, pipeline_resp, all_jobs_resp]
+
+        result = forge.pipeline_failures(
+            "https://gitlab.com/org/repo/-/merge_requests/1",
+            ignored_checks=frozenset({"e2e-gate"}),
+        )
+        assert result["pipeline_status"] == "success"
+        assert result["failed_jobs"] == []
+        assert result["ignored_checks_status"] == "running"
 
 
 class TestSanitizeRespText:

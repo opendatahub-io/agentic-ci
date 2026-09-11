@@ -34,6 +34,58 @@ def _sanitize_resp_text(text: str) -> str:
     return cleaned
 
 
+_GITLAB_RUNNING_STATUSES = frozenset(
+    {
+        "created",
+        "waiting_for_resource",
+        "preparing",
+        "pending",
+        "running",
+    }
+)
+_GITLAB_PASSED_STATUSES = frozenset(
+    {
+        "success",
+        "skipped",
+        "manual",
+    }
+)
+_GITLAB_FAILED_STATUSES = frozenset(
+    {
+        "failed",
+        "canceled",
+    }
+)
+
+
+def _derive_pipeline_status(
+    jobs: list[dict],
+    *,
+    ignored_checks: frozenset[str] | None = None,
+) -> str:
+    """Derive overall pipeline status from GitLab CI jobs.
+
+    When *ignored_checks* is provided, jobs whose ``name`` is in the set
+    are excluded before deriving the status.  If all jobs are filtered
+    out, the pipeline is considered ``"success"`` (nothing left to block).
+    """
+    if not jobs:
+        return "none"
+    if ignored_checks:
+        jobs = [j for j in jobs if j.get("name", "") not in ignored_checks]
+    if not jobs:
+        return "success"
+    for j in jobs:
+        if j.get("status", "") in _GITLAB_RUNNING_STATUSES:
+            return "running"
+    for j in jobs:
+        if j.get("status", "") in _GITLAB_FAILED_STATUSES:
+            return "failed"
+    if all(j.get("status", "") in _GITLAB_PASSED_STATUSES for j in jobs):
+        return "success"
+    return "unknown"
+
+
 class GitLabForge(Forge):
     """GitLab REST API implementation of the ``Forge`` interface."""
 
@@ -124,7 +176,20 @@ class GitLabForge(Forge):
         if pipelines_resp.status_code == 200:
             pipelines = pipelines_resp.json()
             if pipelines:
-                pipeline_status = pipelines[0].get("status", "unknown")
+                if ignored_checks:
+                    pipeline_id = pipelines[0]["id"]
+                    jobs_resp = self._session.get(
+                        f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
+                        params={"per_page": "100"},
+                    )
+                    if jobs_resp.status_code == 200:
+                        pipeline_status = _derive_pipeline_status(
+                            jobs_resp.json(), ignored_checks=ignored_checks
+                        )
+                    else:
+                        pipeline_status = pipelines[0].get("status", "unknown")
+                else:
+                    pipeline_status = pipelines[0].get("status", "unknown")
         return {
             "state": state,
             "source_branch": mr.get("source_branch", ""),
@@ -317,20 +382,46 @@ class GitLabForge(Forge):
             raise ForgeError(f"HTTP {pipelines_resp.status_code}: {pipelines_resp.text}")
         pipelines = pipelines_resp.json()
         if not pipelines:
-            return {"pipeline_status": "none", "failed_jobs": []}
+            result: dict = {"pipeline_status": "none", "failed_jobs": []}
+            if ignored_checks:
+                result["ignored_checks_status"] = "none"
+            return result
         pipeline = pipelines[0]
         pipeline_id = pipeline["id"]
-        pipeline_status = pipeline.get("status", "unknown")
-        if pipeline_status == "success":
-            return {"pipeline_status": "success", "failed_jobs": []}
-        jobs_resp = self._session.get(
-            f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
-            params={"per_page": "100", "scope[]": "failed"},
-        )
-        if jobs_resp.status_code != 200:
-            raise ForgeError(f"HTTP {jobs_resp.status_code}: {jobs_resp.text}")
+        raw_pipeline_status = pipeline.get("status", "unknown")
+        if raw_pipeline_status == "success":
+            result = {"pipeline_status": "success", "failed_jobs": []}
+            if ignored_checks:
+                result["ignored_checks_status"] = "success"
+            return result
+        ignored_checks_status: str | None = None
+        if ignored_checks:
+            all_jobs_resp = self._session.get(
+                f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
+                params={"per_page": "100"},
+            )
+            if all_jobs_resp.status_code != 200:
+                raise ForgeError(f"HTTP {all_jobs_resp.status_code}: {all_jobs_resp.text}")
+            all_jobs = all_jobs_resp.json()
+            pipeline_status = _derive_pipeline_status(all_jobs, ignored_checks=ignored_checks)
+            ignored_jobs = [j for j in all_jobs if j.get("name", "") in ignored_checks]
+            ignored_checks_status = _derive_pipeline_status(ignored_jobs)
+            raw_failed_jobs = [
+                j
+                for j in all_jobs
+                if j.get("status") == "failed" and j.get("name", "") not in ignored_checks
+            ]
+        else:
+            pipeline_status = raw_pipeline_status
+            jobs_resp = self._session.get(
+                f"https://gitlab.com/api/v4/projects/{pid}/pipelines/{pipeline_id}/jobs",
+                params={"per_page": "100", "scope[]": "failed"},
+            )
+            if jobs_resp.status_code != 200:
+                raise ForgeError(f"HTTP {jobs_resp.status_code}: {jobs_resp.text}")
+            raw_failed_jobs = jobs_resp.json()
         failed_jobs = []
-        for job in jobs_resp.json():
+        for job in raw_failed_jobs:
             job_name = job.get("name", "unknown")
             job_id = job["id"]
             trace_resp = self._session.get(
@@ -341,7 +432,10 @@ class GitLabForge(Forge):
                 lines = trace_resp.text.splitlines()
                 log_text = "\n".join(lines[-200:])
             failed_jobs.append({"name": job_name, "id": job_id, "log": log_text})
-        return {"pipeline_status": pipeline_status, "failed_jobs": failed_jobs}
+        result = {"pipeline_status": pipeline_status, "failed_jobs": failed_jobs}
+        if ignored_checks_status is not None:
+            result["ignored_checks_status"] = ignored_checks_status
+        return result
 
     def pipeline_metadata(self, project_path: str, pipeline_id: int) -> dict:
         """Get pipeline metadata.
