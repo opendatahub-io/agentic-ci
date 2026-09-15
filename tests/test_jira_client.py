@@ -856,3 +856,255 @@ class TestAssignRest:
         mock_requests.get.assert_not_called()
         mock_requests.put.assert_called_once()
         assert mock_requests.put.call_args.kwargs["json"] == {"accountId": "acct-456"}
+
+
+class TestGetLabelAuthor:
+    @staticmethod
+    def _changelog_resp(values, total=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "values": values,
+            "total": total if total is not None else len(values),
+        }
+        return resp
+
+    @staticmethod
+    def _issue_resp(labels, reporter=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "fields": {
+                "labels": labels,
+                "reporter": reporter or {},
+            }
+        }
+        return resp
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_latest_add_timestamp_across_pages(self, mock_requests, client):
+        page1 = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "2026-06-01T10:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+            total=2,
+        )
+        page2 = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "b@test.com", "displayName": "Bob"},
+                    "created": "2026-07-15T14:30:00.000+0000",
+                    "items": [
+                        {
+                            "field": "labels",
+                            "fromString": "other",
+                            "toString": "other autofix",
+                        },
+                    ],
+                },
+            ],
+            total=2,
+        )
+        mock_requests.get.side_effect = [page1, page2]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "b@test.com"
+        assert result["displayName"] == "Bob"
+        assert result["added_at"] == "2026-07-15T14:30:00+00:00"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_remove_and_readd_resets_timestamp(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "2026-06-01T10:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "2026-06-05T12:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "autofix", "toString": ""},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "c@test.com", "displayName": "Carol"},
+                    "created": "2026-08-20T09:15:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "c@test.com"
+        assert result["displayName"] == "Carol"
+        assert result["added_at"] == "2026-08-20T09:15:00+00:00"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_unrelated_changes_do_not_affect_timestamp(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "2026-06-01T10:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "x@test.com", "displayName": "Xavier"},
+                    "created": "2026-09-01T08:00:00.000+0000",
+                    "items": [
+                        {"field": "summary", "fromString": "old", "toString": "new"},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "y@test.com", "displayName": "Yara"},
+                    "created": "2026-09-02T08:00:00.000+0000",
+                    "items": [
+                        {
+                            "field": "labels",
+                            "fromString": "autofix",
+                            "toString": "autofix other",
+                        },
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "a@test.com"
+        assert result["added_at"] == "2026-06-01T10:00:00+00:00"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_reporter_fallback_returns_null_added_at(self, mock_requests, client):
+        changelog = self._changelog_resp([], total=0)
+        issue = self._issue_resp(
+            ["autofix"],
+            reporter={"emailAddress": "r@test.com", "displayName": "Reporter"},
+        )
+        mock_requests.get.side_effect = [changelog, issue]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "r@test.com"
+        assert result["displayName"] == "Reporter"
+        assert result["added_at"] is None
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_missing_timestamp_returns_null_added_at(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "a@test.com"
+        assert result["added_at"] is None
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_invalid_timestamp_returns_null_added_at(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "not-a-date",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "a@test.com"
+        assert result["added_at"] is None
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_not_found_unchanged(self, mock_requests, client):
+        changelog = self._changelog_resp([], total=0)
+        issue = self._issue_resp([])
+        mock_requests.get.side_effect = [changelog, issue]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result == {"found": False}
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_author_aligns_with_selected_event(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "first@test.com", "displayName": "First"},
+                    "created": "2026-06-01T10:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "first@test.com", "displayName": "First"},
+                    "created": "2026-06-05T12:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "autofix", "toString": ""},
+                    ],
+                },
+                {
+                    "author": {"emailAddress": "second@test.com", "displayName": "Second"},
+                    "created": "2026-07-01T08:00:00.000+0000",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["email"] == "second@test.com"
+        assert result["displayName"] == "Second"
+        assert result["added_at"] == "2026-07-01T08:00:00+00:00"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_naive_timestamp_returns_null(self, mock_requests, client):
+        changelog = self._changelog_resp(
+            [
+                {
+                    "author": {"emailAddress": "a@test.com", "displayName": "Alice"},
+                    "created": "2026-06-01T10:00:00",
+                    "items": [
+                        {"field": "labels", "fromString": "", "toString": "autofix"},
+                    ],
+                },
+            ],
+        )
+        mock_requests.get.side_effect = [changelog]
+
+        result = client.get_label_author("TEST-1", "autofix")
+        assert result["found"] is True
+        assert result["added_at"] is None

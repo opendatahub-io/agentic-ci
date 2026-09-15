@@ -24,6 +24,7 @@ import math
 import os
 import random
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -386,17 +387,35 @@ class JiraClient:
 
         return results
 
+    @staticmethod
+    def _parse_iso8601(value: str | None) -> str | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            dt = datetime.fromisoformat(value)
+            if dt.tzinfo is None:
+                return None
+            return dt.astimezone(timezone.utc).isoformat()
+        except (ValueError, OverflowError):
+            return None
+
     def get_label_author(self, key: str, label: str) -> dict:
         """Find who most recently added a label via the changelog.
 
-        Returns ``{"found": True, "email": ..., "displayName": ...}``
-        or ``{"found": False}``.
+        Returns ``{"found": True, "email": ..., "displayName": ...,
+        "added_at": ...}`` or ``{"found": False}``.
+
+        ``added_at`` is a timezone-aware UTC ISO-8601 timestamp from the
+        most recent matching label-addition event, or ``None`` when the
+        timestamp is unavailable or unparseable (including the reporter
+        fallback path).
 
         Falls back to the ticket reporter if the label was set at
         creation time (no changelog entry).
         """
         author_email: str | None = None
         author_name: str | None = None
+        added_at: str | None = None
         start_at = 0
 
         while True:
@@ -421,6 +440,7 @@ class JiraClient:
                         author = entry.get("author", {})
                         author_email = author.get("emailAddress", "")
                         author_name = author.get("displayName", "Unknown")
+                        added_at = self._parse_iso8601(entry.get("created"))
 
             total = data.get("total", 0)
             values = data.get("values", [])
@@ -443,7 +463,12 @@ class JiraClient:
 
         if author_email is None:
             return {"found": False}
-        return {"found": True, "email": author_email, "displayName": author_name}
+        return {
+            "found": True,
+            "email": author_email,
+            "displayName": author_name,
+            "added_at": added_at,
+        }
 
     def get_description_editors(self, key: str) -> list[str]:
         """Return email addresses of all users who edited the issue description.
