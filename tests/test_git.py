@@ -9,11 +9,15 @@ from agentic_ci.git import (
     _GITLAB_URL_RE,
     _collect_candidates,
     _dedup_gitlab_prefixes,
+    _is_transient_push_error,
+    _safe_float,
+    _safe_int,
     checkout_branch,
     extract_all_repo_urls,
     get_changed_files,
     get_default_branch,
     git_output,
+    push_branch,
     rebase_branch,
     strip_committed_files,
 )
@@ -639,3 +643,218 @@ class TestExtractAllRepoUrls:
         assert extract_all_repo_urls(text) == [
             "https://gitlab.com/redhat/rhel-ai/core/infrastructure"
         ]
+
+
+class TestSafeEnvParsing:
+    def test_safe_int_valid(self):
+        assert _safe_int("5", 2) == 5
+
+    def test_safe_int_invalid(self):
+        assert _safe_int("not_a_number", 2) == 2
+
+    def test_safe_int_empty(self):
+        assert _safe_int("", 2) == 2
+
+    def test_safe_float_valid(self):
+        assert _safe_float("3.5", 5.0) == 3.5
+
+    def test_safe_float_invalid(self):
+        assert _safe_float("not_a_number", 5.0) == 5.0
+
+    def test_safe_float_empty(self):
+        assert _safe_float("", 5.0) == 5.0
+
+
+class TestIsTransientPushError:
+    def test_commit_refs_error(self):
+        assert _is_transient_push_error("remote: fatal error in commit_refs") is True
+
+    def test_cannot_lock_ref(self):
+        assert _is_transient_push_error("cannot lock ref 'refs/heads/branch'") is True
+
+    def test_connection_refused(self):
+        assert _is_transient_push_error("Connection refused") is True
+
+    def test_connection_reset(self):
+        assert _is_transient_push_error("Connection reset by peer") is True
+
+    def test_service_unavailable(self):
+        assert _is_transient_push_error("Service Unavailable") is True
+
+    def test_internal_server_error(self):
+        assert _is_transient_push_error("Internal Server Error") is True
+
+    def test_hung_up(self):
+        assert _is_transient_push_error("The remote end hung up unexpectedly") is True
+
+    def test_permission_denied_not_transient(self):
+        assert _is_transient_push_error("Permission denied") is False
+
+    def test_empty_string_not_transient(self):
+        assert _is_transient_push_error("") is False
+
+    def test_returned_error_502(self):
+        assert _is_transient_push_error("The requested URL returned error: 502") is True
+
+    def test_returned_error_503(self):
+        assert _is_transient_push_error("The requested URL returned error: 503") is True
+
+    def test_bare_502_not_transient(self):
+        assert _is_transient_push_error("some unrelated 502 text") is False
+
+    def test_unable_to_access_not_transient(self):
+        """HTTP 403 'unable to access' should not be treated as transient."""
+        assert (
+            _is_transient_push_error(
+                "fatal: unable to access 'https://github.com/org/repo.git/': "
+                "The requested URL returned error: 403"
+            )
+            is False
+        )
+
+    def test_case_insensitive(self):
+        assert _is_transient_push_error("FATAL ERROR IN COMMIT_REFS") is True
+
+
+class TestPushBranch:
+    def test_success(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path) is True
+
+    def test_push_failure_no_retry_on_non_transient(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="Permission to repo.git denied"),
+            ]
+            assert push_branch(tmp_path, max_retries=2) is False
+            assert mock_run.call_count == 2
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_retry_on_transient_error_then_success(self, mock_sleep, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(
+                    128, "git", stderr="remote: fatal error in commit_refs"
+                ),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, max_retries=2, retry_delay=1.0) is True
+            mock_sleep.assert_called_once_with(1.0)
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_retry_exhausted(self, mock_sleep, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="cannot lock ref 'refs/heads/b'"),
+                subprocess.CalledProcessError(128, "git", stderr="cannot lock ref 'refs/heads/b'"),
+                subprocess.CalledProcessError(128, "git", stderr="cannot lock ref 'refs/heads/b'"),
+            ]
+            assert push_branch(tmp_path, max_retries=2, retry_delay=1.0) is False
+            assert mock_run.call_count == 4
+            assert mock_sleep.call_count == 2
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_exponential_backoff(self, mock_sleep, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, max_retries=2, retry_delay=2.0) is True
+            assert mock_sleep.call_args_list[0][0] == (2.0,)
+            assert mock_sleep.call_args_list[1][0] == (4.0,)
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_timeout_retried(self, mock_sleep, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.TimeoutExpired("git push", 120),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, max_retries=1, retry_delay=1.0) is True
+            mock_sleep.assert_called_once()
+
+    def test_invalid_remote_rejected(self, tmp_path: Path):
+        assert push_branch(tmp_path, remote="--evil") is False
+        assert push_branch(tmp_path, remote="") is False
+        assert push_branch(tmp_path, remote="foo..bar") is False
+
+    def test_invalid_branch_rejected(self, tmp_path: Path):
+        assert push_branch(tmp_path, branch="--evil") is False
+        assert push_branch(tmp_path, branch="foo..bar") is False
+
+    def test_explicit_branch(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            assert push_branch(tmp_path, branch="my-branch") is True
+            args = mock_run.call_args[0][0]
+            assert args == [
+                "git",
+                "push",
+                "--force-with-lease",
+                "--set-upstream",
+                "origin",
+                "my-branch",
+            ]
+
+    def test_no_retries_when_max_retries_zero(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+            ]
+            assert push_branch(tmp_path, max_retries=0) is False
+            assert mock_run.call_count == 2
+
+    def test_negative_max_retries_clamped_to_zero(self, tmp_path: Path):
+        """Negative max_retries is clamped to 0 (single attempt, no retry)."""
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+            ]
+            assert push_branch(tmp_path, max_retries=-1) is False
+            assert mock_run.call_count == 2
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_invalid_retry_delay_uses_default(self, mock_sleep, tmp_path: Path):
+        """Non-finite retry_delay falls back to 5.0."""
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, max_retries=1, retry_delay=float("nan")) is True
+            mock_sleep.assert_called_once_with(5.0)
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_retry_log_shows_next_delay_not_cumulative(self, mock_sleep, tmp_path: Path):
+        """before_sleep logs the upcoming retry delay, not the cumulative idle time."""
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, max_retries=2, retry_delay=2.0) is True
+            warning_calls = [c for c in mock_log.warning.call_args_list if "retrying" in str(c)]
+            assert len(warning_calls) == 2
+            logged_delay_1 = warning_calls[0][0][3]
+            logged_delay_2 = warning_calls[1][0][3]
+            assert logged_delay_1 == 2.0
+            assert logged_delay_2 == 4.0
