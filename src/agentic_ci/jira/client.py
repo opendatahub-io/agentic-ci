@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import random
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -392,7 +393,10 @@ class JiraClient:
         if not isinstance(value, str) or not value:
             return None
         try:
-            dt = datetime.fromisoformat(value)
+            # Jira returns offsets like +0000; Python <3.11 fromisoformat
+            # requires the colon form (+00:00), so normalise first.
+            normalized = re.sub(r"([+-])(\d{2})(\d{2})$", r"\1\2:\3", value)
+            dt = datetime.fromisoformat(normalized)
             if dt.tzinfo is None:
                 return None
             return dt.astimezone(timezone.utc).isoformat()
