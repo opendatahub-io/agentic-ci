@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import math
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -18,12 +20,49 @@ from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 log = logging.getLogger(__name__)
 
 ALLOWED_HOSTS = frozenset({"github.com", "gitlab.com"})
 GIT_CLONE_TIMEOUT = int(os.environ.get("GIT_CLONE_TIMEOUT", "300"))
 GIT_PUSH_TIMEOUT = int(os.environ.get("GIT_PUSH_TIMEOUT", "120"))
 
+
+def _safe_int(value: str, default: int) -> int:
+    """Parse an integer string, returning *default* on invalid input."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_float(value: str, default: float) -> float:
+    """Parse a float string, returning *default* on invalid input."""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+GIT_PUSH_MAX_RETRIES = _safe_int(os.environ.get("GIT_PUSH_MAX_RETRIES", "2"), 2)
+GIT_PUSH_RETRY_DELAY = _safe_float(os.environ.get("GIT_PUSH_RETRY_DELAY", "5"), 5.0)
+_TRANSIENT_PUSH_PATTERNS = (
+    "fatal error in commit_refs",
+    "cannot lock ref",
+    "Connection refused",
+    "Connection reset",
+    "Connection timed out",
+    "Could not resolve host",
+    "SSL_connect",
+    "The remote end hung up unexpectedly",
+    "Service Unavailable",
+    "Internal Server Error",
+    "returned error: 500",
+    "returned error: 502",
+    "returned error: 503",
+    "returned error: 504",
+)
 
 _DEVNULL = subprocess.DEVNULL
 
@@ -410,8 +449,30 @@ def git_output(repo_dir: Path, *args: str) -> str | None:
 _SAFE_REMOTE_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
 
 
-def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = None) -> bool:
-    """Push the current branch to remote. Returns True on success."""
+def _is_transient_push_error(stderr: str) -> bool:
+    """Check whether a push failure stderr matches a known transient pattern."""
+    lower = stderr.lower()
+    return any(pat.lower() in lower for pat in _TRANSIENT_PUSH_PATTERNS)
+
+
+class _TransientPushError(Exception):
+    """Transient push failure that may succeed on retry."""
+
+
+def push_branch(
+    repo_dir: Path,
+    remote: str = "origin",
+    branch: str | None = None,
+    *,
+    max_retries: int = GIT_PUSH_MAX_RETRIES,
+    retry_delay: float = GIT_PUSH_RETRY_DELAY,
+) -> bool:
+    """Push the current branch to remote. Returns True on success.
+
+    Retries up to *max_retries* times on transient errors (server 5xx,
+    ``commit_refs`` failures, lock contention, network resets) with
+    exponential backoff starting at *retry_delay* seconds.
+    """
     if not remote or remote.startswith("-") or ".." in remote or "@{" in remote:
         log.error("push_branch: invalid remote name: %s", remote)
         return False
@@ -438,23 +499,54 @@ def push_branch(repo_dir: Path, remote: str = "origin", branch: str | None = Non
         if not _validate_ref(branch):
             log.error("push_branch: detected invalid branch name: %s", branch)
             return False
+    max_retries = max(0, max_retries)
+    if not math.isfinite(retry_delay) or retry_delay < 0:
+        retry_delay = 5.0
+
     cmd = ["git", "push", "--force-with-lease", "--set-upstream", remote, branch]
+    total_attempts = 1 + max_retries
+
+    @retry(
+        stop=stop_after_attempt(total_attempts),
+        wait=wait_exponential(multiplier=retry_delay, exp_base=2, min=0),
+        retry=retry_if_exception_type(_TransientPushError),
+        sleep=time.sleep,
+        reraise=True,
+        before_sleep=lambda rs: log.warning(
+            "git push failed (attempt %d/%d), retrying in %.0fs: %s",
+            rs.attempt_number,
+            total_attempts,
+            rs.next_action.sleep if rs.next_action else 0,
+            str(rs.outcome.exception()) if rs.outcome else "unknown",
+        ),
+    )
+    def _do_push() -> None:
+        try:
+            subprocess.run(
+                cmd,
+                cwd=str(repo_dir),
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=GIT_PUSH_TIMEOUT,
+                stdin=_DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            raise _TransientPushError("git push timed out")
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr or ""
+            if _is_transient_push_error(stderr):
+                raise _TransientPushError(stderr.strip()) from exc
+            log.error("git push failed: %s", stderr.strip())
+            raise
+
     try:
-        subprocess.run(
-            cmd,
-            cwd=str(repo_dir),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=GIT_PUSH_TIMEOUT,
-            stdin=_DEVNULL,
-        )
+        _do_push()
         return True
-    except subprocess.TimeoutExpired:
-        log.error("git push timed out after %ds", GIT_PUSH_TIMEOUT)
+    except _TransientPushError as exc:
+        log.error("git push failed: %s", str(exc))
         return False
-    except subprocess.CalledProcessError as exc:
-        log.error("git push failed: %s", exc.stderr)
+    except subprocess.CalledProcessError:
         return False
 
 

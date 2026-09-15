@@ -76,7 +76,7 @@ class SkillConfig:
     context_writer: Callable[..., None] = _noop
     verdict_loader: Callable[..., dict] = _noop_verdict
     verdict_path_fn: Callable[[Path], Path] = lambda wd: wd / "verdict.json"
-    label_applier: Callable[..., None] = _noop
+    label_applier: Callable[..., int | None] = _noop
     cost_formatter: Callable[[dict | None], str | None] = lambda d: None
     extension_config_writer: Callable[..., None] = _noop
 
@@ -404,13 +404,21 @@ def run_skill(
     if cost_summary:
         verdict["_cost_summary"] = cost_summary
 
-    config.label_applier(
+    label_rc = config.label_applier(
         ticket_key=ticket_key,
         verdict=verdict,
         mode=mode,
         work_dir=work_dir,
         **extra_kwargs,
     )
+
+    if label_rc:
+        log.error(
+            "[%s] label_applier returned non-zero exit code: %d",
+            ticket_key,
+            label_rc,
+        )
+        return label_rc
 
     log.info(
         "[%s] %s complete: verdict=%s",
