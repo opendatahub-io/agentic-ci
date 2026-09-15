@@ -693,11 +693,17 @@ class TestIsTransientPushError:
     def test_empty_string_not_transient(self):
         assert _is_transient_push_error("") is False
 
+    def test_returned_error_500(self):
+        assert _is_transient_push_error("The requested URL returned error: 500") is True
+
     def test_returned_error_502(self):
         assert _is_transient_push_error("The requested URL returned error: 502") is True
 
     def test_returned_error_503(self):
         assert _is_transient_push_error("The requested URL returned error: 503") is True
+
+    def test_returned_error_504(self):
+        assert _is_transient_push_error("The requested URL returned error: 504") is True
 
     def test_bare_502_not_transient(self):
         assert _is_transient_push_error("some unrelated 502 text") is False

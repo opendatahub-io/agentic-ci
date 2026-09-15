@@ -58,8 +58,10 @@ _TRANSIENT_PUSH_PATTERNS = (
     "The remote end hung up unexpectedly",
     "Service Unavailable",
     "Internal Server Error",
+    "returned error: 500",
     "returned error: 502",
     "returned error: 503",
+    "returned error: 504",
 )
 
 _DEVNULL = subprocess.DEVNULL
