@@ -305,6 +305,31 @@ def _safe_codex_operand(value: object, description: str) -> str | None:
     return value
 
 
+def _codex_installed_path(entry: dict, added_path: Path | None) -> Path | None:
+    """Resolve where Codex installed a plugin listed by ``codex plugin list``.
+
+    Prefers the path reported by ``codex plugin add``, then an ``installedPath``
+    field on the list entry, and finally the Codex plugin cache layout
+    ``$CODEX_HOME/plugins/cache/<marketplace>/<name>/<version>``.
+    """
+    candidates: list[Path] = []
+    if added_path is not None:
+        candidates.append(added_path)
+    listed_path = entry.get("installedPath", "")
+    if listed_path:
+        candidates.append(Path(listed_path))
+    marketplace = entry.get("marketplaceName", "")
+    name = entry.get("name", "")
+    version = entry.get("version", "")
+    if marketplace and name and version:
+        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        candidates.append(codex_home / "plugins" / "cache" / marketplace / name / version)
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def install_codex_plugins(
     marketplace_json: Path,
     skills_dir: Path | None = None,
@@ -347,6 +372,9 @@ def install_codex_plugins(
         )
         return
 
+    # ``codex plugin add --json`` reports ``installedPath``; ``codex plugin
+    # list --json`` does not, so remember the path from the add result.
+    installed_paths: dict[str, Path] = {}
     for entry in available:
         name = _safe_codex_operand(entry.get("name"), "plugin name")
         selector = _safe_codex_operand(entry.get("pluginId"), "plugin selector")
@@ -356,8 +384,13 @@ def install_codex_plugins(
         if not selector:
             continue
         print(f"==> Installing {selector}")
-        if _run_codex_json(["plugin", "add", selector]) is None:
+        added_plugin = _run_codex_json(["plugin", "add", selector])
+        if added_plugin is None:
             print(f"WARN: failed to install {selector}")
+            continue
+        installed_path = added_plugin.get("installedPath")
+        if name and isinstance(installed_path, str) and installed_path:
+            installed_paths[name] = Path(installed_path)
 
     installed = _run_codex_json(["plugin", "list"])
     manifest: dict[str, list[str]] = {}
@@ -365,10 +398,13 @@ def install_codex_plugins(
         if entry.get("marketplaceName") != marketplace_name:
             continue
         name = entry.get("name")
-        installed_path = entry.get("installedPath")
-        if not name or not installed_path:
+        if not isinstance(name, str) or not name:
             continue
-        skill_names = _find_skill_names(Path(installed_path))
+        installed_path = _codex_installed_path(entry, installed_paths.get(name))
+        if installed_path is None:
+            print(f"  WARN: no install path known for {name}; skipping in manifest")
+            continue
+        skill_names = _find_skill_names(installed_path)
         if skill_names:
             manifest[name] = skill_names
 
