@@ -65,7 +65,7 @@ def test_endpoints_include_vertex_ai():
 
 def test_endpoints_include_anthropic_api():
     result = resolve_endpoints(auth_mode="api-key")
-    assert any("api.anthropic.com" in ep for ep in result)
+    assert "api.anthropic.com:443:read-write:::allow-uninspected-credentials" in result
     assert not any("aiplatform.googleapis.com" in ep for ep in result)
     assert not any("api.openai.com" in ep for ep in result)
 
@@ -143,7 +143,15 @@ def test_credential_binding_patch_preserves_existing_binding():
 def test_endpoints_include_openai_apis():
     result = resolve_endpoints(auth_mode="openai")
     assert result == list(DEFAULT_ENDPOINTS) + AUTH_ENDPOINTS["openai"]
-    assert "api.openai.com:443:read-write" in result
+    assert "api.openai.com:443:read-write:::allow-uninspected-credentials" in result
     assert "chatgpt.com:443:read-write" in result
     assert not any("aiplatform.googleapis.com" in ep for ep in result)
     assert not any("api.anthropic.com" in ep for ep in result)
+
+
+def test_credentialed_provider_hosts_allow_uninspected_credentials():
+    # OpenShell >= v0.0.116 rejects L4-only rules for hosts the attached
+    # provider profile marks as credentialed unless the endpoint opts in.
+    for auth_mode, host in (("api-key", "api.anthropic.com"), ("openai", "api.openai.com")):
+        matching = [ep for ep in resolve_endpoints(auth_mode=auth_mode) if ep.startswith(host)]
+        assert matching == [f"{host}:443:read-write:::allow-uninspected-credentials"]

@@ -14,6 +14,13 @@ REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
 # No protocol is specified so endpoints are L4-only (CONNECT tunneling).
 # Using protocol=rest would enable L7 inspection which blocks CONNECT
 # requests that Vertex AI streaming/gRPC clients use.
+#
+# Hosts that a provider profile marks as credentialed (api.anthropic.com for
+# the anthropic provider, api.openai.com for the openai provider) reject
+# L4-only rules since OpenShell v0.0.116 unless the endpoint explicitly opts
+# in with the allow-uninspected-credentials option. This mirrors the
+# allow_uninspected_credentials flag build_credential_binding_patch sets on
+# the GCP endpoints.
 DEFAULT_ENDPOINTS = [
     "github.com:443:full",
     "*.github.com:443:full",
@@ -30,10 +37,10 @@ AUTH_ENDPOINTS = {
         "oauth2.googleapis.com:443:read-write",
     ],
     "api-key": [
-        "api.anthropic.com:443:read-write",
+        "api.anthropic.com:443:read-write:::allow-uninspected-credentials",
     ],
     "openai": [
-        "api.openai.com:443:read-write",
+        "api.openai.com:443:read-write:::allow-uninspected-credentials",
         # Codex's ChatGPT backend API is served under chatgpt.com/backend-api.
         # OpenShell policies match hosts, not URL paths.
         "chatgpt.com:443:read-write",

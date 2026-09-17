@@ -220,7 +220,7 @@ openshell policy update --wait \
   --add-endpoint aiplatform.googleapis.com:443:read-write \
   --add-endpoint *.aiplatform.googleapis.com:443:read-write \
   --add-endpoint oauth2.googleapis.com:443:read-write \
-  --add-endpoint api.anthropic.com:443:read-write \
+  --add-endpoint api.anthropic.com:443:read-write:::allow-uninspected-credentials \
   ci
 
 # Upload env script with agent configuration
@@ -284,6 +284,13 @@ The default endpoints cover:
 | `*.aiplatform.googleapis.com:443` | read-write | Vertex AI (regional endpoints) |
 | `oauth2.googleapis.com:443` | read-write | GCP token exchange |
 | `api.anthropic.com:443` | read-write | Anthropic API (API key auth) |
+| `api.openai.com:443` | read-write | OpenAI API (Codex, API key auth) |
+| `chatgpt.com:443` | read-write | Codex ChatGPT backend API |
+
+Hosts that the attached provider profile marks as credentialed
+(`api.anthropic.com`, `api.openai.com`) carry the
+`allow-uninspected-credentials` endpoint option. OpenShell v0.0.116 and later
+reject L4-only rules for credentialed hosts without it.
 
 ### Project-specific endpoints
 
