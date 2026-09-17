@@ -105,10 +105,13 @@ ENV CODEX_HOME=/sandbox/.codex
 
 # Install skills from the skills-registry marketplace into Codex's
 # skills/plugins dir and write the plugin manifest.
-RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registry.git /tmp/skills-registry \
+# The marketplace clone must outlive the build: Codex records it as a local
+# marketplace source and ``codex plugin list`` (used by enable-plugins at
+# runtime) fails if the directory is gone.
+RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registry.git \
+       /sandbox/.codex/marketplaces/skills-registry \
     && agentic-ci install-plugins --harness codex \
-       --marketplace-json /tmp/skills-registry/.claude-plugin/marketplace.json \
-    && rm -rf /tmp/skills-registry
+       --marketplace-json /sandbox/.codex/marketplaces/skills-registry/.claude-plugin/marketplace.json
 
 CMD ["codex"]
 WORKDIR /sandbox

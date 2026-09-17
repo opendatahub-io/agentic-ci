@@ -123,6 +123,13 @@ marketplaces whose packages do not yet include Codex plugin manifests. If
 Codex reports no native packages for such a marketplace, agentic-ci clones the
 entries and installs their skills under `$CODEX_HOME/skills`.
 
+The marketplace clone is kept in the image at
+`$CODEX_HOME/marketplaces/skills-registry`. Codex records it as a local
+marketplace source, and `codex plugin list` (which `enable-plugins` runs at
+container start) fails if that directory is missing. The manifest records the
+install path that `codex plugin add --json` reports, because
+`codex plugin list --json` does not include one.
+
 agentic-ci does not yet provide an `images/runner/codex` image. Codex runner
 images are user-supplied through `--image` or `CODEX_CONTAINER_IMAGE` and must
 include the `codex` binary until that directory exists.

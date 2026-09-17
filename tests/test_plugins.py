@@ -746,6 +746,77 @@ class TestInstallCodexPlugins:
         )
         assert json.loads(manifest.read_text()) == {"review-plugin": ["review"]}
 
+    def test_manifest_uses_installed_path_from_plugin_add(self, tmp_path, monkeypatch):
+        """``codex plugin list`` omits installedPath; the add result supplies it."""
+        marketplace_dir = tmp_path / ".claude-plugin"
+        marketplace_dir.mkdir()
+        marketplace = marketplace_dir / "marketplace.json"
+        marketplace.write_text("{}")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+
+        installed_plugin = tmp_path / "plugins" / "cache" / "mkt" / "review-plugin" / "0.1.0"
+        skill = installed_plugin / "skills" / "gitlab-code-review"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: gitlab-code-review\n---\n")
+        manifest = tmp_path / "manifest.json"
+
+        responses = [
+            {"marketplaceName": "mkt"},
+            {"available": [{"name": "review-plugin", "pluginId": "review-plugin@mkt"}]},
+            {"pluginId": "review-plugin@mkt", "installedPath": str(installed_plugin)},
+            {
+                "installed": [
+                    {
+                        "name": "review-plugin",
+                        "pluginId": "review-plugin@mkt",
+                        "marketplaceName": "mkt",
+                        "version": "0.1.0",
+                    }
+                ]
+            },
+        ]
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses):
+            install_codex_plugins(marketplace, manifest_path=manifest)
+
+        assert json.loads(manifest.read_text()) == {"review-plugin": ["gitlab-code-review"]}
+
+    def test_manifest_falls_back_to_codex_cache_layout(self, tmp_path, monkeypatch):
+        """Without any reported path, derive it from the Codex plugin cache."""
+        marketplace_dir = tmp_path / ".claude-plugin"
+        marketplace_dir.mkdir()
+        marketplace = marketplace_dir / "marketplace.json"
+        marketplace.write_text("{}")
+        codex_home = tmp_path / "codex-home"
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+        cached = codex_home / "plugins" / "cache" / "mkt" / "review-plugin" / "0.1.0"
+        skill = cached / "skills" / "gitlab-code-review"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: gitlab-code-review\n---\n")
+        manifest = tmp_path / "manifest.json"
+
+        responses = [
+            {"marketplaceName": "mkt"},
+            {"available": [{"name": "review-plugin", "pluginId": "review-plugin@mkt"}]},
+            {"pluginId": "review-plugin@mkt"},
+            {
+                "installed": [
+                    {
+                        "name": "review-plugin",
+                        "pluginId": "review-plugin@mkt",
+                        "marketplaceName": "mkt",
+                        "version": "0.1.0",
+                    }
+                ]
+            },
+        ]
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses):
+            install_codex_plugins(marketplace, manifest_path=manifest)
+
+        assert json.loads(manifest.read_text()) == {"review-plugin": ["gitlab-code-review"]}
+
     def test_legacy_marketplace_falls_back_to_skills(self, tmp_path):
         marketplace_dir = tmp_path / ".claude-plugin"
         marketplace_dir.mkdir()
