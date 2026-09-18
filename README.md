@@ -237,13 +237,15 @@ invocation. An existing login under `CODEX_HOME` is also supported by the local
 backend. When an API key is present, agentic-ci uses Codex's non-interactive
 `login --with-api-key` flow before executing the prompt.
 
-Codex runs use `--dangerously-bypass-approvals-and-sandbox`, the same trust
-level as Claude Code (`bypassPermissions`) and OpenCode
-(`--dangerously-skip-permissions`). agentic-ci always executes the agent inside
-an external sandbox (OpenShell or a podman container) whose network policy
-governs egress, so Codex's own approval prompts and workspace-write sandbox
-would only block skills from reaching allowed hosts. Ephemeral mode stays off,
-so sessions remain available for follow-up turns. Pass additional Codex arguments after `--` and before the
+On the OpenShell backend, Codex runs with
+`--dangerously-bypass-approvals-and-sandbox`, the same trust level as Claude
+Code (`bypassPermissions`) and OpenCode (`--dangerously-skip-permissions`): the
+OpenShell sandbox and its network policy already isolate the agent, and Codex's
+own approval prompts and workspace-write sandbox would only block skills from
+reaching allowed hosts. On the podman and local backends (the plain runner
+image), Codex keeps `--approve-for-me`, so its inner sandbox and automatic
+approval review stay active. Ephemeral mode stays off in both cases, so
+sessions remain available for follow-up turns. Pass additional Codex arguments after `--` and before the
 prompt is sent to Codex, for example:
 
 ```bash

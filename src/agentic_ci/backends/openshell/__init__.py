@@ -307,7 +307,13 @@ class OpenShellBackend(Backend):
             auth_mode=auth_mode,
         )
         otel_endpoint = f"http://{_OPENSHELL_HOST}:{otel_port}" if otel_port else None
-        agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
+        agent_args = self.harness.build_args(
+            prompt,
+            model,
+            extra_args,
+            otel_endpoint=otel_endpoint,
+            externally_sandboxed=True,
+        )
 
         workdir_name = os.path.basename(self.workdir)
         sandbox_workdir = f"/sandbox/{workdir_name}"
