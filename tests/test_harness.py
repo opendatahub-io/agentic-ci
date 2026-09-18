@@ -471,8 +471,8 @@ class TestCodexHarness:
         assert "unset OPENAI_API_KEY" in args[2]
         assert 'exec codex "$@"' in args[2]
         assert "exec" in args
-        assert "--dangerously-bypass-approvals-and-sandbox" in args
-        assert "--approve-for-me" not in args
+        assert "--approve-for-me" in args
+        assert "--dangerously-bypass-approvals-and-sandbox" not in args
         assert "--json" in args
         assert "--skip-git-repo-check" in args
         assert "--ephemeral" not in args
@@ -507,6 +507,16 @@ class TestCodexHarness:
         env = CodexHarness().build_local_env(traceparent="00-abc-def-01")
         assert env["TRACEPARENT"] == "00-abc-def-01"
         assert "TRACEPARENT" not in CodexHarness().build_local_env()
+
+    def test_build_args_externally_sandboxed_bypasses_inner_sandbox(self):
+        args = CodexHarness().build_args("do something", "gpt-5.6-sol", externally_sandboxed=True)
+        assert "--dangerously-bypass-approvals-and-sandbox" in args
+        assert "--approve-for-me" not in args
+
+    def test_build_args_default_keeps_codex_safeguards(self):
+        args = CodexHarness().build_args("do something", "gpt-5.6-sol")
+        assert "--approve-for-me" in args
+        assert "--dangerously-bypass-approvals-and-sandbox" not in args
 
     def test_build_args_with_otel(self):
         args = CodexHarness().build_args(

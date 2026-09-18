@@ -61,8 +61,14 @@ class Harness(ABC):
         model: str,
         extra_args: list[str] | None = None,
         otel_endpoint: str | None = None,
+        externally_sandboxed: bool = False,
     ) -> list[str]:
-        """Build the CLI argument list to run inside the container."""
+        """Build the CLI argument list to run inside the container.
+
+        ``externally_sandboxed`` is True when the backend already isolates the
+        agent (OpenShell), so a harness may drop its own approval prompts and
+        inner sandbox. Harnesses that always bypass permissions ignore it.
+        """
 
     @abstractmethod
     def build_env_args(self, env: Mapping[str, str] | None = None) -> list[str]:
@@ -160,7 +166,9 @@ class ClaudeCodeHarness(Harness):
     def name(self) -> str:
         return "Claude Code"
 
-    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
+    def build_args(
+        self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
+    ):
         args = [
             "claude",
             "--permission-mode",
@@ -361,7 +369,9 @@ class OpenCodeHarness(Harness):
     def name(self) -> str:
         return "OpenCode"
 
-    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
+    def build_args(
+        self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
+    ):
         args = [
             "opencode",
             "run",
@@ -604,17 +614,20 @@ class CodexHarness(Harness):
             f"otel.trace_exporter={exporter('traces')}",
         ]
 
-    def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
+    def build_args(
+        self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
+    ):
         codex_args = [
             "exec",
-            # agentic-ci always runs Codex inside an external sandbox (OpenShell
-            # or podman container) whose network policy governs egress, so skip
-            # Codex's own approval prompts and workspace-write sandbox. This
-            # matches Claude Code (bypassPermissions) and OpenCode
-            # (--dangerously-skip-permissions). With --approve-for-me, Codex's
-            # inner sandbox blocked network and its auto-reviewer declined
-            # egress, so skills could not post results.
-            "--dangerously-bypass-approvals-and-sandbox",
+            # Inside OpenShell the sandbox and its network policy already
+            # isolate the agent, so skip Codex's own approval prompts and
+            # workspace-write sandbox (with --approve-for-me its inner sandbox
+            # blocked network and its auto-reviewer declined egress, so skills
+            # could not post results). The plain runner image (podman/local)
+            # has no such outer policy, so keep Codex's own safeguards there.
+            "--dangerously-bypass-approvals-and-sandbox"
+            if externally_sandboxed
+            else "--approve-for-me",
             "--json",
             "--skip-git-repo-check",
             # Codex has no supported auto-update env var; use its native config.
