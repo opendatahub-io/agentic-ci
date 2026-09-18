@@ -623,6 +623,38 @@ def _stitch_run_traces(records, fallback_trace_id=None, fallback_span_id=None):
     return primary, root_span_id
 
 
+def _real_root_ids(records):
+    """Map each trace id to the span id of its first root span (no parent)."""
+    roots = {}
+    for span in _iter_spans(records):
+        if not span.get("parentSpanId") and span.get("spanId"):
+            roots.setdefault(span["traceId"], span["spanId"])
+    return roots
+
+
+def _rehome_dangling_spans(records, root_ids):
+    """Point spans whose parent is missing at their trace's root span.
+
+    ``root_ids`` maps trace id to the span id the synthetic root will use.
+    Returns True when any span was changed.
+    """
+    if not root_ids:
+        return False
+    ids_by_trace: dict[str, set] = {}
+    for span in _iter_spans(records):
+        ids_by_trace.setdefault(span["traceId"], set()).add(span.get("spanId"))
+    changed = False
+    for span in _iter_spans(records):
+        root_id = root_ids.get(span["traceId"])
+        if root_id is None:
+            continue
+        parent = span.get("parentSpanId", "")
+        if parent and parent != root_id and parent not in ids_by_trace[span["traceId"]]:
+            span["parentSpanId"] = root_id
+            changed = True
+    return changed
+
+
 def _write_records(log_file, records):
     with open(log_file, "w") as f:
         for rec in records:
@@ -673,6 +705,7 @@ def inject_root_spans(
     orphans = _find_orphan_traces(records)
 
     injected = 0
+    root_ids = {}
 
     for trace_id, (child_start, child_end, dangling_parent) in orphans.items():
         if dangling_parent:
@@ -681,6 +714,20 @@ def inject_root_spans(
             span_id = fallback_span_id
         else:
             span_id = uuid.uuid4().hex[:16]
+        root_ids[trace_id] = span_id
+
+    # An agent can drop more than one parent span (Codex loses its exec root
+    # and a session span). The synthetic root reuses the most common missing
+    # parent; every other span whose parent was never exported is re-homed
+    # under it so nothing renders detached. Traces that already have a real
+    # root get their dangling spans re-homed under that root instead.
+    for trace_id, root_span_id in _real_root_ids(records).items():
+        root_ids.setdefault(trace_id, root_span_id)
+    if _rehome_dangling_spans(records, root_ids):
+        _write_records(log_file, records)
+
+    for trace_id, (child_start, child_end, _dangling_parent) in orphans.items():
+        span_id = root_ids[trace_id]
         span_start = min(start_ns, child_start) if child_start else start_ns
         span_end = max(end_ns, child_end) if child_end else end_ns
         record = _build_root_span_record(
