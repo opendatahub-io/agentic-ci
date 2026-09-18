@@ -483,6 +483,31 @@ class TestCodexHarness:
         assert "gpt-5.6-sol" in args
         assert "do something" in args
 
+    def test_build_env_script_lines_exports_traceparent(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        lines = CodexHarness().build_env_script_lines(traceparent="00-abc-def-01")
+        assert "export TRACEPARENT=00-abc-def-01" in lines
+
+    def test_build_env_script_lines_without_traceparent(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        lines = CodexHarness().build_env_script_lines()
+        assert not any(line.startswith("export TRACEPARENT=") for line in lines)
+
+    def test_build_otel_exec_env_forwards_traceparent(self):
+        assert CodexHarness().build_otel_exec_env(otel_port=4318, traceparent="00-abc-def-01") == [
+            "--env",
+            "TRACEPARENT=00-abc-def-01",
+        ]
+        assert CodexHarness().build_otel_exec_env(otel_port=4318) == []
+
+    def test_build_local_env_forwards_traceparent(self, monkeypatch):
+        monkeypatch.delenv("AGENT_ENABLED_PLUGINS", raising=False)
+        env = CodexHarness().build_local_env(traceparent="00-abc-def-01")
+        assert env["TRACEPARENT"] == "00-abc-def-01"
+        assert "TRACEPARENT" not in CodexHarness().build_local_env()
+
     def test_build_args_with_otel(self):
         args = CodexHarness().build_args(
             "prompt",
