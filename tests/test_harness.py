@@ -471,8 +471,8 @@ class TestCodexHarness:
         assert "unset OPENAI_API_KEY" in args[2]
         assert 'exec codex "$@"' in args[2]
         assert "exec" in args
-        assert "--approve-for-me" in args
-        assert "--dangerously-bypass-approvals-and-sandbox" not in args
+        assert "--dangerously-bypass-approvals-and-sandbox" in args
+        assert "--approve-for-me" not in args
         assert "--json" in args
         assert "--skip-git-repo-check" in args
         assert "--ephemeral" not in args

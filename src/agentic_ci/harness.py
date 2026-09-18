@@ -607,7 +607,14 @@ class CodexHarness(Harness):
     def build_args(self, prompt, model, extra_args=None, otel_endpoint=None):
         codex_args = [
             "exec",
-            "--approve-for-me",
+            # agentic-ci always runs Codex inside an external sandbox (OpenShell
+            # or podman container) whose network policy governs egress, so skip
+            # Codex's own approval prompts and workspace-write sandbox. This
+            # matches Claude Code (bypassPermissions) and OpenCode
+            # (--dangerously-skip-permissions). With --approve-for-me, Codex's
+            # inner sandbox blocked network and its auto-reviewer declined
+            # egress, so skills could not post results.
+            "--dangerously-bypass-approvals-and-sandbox",
             "--json",
             "--skip-git-repo-check",
             # Codex has no supported auto-update env var; use its native config.
