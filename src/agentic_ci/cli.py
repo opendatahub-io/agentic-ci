@@ -47,7 +47,9 @@ def cmd_mlflow_push(args):
     if session_ids:
         log.detail("Session IDs", ", ".join(session_ids))
     if ok:
-        log.info(f"Pushed {ok} trace(s) to MLflow ({err} failed)")
+        log.info(
+            f"Pushed {ok} payload(s) covering {len(trace_ids)} trace(s) to MLflow ({err} failed)"
+        )
     elif err:
         log.info(f"Failed to push traces to MLflow ({err} errors)")
         sys.exit(1)

@@ -658,6 +658,57 @@ class TestInjectRootSpans:
         ]
         assert logs[0]["traceId"] == run_trace
 
+    def test_second_missing_parent_is_rehomed_under_synthetic_root(self, tmp_path):
+        """Codex drops its exec root and a session span; both sets of children
+        must end up under the one synthetic root."""
+        log_file = str(tmp_path / "otel.jsonl")
+        a1 = _make_span("aaaa" * 8, "1111" * 4, parent_span_id="dead" * 4)
+        a2 = _make_span("aaaa" * 8, "2222" * 4, parent_span_id="dead" * 4)
+        b1 = _make_span("aaaa" * 8, "3333" * 4, parent_span_id="beef" * 4)
+        b1_child = _make_span("aaaa" * 8, "3434" * 4, parent_span_id="3333" * 4)
+        with open(log_file, "w") as f:
+            f.write(json.dumps(_make_trace_record(a1, a2, b1, b1_child)) + "\n")
+
+        assert inject_root_spans(log_file, 1000, 2000, exit_code=0) == 1
+
+        spans = [
+            sp
+            for rec in _read_log(log_file)
+            for rs in rec["payload"]["resourceSpans"]
+            for ss in rs["scopeSpans"]
+            for sp in ss["spans"]
+        ]
+        by_id = {sp["spanId"]: sp for sp in spans}
+        assert not by_id["dead" * 4].get("parentSpanId")  # majority parent became root
+        assert by_id["1111" * 4]["parentSpanId"] == "dead" * 4
+        assert by_id["3333" * 4]["parentSpanId"] == "dead" * 4  # re-homed
+        assert by_id["3434" * 4]["parentSpanId"] == "3333" * 4  # kept
+        ids = set(by_id)
+        assert all(not sp.get("parentSpanId") or sp["parentSpanId"] in ids for sp in spans)
+
+    def test_dangling_spans_in_rooted_trace_are_rehomed_under_real_root(self, tmp_path):
+        log_file = str(tmp_path / "otel.jsonl")
+        root = _make_span("aaaa" * 8, "1111" * 4)
+        child = _make_span("aaaa" * 8, "2222" * 4, parent_span_id="1111" * 4)
+        lost = _make_span("aaaa" * 8, "3333" * 4, parent_span_id="dead" * 4)
+        with open(log_file, "w") as f:
+            f.write(json.dumps(_make_trace_record(root, child, lost)) + "\n")
+
+        assert inject_root_spans(log_file, 1000, 2000, exit_code=0) == 0
+
+        spans = [
+            sp
+            for rec in _read_log(log_file)
+            for rs in rec["payload"]["resourceSpans"]
+            for ss in rs["scopeSpans"]
+            for sp in ss["spans"]
+        ]
+        by_id = {sp["spanId"]: sp for sp in spans}
+        assert len(spans) == 3
+        assert not by_id["1111" * 4].get("parentSpanId")
+        assert by_id["2222" * 4]["parentSpanId"] == "1111" * 4
+        assert by_id["3333" * 4]["parentSpanId"] == "1111" * 4
+
     def test_single_trace_is_left_untouched(self, tmp_path):
         log_file = str(tmp_path / "otel.jsonl")
         root = _make_span("aaaa" * 8, "1111" * 4)
