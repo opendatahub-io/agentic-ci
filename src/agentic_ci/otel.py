@@ -522,6 +522,113 @@ def _build_root_span_record(trace_id, span_id, start_ns, end_ns, exit_code, attr
     }
 
 
+def _iter_spans(records):
+    """Yield every span dict from the /v1/traces records."""
+    for rec in records:
+        if "/v1/traces" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    if span.get("traceId"):
+                        yield span
+
+
+def _iter_log_records(records):
+    """Yield every log record dict from the /v1/logs records."""
+    for rec in records:
+        if "/v1/logs" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rl in payload.get("resourceLogs", []):
+            for sl in rl.get("scopeLogs", []):
+                for lr in sl.get("logRecords", []):
+                    yield lr
+
+
+def _stitch_run_traces(records, fallback_trace_id=None, fallback_span_id=None):
+    """Merge every trace in a run's JSONL into one trace.
+
+    Agents that do not propagate context into every task (Codex spawns
+    ``auth``, ``code_mode.broker.invoke_tool`` and ``session_loop`` spans
+    without a parent; OpenCode does the same for many of its internals)
+    scatter one run across dozens of small traces. Since a JSONL file holds
+    exactly one agent run, all of them belong under the same run root, and
+    MLflow has no notion of links between traces, so they are rewritten to
+    share one trace ID.
+
+    The primary trace is the one carrying ``fallback_trace_id`` (the
+    TRACEPARENT the orchestrator handed the agent) when present, otherwise
+    the trace with the most spans. Every span of the other traces gets the
+    primary trace ID, and spans that were roots or had a dangling parent are
+    re-parented under the run root span, as are primary-trace spans whose
+    parent was never exported. Log records that reference a rewritten trace
+    are updated too.
+
+    Returns ``(primary_trace_id, root_span_id)`` when stitching happened,
+    otherwise ``(None, None)``. ``root_span_id`` is the ID the run root must
+    use: the primary trace's own root span if it has one, its most common
+    dangling parent if it is orphaned, or ``fallback_span_id``.
+    """
+    spans_by_trace: dict[str, list] = {}
+    for span in _iter_spans(records):
+        spans_by_trace.setdefault(span["traceId"], []).append(span)
+    if len(spans_by_trace) < 2:
+        return None, None
+
+    if fallback_trace_id in spans_by_trace:
+        primary = fallback_trace_id
+    else:
+        primary = max(spans_by_trace, key=lambda tid: len(spans_by_trace[tid]))
+
+    primary_ids = {sp.get("spanId") for sp in spans_by_trace[primary]}
+    real_roots = [sp for sp in spans_by_trace[primary] if not sp.get("parentSpanId")]
+    if real_roots:
+        root_span_id = real_roots[0].get("spanId")
+    else:
+        dangling: dict[str, int] = {}
+        for sp in spans_by_trace[primary]:
+            parent = sp.get("parentSpanId", "")
+            if parent and parent not in primary_ids:
+                dangling[parent] = dangling.get(parent, 0) + 1
+        if dangling:
+            root_span_id = max(dangling, key=lambda k: dangling[k])
+        else:
+            root_span_id = fallback_span_id or uuid.uuid4().hex[:16]
+
+    # Spans in the primary trace whose parent was never exported (Codex drops
+    # some parents) would render detached; hang them off the run root too.
+    for sp in spans_by_trace[primary]:
+        parent = sp.get("parentSpanId", "")
+        if parent and parent not in primary_ids and parent != root_span_id:
+            sp["parentSpanId"] = root_span_id
+
+    stitched = set()
+    for tid, spans in spans_by_trace.items():
+        if tid == primary:
+            continue
+        stitched.add(tid)
+        own_ids = {sp.get("spanId") for sp in spans}
+        for sp in spans:
+            sp["traceId"] = primary
+            parent = sp.get("parentSpanId", "")
+            if not parent or parent not in own_ids:
+                sp["parentSpanId"] = root_span_id
+
+    for lr in _iter_log_records(records):
+        if lr.get("traceId") in stitched:
+            lr["traceId"] = primary
+
+    return primary, root_span_id
+
+
+def _write_records(log_file, records):
+    with open(log_file, "w") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+
+
 def inject_root_spans(
     log_file,
     start_ns,
@@ -531,14 +638,17 @@ def inject_root_spans(
     fallback_span_id=None,
     attributes=None,
 ):
-    """Scan JSONL for traces missing root spans and append synthetic roots.
+    """Stitch the run's traces together and append a synthetic root.
 
-    For each trace that has child spans but no root span (container crash,
-    OOM, timeout), a synthetic root span is appended to the JSONL file.
-    If no spans exist at all and fallback_trace_id is provided, a standalone
-    root span is created so MLflow always has at least one complete trace.
-    When fallback_span_id is set, the fallback root reuses that span ID so
-    children that were parented via TRACEPARENT stay connected.
+    All traces in the JSONL belong to one agent run, so they are first merged
+    into a single trace (see :func:`_stitch_run_traces`). Then, for each trace
+    that has child spans but no root span (agent ignored TRACEPARENT,
+    container crash, OOM, timeout), a synthetic root span is appended to the
+    JSONL file. If no spans exist at all and fallback_trace_id is provided, a
+    standalone root span is created so MLflow always has at least one
+    complete trace. When fallback_span_id is set, the fallback root reuses
+    that span ID so children that were parented via TRACEPARENT stay
+    connected.
 
     Returns the number of synthetic root spans injected.
     """
@@ -555,6 +665,10 @@ def inject_root_spans(
                     continue
     except FileNotFoundError:
         pass
+
+    primary, _ = _stitch_run_traces(records, fallback_trace_id, fallback_span_id)
+    if primary:
+        _write_records(log_file, records)
 
     orphans = _find_orphan_traces(records)
 

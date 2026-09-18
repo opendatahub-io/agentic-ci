@@ -570,16 +570,105 @@ class TestInjectRootSpans:
         attr_keys = [a["key"] for a in span["attributes"]]
         assert "agent.model" in attr_keys
 
-    def test_multiple_orphan_traces(self, tmp_path):
+    def test_multiple_orphan_traces_are_stitched_under_one_root(self, tmp_path):
         log_file = str(tmp_path / "otel.jsonl")
         child1 = _make_span("aaaa" * 8, "1111" * 4, parent_span_id="0000" * 4)
-        child2 = _make_span("bbbb" * 8, "2222" * 4, parent_span_id="0000" * 4)
+        child1b = _make_span("aaaa" * 8, "1212" * 4, parent_span_id="1111" * 4)
+        child2 = _make_span("bbbb" * 8, "2222" * 4, parent_span_id="9999" * 4)
         with open(log_file, "w") as f:
-            f.write(json.dumps(_make_trace_record(child1)) + "\n")
+            f.write(json.dumps(_make_trace_record(child1, child1b)) + "\n")
             f.write(json.dumps(_make_trace_record(child2)) + "\n")
 
         injected = inject_root_spans(log_file, 1000, 2000, exit_code=1)
-        assert injected == 2
+        assert injected == 1
+
+        spans = [
+            sp
+            for rec in _read_log(log_file)
+            for rs in rec["payload"]["resourceSpans"]
+            for ss in rs["scopeSpans"]
+            for sp in ss["spans"]
+        ]
+        assert {sp["traceId"] for sp in spans} == {"aaaa" * 8}
+        by_id = {sp["spanId"]: sp for sp in spans}
+        # The larger trace wins; its dangling parent becomes the run root.
+        assert not by_id["0000" * 4].get("parentSpanId")
+        assert by_id["1111" * 4]["parentSpanId"] == "0000" * 4
+        assert by_id["1212" * 4]["parentSpanId"] == "1111" * 4
+        # The other trace's dangling span is re-parented under the run root.
+        assert by_id["2222" * 4]["parentSpanId"] == "0000" * 4
+
+    def test_complete_side_traces_are_stitched_into_traceparent_trace(self, tmp_path):
+        """Codex starts auth/broker spans with no parent; they join the run trace."""
+        log_file = str(tmp_path / "otel.jsonl")
+        run_trace = "ffff" * 8
+        run_span = "eeee" * 4
+        main = _make_span(run_trace, "1111" * 4, parent_span_id=run_span)
+        lost_parent = _make_span(run_trace, "1212" * 4, parent_span_id="dead" * 4)
+        auth = _make_span("bbbb" * 8, "2222" * 4)
+        broker = _make_span("cccc" * 8, "3333" * 4)
+        broker_child = _make_span("cccc" * 8, "3434" * 4, parent_span_id="3333" * 4)
+        log_rec = {
+            "path": "/v1/logs",
+            "payload": {
+                "resourceLogs": [
+                    {"scopeLogs": [{"logRecords": [{"traceId": "cccc" * 8, "body": {}}]}]}
+                ]
+            },
+        }
+        with open(log_file, "w") as f:
+            f.write(json.dumps(_make_trace_record(main, lost_parent)) + "\n")
+            f.write(json.dumps(_make_trace_record(auth)) + "\n")
+            f.write(json.dumps(_make_trace_record(broker, broker_child)) + "\n")
+            f.write(json.dumps(log_rec) + "\n")
+
+        injected = inject_root_spans(
+            log_file,
+            1000,
+            2000,
+            exit_code=0,
+            fallback_trace_id=run_trace,
+            fallback_span_id=run_span,
+        )
+        assert injected == 1
+
+        records = _read_log(log_file)
+        spans = [
+            sp
+            for rec in records
+            if "resourceSpans" in rec["payload"]
+            for rs in rec["payload"]["resourceSpans"]
+            for ss in rs["scopeSpans"]
+            for sp in ss["spans"]
+        ]
+        assert {sp["traceId"] for sp in spans} == {run_trace}
+        by_id = {sp["spanId"]: sp for sp in spans}
+        assert not by_id[run_span].get("parentSpanId")  # synthetic run root
+        assert by_id["1212" * 4]["parentSpanId"] == run_span  # lost parent re-homed
+        assert by_id["2222" * 4]["parentSpanId"] == run_span
+        assert by_id["3333" * 4]["parentSpanId"] == run_span
+        assert by_id["3434" * 4]["parentSpanId"] == "3333" * 4  # intra-trace parent kept
+        logs = [
+            lr
+            for rec in records
+            if "resourceLogs" in rec["payload"]
+            for rl in rec["payload"]["resourceLogs"]
+            for sl in rl["scopeLogs"]
+            for lr in sl["logRecords"]
+        ]
+        assert logs[0]["traceId"] == run_trace
+
+    def test_single_trace_is_left_untouched(self, tmp_path):
+        log_file = str(tmp_path / "otel.jsonl")
+        root = _make_span("aaaa" * 8, "1111" * 4)
+        child = _make_span("aaaa" * 8, "2222" * 4, parent_span_id="1111" * 4)
+        original = json.dumps(_make_trace_record(root, child))
+        with open(log_file, "w") as f:
+            f.write(original + "\n")
+
+        assert inject_root_spans(log_file, 1000, 2000, exit_code=0) == 0
+        with open(log_file) as f:
+            assert f.read() == original + "\n"
 
     def test_malformed_json_line_skipped(self, tmp_path):
         log_file = str(tmp_path / "otel.jsonl")
