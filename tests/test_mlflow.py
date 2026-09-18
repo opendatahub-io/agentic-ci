@@ -10,9 +10,12 @@ import requests
 
 from agentic_ci.mlflow import (
     PushResult,
+    _add_codex_request_model,
+    _add_codex_span_costs,
     _add_query_source,
     _add_span_costs,
     _add_token_usage,
+    _codex_cost_from_events,
     _cost_by_session,
     _extract_session_ids,
     _extract_trace_ids,
@@ -305,6 +308,128 @@ class TestCostFromMetrics:
         payload = self._payload([self._span("S2", 10, 10)])
         _add_span_costs([payload], {"S1": 1.0})
         assert self._costs(payload) == [None]
+
+
+def _codex_span(inclusive_in, out, cache_read, cache_write):
+    return {
+        "name": "handle_responses",
+        "attributes": [
+            {"key": "gen_ai.usage.input_tokens", "value": {"intValue": str(inclusive_in)}},
+            {"key": "gen_ai.usage.output_tokens", "value": {"intValue": str(out)}},
+            {"key": "gen_ai.usage.cache_read.input_tokens", "value": {"intValue": str(cache_read)}},
+            {
+                "key": "gen_ai.usage.cache_write.input_tokens",
+                "value": {"intValue": str(cache_write)},
+            },
+        ],
+    }
+
+
+def _codex_event(model, inclusive_in, out, cached, cache_write, kind="response.completed"):
+    attrs = [
+        {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
+        {"key": "event.kind", "value": {"stringValue": kind}},
+        {"key": "model", "value": {"stringValue": model}},
+    ]
+    if inclusive_in is not None:
+        attrs += [
+            {"key": "input_token_count", "value": {"stringValue": str(inclusive_in)}},
+            {"key": "output_token_count", "value": {"stringValue": str(out)}},
+            {"key": "cached_token_count", "value": {"stringValue": str(cached)}},
+            {"key": "cache_write_token_count", "value": {"stringValue": str(cache_write)}},
+        ]
+    return {
+        "path": "/v1/logs",
+        "payload": {"resourceLogs": [{"scopeLogs": [{"logRecords": [{"attributes": attrs}]}]}]},
+    }
+
+
+class TestCodexUsage:
+    def test_token_usage_derives_fresh_input_from_inclusive_count(self):
+        payload = {
+            "resourceSpans": [{"scopeSpans": [{"spans": [_codex_span(37889, 341, 28743, 9143)]}]}]
+        }
+        _add_token_usage(payload)
+        assert _chat_usage(payload) == {
+            "input_tokens": 3,
+            "output_tokens": 341,
+            "total_tokens": 344,
+            "cache_read_input_tokens": 28743,
+            "cache_creation_input_tokens": 9143,
+        }
+        # Codex already emits the gen_ai keys; they are left untouched.
+        assert _genai(payload, "gen_ai.usage.input_tokens") == 37889
+
+    def test_cost_from_events_sums_priced_responses(self, monkeypatch):
+        calls = []
+
+        def fake_estimate(model, fresh_in, out, cached, cache_write):
+            calls.append((model, fresh_in, out, cached, cache_write))
+            return 0.25
+
+        monkeypatch.setattr("agentic_ci.mlflow.estimate_cost", fake_estimate)
+        records = [
+            _codex_event("gpt-5.6-sol", 37889, 341, 28743, 9143),
+            _codex_event("gpt-5.6-sol", 100, 10, 0, 0),
+            _codex_event("gpt-5.6-sol", None, 0, 0, 0),  # no counts: skipped
+            _codex_event("gpt-5.6-sol", 5, 5, 0, 0, kind="response.created"),  # wrong kind
+        ]
+        total, model = _codex_cost_from_events(records)
+        assert total == 0.5
+        assert model == "gpt-5.6-sol"
+        assert calls == [("gpt-5.6-sol", 3, 341, 28743, 9143), ("gpt-5.6-sol", 100, 10, 0, 0)]
+
+    def test_cost_from_events_none_when_unpriced(self, monkeypatch):
+        monkeypatch.setattr("agentic_ci.mlflow.estimate_cost", lambda *a: None)
+        total, model = _codex_cost_from_events([_codex_event("gpt-unknown", 10, 1, 0, 0)])
+        assert total is None
+        assert model == "gpt-unknown"
+
+    def test_cost_from_events_empty(self):
+        assert _codex_cost_from_events([]) == (None, None)
+
+    def test_codex_span_costs_distributed_by_weight(self):
+        spans = [_codex_span(100, 0, 0, 0), _codex_span(0, 300, 0, 0)]
+        payload = {"resourceSpans": [{"scopeSpans": [{"spans": spans}]}]}
+        _add_codex_span_costs([payload], 0.40)
+        costs = []
+        for sp in spans:
+            raw = next(
+                a["value"]["stringValue"] for a in sp["attributes"] if a["key"] == "mlflow.llm.cost"
+            )
+            costs.append(json.loads(raw)["total_cost"])
+        assert abs(costs[0] - 0.10) < 1e-9
+        assert abs(costs[1] - 0.30) < 1e-9
+
+    def test_codex_span_costs_skip_claude_spans_and_zero_cost(self):
+        claude = {
+            "name": "claude_code.llm_request",
+            "attributes": [
+                {"key": "session.id", "value": {"stringValue": "S1"}},
+                {"key": "input_tokens", "value": {"intValue": "10"}},
+                {"key": "output_tokens", "value": {"intValue": "10"}},
+            ],
+        }
+        codex = _codex_span(10, 10, 0, 0)
+        payload = {"resourceSpans": [{"scopeSpans": [{"spans": [claude, codex]}]}]}
+        _add_codex_span_costs([payload], 1.0)
+        assert not any(a["key"] == "mlflow.llm.cost" for a in claude["attributes"])
+        assert any(a["key"] == "mlflow.llm.cost" for a in codex["attributes"])
+        _add_codex_span_costs([payload], None)
+        _add_codex_span_costs([payload], 0.0)
+
+    def test_request_model_stamped_on_codex_usage_spans_only(self):
+        codex = _codex_span(10, 10, 0, 0)
+        other = {"name": "auth", "attributes": [{"key": "target", "value": {"stringValue": "x"}}]}
+        payload = {"resourceSpans": [{"scopeSpans": [{"spans": [codex, other]}]}]}
+        _add_codex_request_model([payload], "gpt-5.6-sol")
+        assert {"key": "gen_ai.request.model", "value": {"stringValue": "gpt-5.6-sol"}} in codex[
+            "attributes"
+        ]
+        assert not any(a["key"] == "gen_ai.request.model" for a in other["attributes"])
+        _add_codex_request_model([payload], "gpt-other")
+        assert sum(1 for a in codex["attributes"] if a["key"] == "gen_ai.request.model") == 1
+        _add_codex_request_model([payload], None)
 
 
 def _log_rec(entries):

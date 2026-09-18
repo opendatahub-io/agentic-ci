@@ -35,6 +35,7 @@ needs but the agent does not natively emit:
 
 - **Token usage**: Claude's bare `input_tokens`/`output_tokens`/`cache_*` attributes are translated into `gen_ai.usage.*` (OTEL standard) and `mlflow.chat.tokenUsage` (MLflow native with cache breakdown).
 - **Cost attribution**: Session-level cost from `claude_code.cost.usage` metrics is distributed across LLM spans weighted by token volume, written as `mlflow.llm.cost`.
+- **Codex cost and model**: Codex emits no cost metric, so the run's spend is estimated from its `codex.sse_event` / `response.completed` log events with the bundled LiteLLM price map, distributed across the Codex usage spans (`gen_ai.usage.*` with the `cache_read` / `cache_write` keys), and those spans are stamped with `gen_ai.request.model`.
 - **Query source**: The `query_source` from `/v1/logs` API request events is joined to spans by `request_id`, making call origins visible in MLflow.
 
 ## Prerequisites

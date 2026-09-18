@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import requests
 
+from agentic_ci.cost import estimate_cost
+
 # Claude Code emits per-call token counts as bare span attributes
 # (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) -- it
 # does not emit the gen_ai.usage.* convention nor MLflow's own usage attribute.
@@ -24,8 +26,14 @@ _INPUT_TOKEN_KEY = "input_tokens"
 _OUTPUT_TOKEN_KEY = "output_tokens"
 _CACHE_READ_KEY = "cache_read_tokens"
 _CACHE_CREATION_KEY = "cache_creation_tokens"
-# Token components that count toward a span's cost-distribution weight.
-_WEIGHT_INPUT_KEYS = (_INPUT_TOKEN_KEY, _CACHE_READ_KEY, _CACHE_CREATION_KEY)
+# Codex (codex-rs) emits the OTEL GenAI convention on its handle_responses
+# spans. Its gen_ai.usage.input_tokens is *inclusive* of the cache counts, which
+# it reports under these non-standard keys.
+_CODEX_CACHE_READ_KEY = "gen_ai.usage.cache_read.input_tokens"
+_CODEX_CACHE_WRITE_KEY = "gen_ai.usage.cache_write.input_tokens"
+# OTEL GenAI model attribute; OpenCode emits it, Codex only puts `model` on
+# the enclosing sampling spans, so we stamp it onto Codex usage spans.
+_GENAI_REQUEST_MODEL_KEY = "gen_ai.request.model"
 
 
 def _attr_int(value):
@@ -39,6 +47,57 @@ def _attr_int(value):
             except (TypeError, ValueError):
                 return None
     return None
+
+
+class _Usage(NamedTuple):
+    input_tokens: int  # fresh (non-cached) input
+    output_tokens: int
+    cache_read: int
+    cache_creation: int
+
+    @property
+    def weight(self):
+        return self.input_tokens + self.cache_read + self.cache_creation + self.output_tokens
+
+
+def _span_usage(by_key):
+    """Return the disjoint token usage of an LLM span, or None if it has none.
+
+    Understands two schemas:
+
+    - Claude Code: bare ``input_tokens`` (fresh) / ``output_tokens`` /
+      ``cache_read_tokens`` / ``cache_creation_tokens``.
+    - Codex: ``gen_ai.usage.input_tokens`` (inclusive of cache) plus
+      ``gen_ai.usage.cache_read.input_tokens`` /
+      ``gen_ai.usage.cache_write.input_tokens`` and
+      ``gen_ai.usage.output_tokens``. Fresh input is derived by subtracting
+      the cache counts.
+
+    Malformed (negative) or all-zero usage yields None.
+    """
+    if any(k in by_key for k in (_INPUT_TOKEN_KEY, _OUTPUT_TOKEN_KEY)):
+        inp = _attr_int(by_key.get(_INPUT_TOKEN_KEY)) or 0
+        out = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
+        cache_read = _attr_int(by_key.get(_CACHE_READ_KEY)) or 0
+        cache_creation = _attr_int(by_key.get(_CACHE_CREATION_KEY)) or 0
+    elif _CODEX_CACHE_READ_KEY in by_key or _CODEX_CACHE_WRITE_KEY in by_key:
+        total_in = _attr_int(by_key.get(_GENAI_INPUT_KEY)) or 0
+        out = _attr_int(by_key.get(_GENAI_OUTPUT_KEY)) or 0
+        cache_read = _attr_int(by_key.get(_CODEX_CACHE_READ_KEY)) or 0
+        cache_creation = _attr_int(by_key.get(_CODEX_CACHE_WRITE_KEY)) or 0
+        if any(c < 0 for c in (total_in, out, cache_read, cache_creation)):
+            return None
+        inp = max(total_in - cache_read - cache_creation, 0)
+    else:
+        return None
+    usage = _Usage(inp, out, cache_read, cache_creation)
+    if any(c < 0 for c in usage) or usage.weight <= 0:
+        return None
+    return usage
+
+
+def _is_codex_usage_span(by_key):
+    return _CODEX_CACHE_READ_KEY in by_key or _CODEX_CACHE_WRITE_KEY in by_key
 
 
 def _add_token_usage(payload):
@@ -78,14 +137,10 @@ def _add_token_usage(payload):
                 if not isinstance(attrs, list):
                     continue
                 by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
-                inp = _attr_int(by_key.get(_INPUT_TOKEN_KEY)) or 0
-                out = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
-                cache_read = _attr_int(by_key.get(_CACHE_READ_KEY)) or 0
-                cache_creation = _attr_int(by_key.get(_CACHE_CREATION_KEY)) or 0
-                counts = (inp, out, cache_read, cache_creation)
-                # Skip malformed (negative) counts; require some positive usage.
-                if any(c < 0 for c in counts) or sum(counts) <= 0:
+                usage = _span_usage(by_key)
+                if usage is None:
                     continue
+                inp, out, cache_read, cache_creation = usage
                 # OTEL GenAI standard (fresh input + output; no cache field).
                 if _GENAI_INPUT_KEY not in by_key:
                     attrs.append({"key": _GENAI_INPUT_KEY, "value": {"intValue": str(inp)}})
@@ -160,7 +215,11 @@ def _cost_by_session(metric_records):
     return totals
 
 
-def _add_span_costs(payloads, cost_by_session):
+def _session_of_claude_span(by_key):
+    return _value_str(by_key.get(_SESSION_ID_KEY))
+
+
+def _add_span_costs(payloads, cost_by_session, session_of=_session_of_claude_span):
     """Distribute each session's reported cost across its LLM spans.
 
     Spans are weighted by token volume (input + output + cache). The per-span
@@ -168,6 +227,10 @@ def _add_span_costs(payloads, cost_by_session):
     total into mlflow.trace.cost. Only the total is authoritative (the metric
     carries no input/output split); the in/out split is apportioned by tokens
     so the values stay self-consistent. Existing mlflow.llm.cost is preserved.
+
+    ``session_of`` maps a span's attribute dict to its bucket key in
+    ``cost_by_session`` (Claude: ``session.id``; Codex: see
+    :func:`_add_codex_span_costs`).
     """
     if not cost_by_session:
         return
@@ -181,16 +244,14 @@ def _add_span_costs(payloads, cost_by_session):
                     if not isinstance(attrs, list):
                         continue
                     by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
-                    sid = _value_str(by_key.get(_SESSION_ID_KEY))
+                    sid = session_of(by_key)
                     if sid is None or sid not in cost_by_session:
                         continue
-                    input_weights = [_attr_int(by_key.get(k)) or 0 for k in _WEIGHT_INPUT_KEYS]
-                    out_w = _attr_int(by_key.get(_OUTPUT_TOKEN_KEY)) or 0
-                    if any(w < 0 for w in (*input_weights, out_w)):
+                    usage = _span_usage(by_key)
+                    if usage is None:
                         continue
-                    in_w = sum(input_weights)
-                    if in_w + out_w <= 0:
-                        continue
+                    in_w = usage.input_tokens + usage.cache_read + usage.cache_creation
+                    out_w = usage.output_tokens
                     buckets.setdefault(sid, []).append((attrs, in_w, out_w))
                     weights[sid] = weights.get(sid, 0) + in_w + out_w
     for sid, spans in buckets.items():
@@ -205,6 +266,89 @@ def _add_span_costs(payloads, cost_by_session):
             in_cost = share * in_w / (in_w + out_w)
             cost = {"input_cost": in_cost, "output_cost": share - in_cost, "total_cost": share}
             attrs.append({"key": _LLM_COST_KEY, "value": {"stringValue": json.dumps(cost)}})
+
+
+# Codex reports no cost metric. Each completed response is logged as a
+# codex.sse_event with event.kind=response.completed carrying the model and
+# inclusive token counts, so the run's spend is estimated from those events
+# with the bundled LiteLLM price map (the same estimate the job summary
+# prints) and distributed across the Codex usage spans.
+_CODEX_EVENT_NAME = "codex.sse_event"
+_CODEX_COMPLETED_KIND = "response.completed"
+_CODEX_SESSION = "codex"
+
+
+def _codex_cost_from_events(log_records):
+    """Estimate the Codex run's USD cost from response.completed log events.
+
+    Returns ``(total_cost, model)``. ``total_cost`` is None when no event
+    could be priced; ``model`` is the most frequent model name seen, or None.
+    """
+    total = None
+    models = {}
+    for rec in log_records:
+        payload = rec.get("payload") or {}
+        for rl in payload.get("resourceLogs", []):
+            for sl in rl.get("scopeLogs", []):
+                for lr in sl.get("logRecords", []):
+                    attrs = {
+                        a.get("key"): a.get("value")
+                        for a in lr.get("attributes", [])
+                        if isinstance(a, dict)
+                    }
+                    if _value_str(attrs.get("event.name")) != _CODEX_EVENT_NAME:
+                        continue
+                    if _value_str(attrs.get("event.kind")) != _CODEX_COMPLETED_KIND:
+                        continue
+                    model = _value_str(attrs.get("model"))
+                    if model:
+                        models[model] = models.get(model, 0) + 1
+                    inclusive_in = _attr_int(attrs.get("input_token_count"))
+                    if model is None or inclusive_in is None:
+                        continue
+                    out = _attr_int(attrs.get("output_token_count")) or 0
+                    cached = _attr_int(attrs.get("cached_token_count")) or 0
+                    cache_write = _attr_int(attrs.get("cache_write_token_count")) or 0
+                    fresh_in = max(inclusive_in - cached - cache_write, 0)
+                    cost = estimate_cost(model, fresh_in, out, cached, cache_write)
+                    if cost is None:
+                        continue
+                    total = (total or 0.0) + cost
+    top_model = max(models, key=models.get) if models else None
+    return total, top_model
+
+
+def _session_of_codex_span(by_key):
+    return _CODEX_SESSION if _is_codex_usage_span(by_key) else None
+
+
+def _add_codex_span_costs(payloads, total_cost):
+    """Distribute the estimated Codex run cost across its usage spans.
+
+    Codex spans carry no session id, and agentic-ci runs one Codex
+    conversation per job, so every span with Codex usage keys shares one
+    bucket.
+    """
+    if total_cost is None or total_cost <= 0:
+        return
+    _add_span_costs(payloads, {_CODEX_SESSION: total_cost}, session_of=_session_of_codex_span)
+
+
+def _add_codex_request_model(payloads, model):
+    """Stamp gen_ai.request.model onto Codex usage spans that lack it."""
+    if not model:
+        return
+    for payload in payloads:
+        for rs in payload.get("resourceSpans", []):
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    attrs = span.get("attributes")
+                    if not isinstance(attrs, list):
+                        continue
+                    by_key = {a.get("key"): a.get("value") for a in attrs if isinstance(a, dict)}
+                    if not _is_codex_usage_span(by_key) or _GENAI_REQUEST_MODEL_KEY in by_key:
+                        continue
+                    attrs.append({"key": _GENAI_REQUEST_MODEL_KEY, "value": {"stringValue": model}})
 
 
 def _query_source_by_request(log_records):
@@ -427,6 +571,9 @@ def push_traces(log_file, endpoint, experiment, token=None):
 
     # Annotate spans (from the metrics/logs streams) before push.
     _add_span_costs(payloads, _cost_by_session(metric_records))
+    codex_cost, codex_model = _codex_cost_from_events(log_records)
+    _add_codex_span_costs(payloads, codex_cost)
+    _add_codex_request_model(payloads, codex_model)
     _add_query_source(payloads, _query_source_by_request(log_records))
 
     traces_url = f"{endpoint}/v1/traces"
