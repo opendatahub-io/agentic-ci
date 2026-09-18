@@ -159,7 +159,15 @@ otel.inject_root_spans(
 ```
 
 `inject_root_spans()` scans the JSONL for traces that have child spans
-but no root span (a span with no `parentSpanId`). For each orphan trace,
+but no root span (a span with no `parentSpanId`). Before that, when the JSONL
+holds more than one trace, every trace is stitched into one: the trace that
+carries the orchestrator's `TRACEPARENT` trace ID (or, failing that, the
+largest) becomes the run trace, all other spans get its trace ID, and their
+roots or dangling parents are re-parented under the run root span. Log records
+that reference a stitched trace are updated too. Codex and OpenCode start many
+internal spans without a parent (`auth`, `code_mode.broker.invoke_tool`,
+`session_loop`, SQL and session helpers), and MLflow cannot link traces, so
+this is what keeps one job equal to one MLflow trace. For each orphan trace,
 it appends a synthetic root span with:
 
 - The orphan trace's own trace ID (so it joins the existing spans)
