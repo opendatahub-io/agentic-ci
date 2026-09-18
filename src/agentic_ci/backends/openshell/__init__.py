@@ -243,6 +243,22 @@ class OpenShellBackend(Backend):
             f"and this sandbox already exists. Delete it to apply new values."
         )
 
+    @classmethod
+    def _agent_command(cls, sandbox_workdir, agent_args):
+        """Build the in-sandbox command that sources the env script and execs the agent.
+
+        The env script is removed as soon as it has been sourced so API keys
+        it exports are not left readable on disk for the agent to find.
+        """
+        return [
+            "bash",
+            "-c",
+            f"cd {shlex.quote(sandbox_workdir)} && . {cls._ENV_SCRIPT}"
+            f' && rm -f {cls._ENV_SCRIPT} && exec "$@"',
+            "--",
+            *agent_args,
+        ]
+
     def _upload_sandbox_config(self, otel_enabled=False):
         """Write harness-specific config and upload it to the sandbox."""
         config_dir = tempfile.mkdtemp(prefix="agentic-ci-config-")
@@ -295,13 +311,7 @@ class OpenShellBackend(Backend):
 
         workdir_name = os.path.basename(self.workdir)
         sandbox_workdir = f"/sandbox/{workdir_name}"
-        cmd = [
-            "bash",
-            "-c",
-            f'cd {shlex.quote(sandbox_workdir)} && . {self._ENV_SCRIPT} && exec "$@"',
-            "--",
-            *agent_args,
-        ]
+        cmd = self._agent_command(sandbox_workdir, agent_args)
 
         stop_keepalive = threading.Event()
         keepalive: threading.Thread | None = None

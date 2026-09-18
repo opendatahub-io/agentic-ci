@@ -252,9 +252,12 @@ agentic-ci run --backend local --harness codex \
 ```
 
 OpenShell currently follows agentic-ci's existing L4 API-key pattern: the real
-key is written into the sandbox environment and Codex login state. This matches
-the existing backend behavior but does not provide OpenShell's stronger L7
-credential isolation. A future change should migrate API-key providers together
+key is written into the sandbox environment and Codex login state. The env
+script that carries it is deleted as soon as the agent command sources it, but
+the key remains available to the agent process (and, for Codex, in
+`$CODEX_HOME/auth.json`) for the duration of the run. This matches the existing
+backend behavior but does not provide OpenShell's stronger L7 credential
+isolation. A future change should migrate API-key providers together
 to profile-backed L7 inspection so sandboxes receive only opaque placeholders.
 
 ```bash
