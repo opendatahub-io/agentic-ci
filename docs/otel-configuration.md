@@ -64,6 +64,10 @@ overrides for three OTLP/HTTP JSON exporters:
 | Metrics | `http://...:{port}/v1/metrics` |
 | Traces | `http://...:{port}/v1/traces` |
 
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `TRACEPARENT` | `00-{trace_id}-{span_id}-01` | W3C Trace Context. Codex parents its `exec` root span under it, so its spans join the agentic-ci root trace. Spans Codex spawns without context propagation (`auth`, `code_mode.broker.invoke_tool`) still start their own traces. |
+
 The log stream includes API requests, response events with token counts, tool
 decisions/results, and redacted prompt metadata. User prompt content remains
 disabled by default. The metrics stream includes Codex API, streaming, and tool

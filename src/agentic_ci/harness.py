@@ -665,9 +665,17 @@ class CodexHarness(Harness):
         enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             lines.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
+        # Codex parents its exec root span under TRACEPARENT when set
+        # (codex_otel::traceparent_context_from_env), so its spans join the
+        # agentic-ci root trace instead of starting a new one. The OTLP
+        # exporters themselves are configured via -c flags in build_args.
+        if traceparent:
+            lines.append(f"export TRACEPARENT={shlex.quote(traceparent)}")
         return lines
 
     def build_otel_exec_env(self, otel_port=None, traceparent=None):
+        if traceparent:
+            return ["--env", f"TRACEPARENT={traceparent}"]
         return []
 
     def build_local_env(self, otel_port=None, otel_rate_file=None, traceparent=None, env=None):
@@ -676,6 +684,8 @@ class CodexHarness(Harness):
         enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
+        if traceparent:
+            env["TRACEPARENT"] = traceparent
         return env
 
     def credential_mount_target(self):
