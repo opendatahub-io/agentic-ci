@@ -524,3 +524,15 @@ class TestTokenKeepalive:
         assert "[token-keepalive] rotate failed" in captured.out
         assert "auth error" in captured.out
         assert call_count >= 2
+
+
+def test_openshell_agent_command_removes_env_script_after_sourcing():
+    cmd = OpenShellBackend._agent_command("/sandbox/repo", ["codex", "exec", "hi"])
+
+    assert cmd[:2] == ["bash", "-c"]
+    script = cmd[2]
+    assert script.index(f". {OpenShellBackend._ENV_SCRIPT}") < script.index(
+        f"rm -f {OpenShellBackend._ENV_SCRIPT}"
+    )
+    assert script.endswith('exec "$@"')
+    assert cmd[3:] == ["--", "codex", "exec", "hi"]
