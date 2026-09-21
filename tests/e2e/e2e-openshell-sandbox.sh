@@ -387,14 +387,17 @@ else
 
         print_step "Running Codex via agentic-ci (openshell backend)..."
         RC=0
+        CODEX_LOG="$TMPDIR_E2E/codex.log"
         agentic-ci run "Reply with only the word pong" \
             --backend openshell \
             --image "$CODEX_SANDBOX" \
             --harness codex \
             --workdir "$WORKDIR" \
-            --no-otel || RC=$?
+            --no-otel > "$CODEX_LOG" 2>&1 || RC=$?
 
         assert_ok "codex exited successfully" test "$RC" -eq 0
+        assert_contains "codex reasoning effort is high" "$(cat "$CODEX_LOG")" \
+            "Reasoning effort.*high"
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true

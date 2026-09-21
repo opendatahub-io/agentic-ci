@@ -139,6 +139,10 @@ class Harness(ABC):
         """Whether the agent CLI supports OTEL telemetry export."""
         return False
 
+    def run_attributes(self, env: Mapping[str, str] | None = None) -> dict[str, str]:
+        """Return harness-specific attributes describing the effective run config."""
+        return {}
+
     @property
     def autoupdater_env_var(self) -> str:
         """Env var name to disable auto-updates."""
@@ -562,6 +566,28 @@ class CodexHarness(Harness):
     """OpenAI Codex CLI harness."""
 
     _CREDENTIAL_ENV_VARS = ("OPENAI_API_KEY",)
+    _REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+
+    def reasoning_efforts(self, env: Mapping[str, str] | None = None) -> tuple[str, str]:
+        """Return validated main and sub-agent reasoning effort settings."""
+        config_env = env if env is not None else os.environ
+        main_effort = config_env.get("CODEX_REASONING_EFFORT", "high")
+        subagent_effort = config_env.get("CODEX_SUBAGENT_REASONING_EFFORT", main_effort)
+        for name, effort in (
+            ("CODEX_REASONING_EFFORT", main_effort),
+            ("CODEX_SUBAGENT_REASONING_EFFORT", subagent_effort),
+        ):
+            if effort not in self._REASONING_EFFORTS:
+                supported = ", ".join(sorted(self._REASONING_EFFORTS))
+                raise ValueError(f"Invalid {name} value {effort!r}; expected one of: {supported}")
+        return main_effort, subagent_effort
+
+    def run_attributes(self, env: Mapping[str, str] | None = None) -> dict[str, str]:
+        main_effort, subagent_effort = self.reasoning_efforts(env)
+        return {
+            "agent.reasoning_effort": main_effort,
+            "agent.subagent_reasoning_effort": subagent_effort,
+        }
 
     @property
     def name(self) -> str:
@@ -617,6 +643,7 @@ class CodexHarness(Harness):
     def build_args(
         self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
     ):
+        main_effort, subagent_effort = self.reasoning_efforts()
         codex_args = [
             "exec",
             # Inside OpenShell the sandbox and its network policy already
@@ -633,6 +660,10 @@ class CodexHarness(Harness):
             # Codex has no supported auto-update env var; use its native config.
             "-c",
             "check_for_update_on_startup=false",
+            "-c",
+            f"model_reasoning_effort={json.dumps(main_effort)}",
+            "-c",
+            f"agents.default_subagent_reasoning_effort={json.dumps(subagent_effort)}",
         ]
         if otel_endpoint:
             codex_args.extend(self._otel_config_args(otel_endpoint))

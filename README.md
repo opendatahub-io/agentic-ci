@@ -289,6 +289,8 @@ report token usage but do not produce a dollar estimate.
 | `OPENAI_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
 | `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
 | `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`) |
+| `CODEX_REASONING_EFFORT` | `high` | Codex reasoning effort (`none`, `minimal`, `low`, `medium`, `high`, or `xhigh`) |
+| `CODEX_SUBAGENT_REASONING_EFFORT` | value of `CODEX_REASONING_EFFORT` | Reasoning effort for Codex sub-agents |
 | `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |
 | `AGENTIC_CI_LITELLM_COST_MAP` | — | Optional path to a LiteLLM-format JSON model-price map for Codex cost estimates |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |

@@ -114,6 +114,11 @@ def cmd_run(args, backend, harness):
     else:
         model = harness.default_model()
 
+    run_attributes = harness.run_attributes()
+    if "agent.reasoning_effort" in run_attributes:
+        log.detail("Reasoning effort", run_attributes["agent.reasoning_effort"])
+        log.detail("Sub-agent reasoning effort", run_attributes["agent.subagent_reasoning_effort"])
+
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
     otel_port = None
@@ -196,6 +201,7 @@ def cmd_run(args, backend, harness):
                             "agent.backend": args.backend,
                             "agent.harness": harness.name,
                             "agent.model": model,
+                            **run_attributes,
                         },
                     )
                     if injected:

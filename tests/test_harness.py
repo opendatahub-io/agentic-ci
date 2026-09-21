@@ -479,9 +479,47 @@ class TestCodexHarness:
         assert "--ignore-user-config" not in args
         config_values = [args[index + 1] for index, arg in enumerate(args) if arg == "-c"]
         assert "check_for_update_on_startup=false" in config_values
+        assert 'model_reasoning_effort="high"' in config_values
+        assert 'agents.default_subagent_reasoning_effort="high"' in config_values
         assert "-m" in args
         assert "gpt-5.6-sol" in args
         assert "do something" in args
+
+    def test_reasoning_effort_overrides(self, monkeypatch):
+        monkeypatch.setenv("CODEX_REASONING_EFFORT", "medium")
+        monkeypatch.setenv("CODEX_SUBAGENT_REASONING_EFFORT", "xhigh")
+
+        args = CodexHarness().build_args("prompt", "model")
+        config_values = [args[index + 1] for index, arg in enumerate(args) if arg == "-c"]
+
+        assert 'model_reasoning_effort="medium"' in config_values
+        assert 'agents.default_subagent_reasoning_effort="xhigh"' in config_values
+
+    def test_subagent_reasoning_effort_falls_back_to_main(self, monkeypatch):
+        monkeypatch.setenv("CODEX_REASONING_EFFORT", "low")
+        monkeypatch.delenv("CODEX_SUBAGENT_REASONING_EFFORT", raising=False)
+
+        assert CodexHarness().reasoning_efforts() == ("low", "low")
+
+    def test_invalid_reasoning_effort_fails_before_building_command(self, monkeypatch):
+        monkeypatch.setenv("CODEX_REASONING_EFFORT", "bogus")
+
+        with pytest.raises(ValueError, match="Invalid CODEX_REASONING_EFFORT value 'bogus'"):
+            CodexHarness().build_args("prompt", "model")
+
+    def test_invalid_subagent_reasoning_effort_fails(self, monkeypatch):
+        monkeypatch.setenv("CODEX_SUBAGENT_REASONING_EFFORT", "bogus")
+
+        with pytest.raises(
+            ValueError, match="Invalid CODEX_SUBAGENT_REASONING_EFFORT value 'bogus'"
+        ):
+            CodexHarness().reasoning_efforts()
+
+    def test_run_attributes_include_effective_reasoning_efforts(self):
+        assert CodexHarness().run_attributes({}) == {
+            "agent.reasoning_effort": "high",
+            "agent.subagent_reasoning_effort": "high",
+        }
 
     def test_build_env_script_lines_exports_traceparent(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)

@@ -142,6 +142,13 @@ def _default_run_container(
     """Default container runner using the configured backend."""
     harness = create_harness(harness_name)
     model = os.environ.get(harness.model_env_var()) or harness.default_model()
+    run_attributes = harness.run_attributes()
+    if "agent.reasoning_effort" in run_attributes:
+        log.info("Reasoning effort: %s", run_attributes["agent.reasoning_effort"])
+        log.info(
+            "Sub-agent reasoning effort: %s",
+            run_attributes["agent.subagent_reasoning_effort"],
+        )
     backend = create_backend(
         backend_name,
         harness=harness,
@@ -195,6 +202,7 @@ def _default_run_container(
                             "agent.backend": backend_name,
                             "agent.harness": harness_name,
                             "agent.model": model,
+                            **run_attributes,
                         },
                     )
                     if injected:

@@ -63,6 +63,10 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Codex was launched with `--ignore-user-config`, which suppresses plugin state and user-level OTel configuration, or the per-run `otel.*` exporter overrides were not passed.
 - **Where to look**: `harness.py` Codex arguments, `plugins.py`, backend `otel_endpoint` argument wiring
 
+### Codex agents use unexpectedly little reasoning
+- **Likely cause**: `CODEX_REASONING_EFFORT` or `CODEX_SUBAGENT_REASONING_EFFORT` is set too low, or the per-run `model_reasoning_effort` and `agents.default_subagent_reasoning_effort` overrides were not passed. Both default to `high`, and invalid values now fail before launch.
+- **Where to look**: `harness.py` Codex reasoning effort resolution and arguments, the effective effort in setup logs, and `agent.reasoning_effort` on the synthetic root span
+
 ### Codex OpenShell setup creates an Anthropic provider
 - **Likely cause**: Codex was classified as generic `api-key` auth and OpenShell selected its Anthropic provider. Codex must use the `openai` auth mode and the OpenAI network endpoints.
 - **Where to look**: `harness.py` auth mode, `backends/openshell/provider.py`, `backends/openshell/policy.py`

@@ -159,6 +159,8 @@ if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
         > "$TMPDIR_E2E/codex-out.txt" 2>"$TMPDIR_E2E/codex-err.txt" || RC=$?
 
     assert_ok "Codex local run exited successfully" test "$RC" -eq 0
+    assert_contains "Codex local reasoning effort is high" \
+        "$(cat "$TMPDIR_E2E/codex-out.txt")" "Reasoning effort.*high"
     assert_contains "Codex streaming output contains response" \
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "codex-pong"
     assert_contains "Codex exported OTEL API request events" \
