@@ -58,6 +58,7 @@ def test_default_effort_is_high(tmp_path, monkeypatch):
 
 
 def test_flag_overrides_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("CODEX_SUBAGENT_REASONING_EFFORT", raising=False)
     monkeypatch.setenv("CODEX_REASONING_EFFORT", "medium")
     backend = RecordingBackend()
     assert _run(_args(tmp_path, effort="xhigh"), backend, create_harness("codex")) == 0
@@ -76,7 +77,8 @@ def test_invalid_effort_fails_before_agent_starts(tmp_path, capsys):
     assert backend.run_kwargs is None
 
 
-def test_none_passes_no_effort_flag(tmp_path):
+def test_none_passes_no_effort_flag(tmp_path, capsys):
     backend = RecordingBackend()
     assert _run(_args(tmp_path, effort="none"), backend, create_harness("claude-code")) == 0
     assert backend.run_kwargs["extra_args"] == ["--max-turns", "3"]
+    assert "Reasoning effort: none" in capsys.readouterr().out

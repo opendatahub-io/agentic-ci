@@ -241,7 +241,7 @@ class _AgentSession:
             *self.harness.build_effort_args(main_effort, subagent_effort),
             *(extra_args or []),
         ]
-        log.info("Model: %s, reasoning effort: %s", model, main_effort or "default")
+        log.info("Model: %s, reasoning effort: %s", model, main_effort if main_effort else "none")
         if subagent_effort is not None:
             log.info("Sub-agent reasoning effort: %s", subagent_effort)
         self.last_model = model
@@ -604,8 +604,9 @@ def run_routed_skill(
     credentials and network policy). Its raw stream is written to
     ``_run/classifier-output.txt``. Any classifier failure (non-zero exit,
     exception, missing or invalid route file) logs a warning and falls back to
-    the default model with no effort flag, which is exactly what
-    :func:`run_skill` would do. Only configuration errors raise, and they
+    the default model at the harness's effective default effort (env var or
+    registry ``default_effort``), which is exactly what :func:`run_skill`
+    would do. Only configuration errors raise, and they
     raise before any container starts.
 
     The decision is made once per call and reused by every retry that

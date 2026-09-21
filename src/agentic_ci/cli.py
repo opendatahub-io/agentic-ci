@@ -150,7 +150,7 @@ def cmd_run(args, backend, harness):
 
         start_ns = time.time_ns()
         log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
-        log.detail("Reasoning effort", effort or "default")
+        log.detail("Reasoning effort", effort if effort is not None else "none")
         if subagent_effort is not None:
             log.detail("Sub-agent reasoning effort", subagent_effort)
         rc = backend.run(

@@ -20,8 +20,10 @@ from dataclasses import dataclass, field
 class ModelTier:
     """One routing tier: a model id plus the default reasoning effort for it.
 
-    ``effort`` is harness-specific (see :attr:`HarnessModels.efforts`) and
-    ``None`` means "do not pass an effort flag".
+    ``effort`` is harness-specific (see :attr:`HarnessModels.efforts`).
+    ``None`` means "resolve normally": the effort env var, else the registry
+    ``default_effort``. Only the literal override value ``none`` (via
+    ``--effort`` or the env var) disables the effort flag.
     """
 
     model: str

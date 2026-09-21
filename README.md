@@ -509,9 +509,9 @@ Behavior:
   stream goes to `_run/classifier-output.txt`. `classifier_max_turns` caps it
   where the CLI supports a turn limit (Claude Code `--max-turns`).
 - Any classifier failure (non-zero exit, missing or invalid `route.json`)
-  logs a warning and falls back to the default model with no effort flag,
-  which is exactly what `run_skill()` would do. `RouteDecision.source` is
-  then `fallback`.
+  logs a warning and falls back to the default model at the resolved default
+  effort, which is exactly what `run_skill()` would do. `RouteDecision.source`
+  is then `fallback`.
 - The decision is made once per call; retries inside `run_skill()` reuse it.
 - `force_tier="high"` skips the classifier and pins a tier.
 - A `skill.routed` event (tier, model, effort, source) is appended to the

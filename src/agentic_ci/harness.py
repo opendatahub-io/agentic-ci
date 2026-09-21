@@ -200,7 +200,10 @@ class Harness(ABC):
         """
 
     def classifier_effort(self) -> str | None:
-        """Effort for the difficulty classifier run, from the registry (``None`` = no flag)."""
+        """Effort for the classifier run, from the registry.
+
+        ``None`` means normal resolution (effort env var, else ``default_effort``).
+        """
         return self.models.classifier_effort
 
     def build_classifier_args(self, max_turns: int) -> list[str]:
