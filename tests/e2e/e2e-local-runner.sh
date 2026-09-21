@@ -204,6 +204,57 @@ assert_ok "extra args output file is non-empty" test -s "$TMPDIR_E2E/extra-args-
 assert_contains "extra args output contains response" \
     "$(cat "$TMPDIR_E2E/extra-args-out.txt")" "pong"
 
+# -- Routed skill test --------------------------------------------------------
+# run_routed_skill() is a Python API, so the driver script runs it against
+# the local backend: classifier path, forced tier, and fallback.
+print_header "=== run_routed_skill --backend local: Claude Code ==="
+
+ROUTED_DRIVER="$SCRIPT_DIR/routed_skill_driver.py"
+ROUTED_PY="$(agentic_python)"
+
+for ROUTED_CASE in classifier forced fallback; do
+    WORKDIR="$TMPDIR_E2E/routed-$ROUTED_CASE"
+    mkdir -p "$WORKDIR"
+    ROUTED_ARGS=(--backend local --harness claude-code --workdir "$WORKDIR" --expect-source "$ROUTED_CASE")
+    case "$ROUTED_CASE" in
+        forced) ROUTED_ARGS+=(--force-tier high) ;;
+        fallback) ROUTED_ARGS+=(--classifier-noop) ;;
+    esac
+
+    print_step "Running routed skill (local, claude-code, $ROUTED_CASE)..."
+    RC=0
+    "$ROUTED_PY" "$ROUTED_DRIVER" "${ROUTED_ARGS[@]}" \
+        > "$TMPDIR_E2E/routed-$ROUTED_CASE-out.txt" 2>&1 || RC=$?
+
+    OUTPUT="$(cat "$TMPDIR_E2E/routed-$ROUTED_CASE-out.txt")"
+    assert_ok "routed ($ROUTED_CASE): driver exited successfully" test "$RC" -eq 0
+    assert_contains "routed ($ROUTED_CASE): decision source" "$OUTPUT" "source=$ROUTED_CASE"
+    assert_contains "routed ($ROUTED_CASE): verdict loaded" "$OUTPUT" "verdict_file=ok"
+    assert_contains "routed ($ROUTED_CASE): skill.routed event recorded" "$OUTPUT" "routed_event=ok"
+    grep "ROUTED_" "$TMPDIR_E2E/routed-$ROUTED_CASE-out.txt" || true
+done
+
+if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
+    print_header "=== run_routed_skill --backend local: Codex ==="
+    WORKDIR="$TMPDIR_E2E/routed-codex"
+    CODEX_HOME="$TMPDIR_E2E/routed-codex-home"
+    mkdir -p "$WORKDIR" "$CODEX_HOME"
+
+    print_step "Running routed skill (local, codex, classifier)..."
+    RC=0
+    CODEX_HOME="$CODEX_HOME" "$ROUTED_PY" "$ROUTED_DRIVER" \
+        --backend local --harness codex --workdir "$WORKDIR" \
+        > "$TMPDIR_E2E/routed-codex-out.txt" 2>&1 || RC=$?
+
+    OUTPUT="$(cat "$TMPDIR_E2E/routed-codex-out.txt")"
+    assert_ok "routed (codex): driver exited successfully" test "$RC" -eq 0
+    assert_contains "routed (codex): classifier decided" "$OUTPUT" "source=classifier"
+    assert_contains "routed (codex): reasoning effort flag accepted" "$OUTPUT" "rc_zero=ok"
+    grep "ROUTED_" "$TMPDIR_E2E/routed-codex-out.txt" || true
+else
+    print_warning "Skipping Codex routed test (codex CLI or credentials unavailable)"
+fi
+
 # -- Setup steps test ---------------------------------------------------------
 print_header "=== agentic-ci run --backend local: setup steps ==="
 

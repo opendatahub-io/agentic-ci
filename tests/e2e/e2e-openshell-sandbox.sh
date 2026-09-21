@@ -402,6 +402,61 @@ else
         print_warning "Skipping Codex OpenShell test (OPENAI_API_KEY not set)"
     fi
 
+    # --- Routed skill via OpenShell ---
+    # run_routed_skill() runs the classifier and the skill in one sandbox.
+    # OpenShell downloads the workdir after every run, so this also checks
+    # that the download after the classifier run does not clobber the
+    # host-side _run/ files (route.json, classifier-output.txt, OTEL log).
+    print_header "=== run_routed_skill: Claude Code via OpenShell ==="
+
+    WORKDIR="$TMPDIR_E2E/routed-claude"
+    mkdir -p "$WORKDIR"
+
+    print_step "Running routed skill (openshell, claude-code, classifier)..."
+    ROUTED_LOG="$TMPDIR_E2E/routed-claude.log"
+    RC=0
+    "$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
+        --backend openshell --harness claude-code \
+        --image "$CLAUDE_SANDBOX" --workdir "$WORKDIR" \
+        > "$ROUTED_LOG" 2>&1 || RC=$?
+
+    OUTPUT="$(cat "$ROUTED_LOG")"
+    assert_ok "routed (openshell): driver exited successfully" test "$RC" -eq 0
+    assert_contains "routed (openshell): classifier decided" "$OUTPUT" "source=classifier"
+    assert_contains "routed (openshell): route file survived download" "$OUTPUT" "route_file=ok"
+    assert_contains "routed (openshell): OTEL log survived download" "$OUTPUT" "routed_event=ok"
+    assert_contains "routed (openshell): verdict downloaded" "$OUTPUT" "verdict_file=ok"
+    grep "ROUTED_" "$ROUTED_LOG" || true
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
+    if _has_codex_creds; then
+        print_header "=== run_routed_skill: Codex via OpenShell ==="
+
+        WORKDIR="$TMPDIR_E2E/routed-codex"
+        mkdir -p "$WORKDIR"
+
+        print_step "Running routed skill (openshell, codex, classifier)..."
+        ROUTED_LOG="$TMPDIR_E2E/routed-codex.log"
+        RC=0
+        "$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
+            --backend openshell --harness codex \
+            --image "$CODEX_SANDBOX" --workdir "$WORKDIR" \
+            > "$ROUTED_LOG" 2>&1 || RC=$?
+
+        OUTPUT="$(cat "$ROUTED_LOG")"
+        assert_ok "routed (openshell codex): driver exited successfully" test "$RC" -eq 0
+        assert_contains "routed (openshell codex): classifier decided" "$OUTPUT" "source=classifier"
+        assert_contains "routed (openshell codex): verdict downloaded" "$OUTPUT" "verdict_file=ok"
+        grep "ROUTED_" "$ROUTED_LOG" || true
+        dump_gateway_log
+
+        agentic-ci stop --backend openshell --harness codex 2>/dev/null || true
+    else
+        print_warning "Skipping Codex routed OpenShell test (OPENAI_API_KEY not set)"
+    fi
+
     # --- Repo-level network policy test ---
     # Verifies that .agentic-ci/openshell-policy.yml in the workdir adds
     # extra endpoints to the sandbox policy.  packages.redhat.com is NOT in the

@@ -119,6 +119,31 @@ fi
 # Stop the container before the next test
 agentic-ci stop --harness opencode 2>/dev/null || true
 
+# -- Routed skill test --------------------------------------------------------
+# run_routed_skill() is a Python API, so the driver script runs it against
+# the podman backend: classifier run on the default model, then the skill on
+# the routed tier (exercises the harness effort flag).
+print_header "=== run_routed_skill: OpenCode (podman) ==="
+
+WORKDIR="$TMPDIR_E2E/routed"
+mkdir -p "$WORKDIR"
+
+print_step "Running routed skill (opencode, classifier)..."
+ROUTED_LOG="$TMPDIR_E2E/routed-out.txt"
+RC=0
+"$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
+    --backend podman --harness opencode --image "$IMAGE" --workdir "$WORKDIR" \
+    > "$ROUTED_LOG" 2>&1 || RC=$?
+
+OUTPUT="$(cat "$ROUTED_LOG")"
+assert_ok "routed: driver exited successfully" test "$RC" -eq 0
+assert_contains "routed: classifier decided" "$OUTPUT" "source=classifier"
+assert_contains "routed: verdict loaded" "$OUTPUT" "verdict_file=ok"
+assert_contains "routed: root span carries routed model" "$OUTPUT" "root_span_model=ok"
+grep "ROUTED_" "$ROUTED_LOG" || true
+
+agentic-ci stop --harness opencode 2>/dev/null || true
+
 # -- AGENT_ENABLED_PLUGINS test -----------------------------------------------
 print_header "=== agentic-ci run: AGENT_ENABLED_PLUGINS ==="
 
