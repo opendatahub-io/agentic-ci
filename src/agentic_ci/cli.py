@@ -114,6 +114,14 @@ def cmd_run(args, backend, harness):
     else:
         model = harness.default_model()
 
+    try:
+        effort, subagent_effort = harness.resolve_efforts(getattr(args, "effort", None))
+        effort_args = harness.build_effort_args(effort, subagent_effort)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+    extra_args = [*effort_args, *(args.extra_args or [])]
+
     run_dir = tempfile.mkdtemp(prefix="agentic-ci-run.")
 
     otel_port = None
@@ -142,12 +150,15 @@ def cmd_run(args, backend, harness):
 
         start_ns = time.time_ns()
         log.section(f"Running {harness.name} ({model}) via {args.backend} backend")
+        log.detail("Reasoning effort", effort if effort is not None else "none")
+        if subagent_effort is not None:
+            log.detail("Sub-agent reasoning effort", subagent_effort)
         rc = backend.run(
             prompt=args.prompt,
             model=model,
             otel_port=otel_port,
             otel_rate_file=otel_rate,
-            extra_args=args.extra_args,
+            extra_args=extra_args,
             streaming=not args.no_streaming,
             traceparent=traceparent,
         )
@@ -192,11 +203,9 @@ def cmd_run(args, backend, harness):
                         rc,
                         fallback_trace_id=trace_id,
                         fallback_span_id=span_id,
-                        attributes={
-                            "agent.backend": args.backend,
-                            "agent.harness": harness.name,
-                            "agent.model": model,
-                        },
+                        attributes=otel.root_span_attributes(
+                            args.backend, harness.name, model, effort, subagent_effort
+                        ),
                     )
                     if injected:
                         log.info(f"Injected {injected} synthetic root span(s)")
@@ -286,6 +295,15 @@ def main():
         default=None,
         metavar="MODEL",
         help="Agent model (default from harness env var or harness default)",
+    )
+    p_run.add_argument(
+        "--effort",
+        default=None,
+        metavar="EFFORT",
+        help=(
+            "Reasoning effort (default from harness env var or the model registry, "
+            "'high' for every harness; 'none' passes no effort flag)"
+        ),
     )
     p_run.add_argument(
         "--pre-gates",

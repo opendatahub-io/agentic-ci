@@ -107,7 +107,9 @@ user-supplied. When changing `images/runner/`:
   non-sandbox counterparts.
 
 If a feature genuinely applies to only one harness or backend, document
-the reason in the PR description.
+the reason in the PR description. Known documented exception:
+`Harness.build_classifier_args()` returns a turn cap only for Claude Code
+because OpenCode and Codex have no equivalent CLI flag.
 
 ## Code Conventions
 

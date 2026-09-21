@@ -35,6 +35,8 @@ src/agentic_ci/
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
     stream.py           # Stream parsers for Claude Code, OpenCode, and Codex output
     telemetry.py        # Generic event transport for the OTLP trace pipeline
+    routing.py          # Difficulty classifier + model tier routing (run_routed_skill)
+    models.py           # Model registry: default model, routing tiers, effort levels per harness
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -42,7 +44,11 @@ src/agentic_ci/
 
 - **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees decoded stdout lines to disk until the stream processor reports completion.
 
-- **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CodexHarness`.
+- **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CodexHarness`. Model ids and effort levels are not defined here; each harness reads them from `models.py` via its `registry_key`.
+
+- **`models.py`**: `MODEL_REGISTRY`, the single map of default model, default reasoning effort, `low`/`medium`/`high` routing tiers, accepted reasoning-effort values, sub-agent effort, and classifier effort per harness. Harnesses only know how to turn an effort value into a CLI flag (`effort_args()`); `Harness.resolve_efforts()` applies the `--effort` flag, then the `*_REASONING_EFFORT` env var, then the registry default.
+
+- **`routing.py`**: Difficulty-based routing for `run_routed_skill()`: classifier prompt, `route.json` parsing, tier resolution, and `RouteDecision`. Pure module; the skill engine supplies the agent invocation.
 
 - **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`, `install_codex_plugins`) and runtime filtering (`enable_plugins`). At build time, installs plugins or skills from the skills-registry marketplace (supporting both legacy `repo` and `git-subdir` source formats) into the container image and writes a plugin-to-skill manifest. All marketplace source paths are validated against the clone root to prevent directory traversal. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk; Codex removes unwanted native plugins and manifest-managed compatibility skills while preserving unmanaged personal skills.
 
@@ -60,6 +66,7 @@ src/agentic_ci/
 
 ### Key
 
+- **Reasoning effort** is passed on every run (`claude --effort`, `opencode --variant`, `codex -c model_reasoning_effort=` plus `agents.default_subagent_reasoning_effort`), default `high` from `models.py`; overrides via `--effort` or `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`.
 - **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `OPENAI_API_KEY` or local `$CODEX_HOME/auth.json` login state. The OpenShell backend requires `OPENAI_API_KEY`.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Claude Code and Codex export OTEL data; OpenCode provides token/cost data via its JSON output.
 
@@ -159,6 +166,16 @@ tox -e typecheck                 # mypy type check
 
 Fix any failures before moving on. Do not skip any of these checks.
 
+## Bumping models
+
+All model ids and effort levels live in `MODEL_REGISTRY` in `src/agentic_ci/models.py`, keyed by `--harness` name. To move a harness to a new model or effort set:
+
+1. Edit its `HarnessModels` entry: `default` (also the classifier model), `default_effort` (every regular run, `high` everywhere), `tiers` (`high` must reuse `default`), `efforts` (values the CLI accepts), `subagent_effort` (Codex spawned agents, `None` follows the main effort), `classifier_effort`.
+2. Update the defaults in `README.md` (the `--model` flag table, the env var table, and the routing tier table).
+3. Run `tox -e py313`; `tests/test_models.py` checks every tier effort and the classifier effort against `efforts`.
+
+Do not add model ids to `harness.py`; it only maps an effort value to a CLI flag. OpenCode effort values are per-model variant names (Claude 4.6 ids accept `low`/`medium`/`high`/`max`, `claude-sonnet-4-5` only `high`/`max`), so check the opencode source (`provider/transform.ts`) when changing an OpenCode model.
+
 ## Mergify
 
 `.mergify.yml` defines merge protection rules with required CI checks. When adding, removing, or renaming jobs in `.github/workflows/`, update `.mergify.yml` to match. The file patterns in Mergify rules must stay aligned with the `paths:` filters in each workflow.
@@ -186,5 +203,6 @@ When investigating this repo specifically, focus on these areas by symptom:
 - **Container failed**: Check `backends/podman.py` or `backends/openshell/` for container launch logic. Check `harness.py` for agent CLI argument construction. Check `cli.py` for credential and OTEL setup. Check `stream.py` if output parsing failed.
 - **Skills not found / wrong skills loaded**: Check `plugins.py` for install-time skill discovery (`install_opencode_skills` fallback dirs, `install_codex_plugins` native/compatibility paths, manifest generation) and runtime filtering (`enable_plugins` reads `AGENT_ENABLED_PLUGINS`). Check `harness.py` `build_env_args()` and `build_env_script_lines()` for env var forwarding to the container. Claude Code disables unwanted plugins in `settings.json`; OpenCode deletes unwanted skill directories; Codex removes unwanted native plugins and only manifest-managed compatibility skills.
 - **Skill engine failure**: Check `skill.py` for the `run_skill()` flow: pre-gates, container launch, post-gates, verdict loading. Check which phase returned an error.
+- **Routed run used the wrong model**: Check `routing.py` (`classify()`, `load_route()`) and `skill.py` `run_routed_skill()`. `_run/route.json` holds the classifier rating, `_run/classifier-output.txt` its raw stream, and the `skill.routed` event in `_run/claude-otel.jsonl` records the decision (`source=fallback` means the classifier failed and the default model was used). Tier defaults and accepted effort values live in `models.py` (`MODEL_REGISTRY`); the effort flag shape lives in `harness.py` (`effort_args()`).
 - **MR/PR operations failed**: Check `forge.py` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
 - **Gate framework issues**: Check `gates.py` for the gate registry and execution order. Check if a gate was added or changed that altered behavior. Gates run as pre/post hooks around the agent; the wiring is in the calling repo (autofix), but the gate implementations may be here.

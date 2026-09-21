@@ -35,6 +35,23 @@ check_dependencies() {
     fi
 }
 
+# Print the Python interpreter that has agentic-ci importable.
+# Prefers the interpreter behind the agentic-ci entry point (a uv tool venv
+# in CI) and falls back to python3.
+# Usage: PY="$(agentic_python)"
+agentic_python() {
+    local shim py
+    shim="$(command -v agentic-ci 2>/dev/null || true)"
+    if [[ -n "$shim" ]]; then
+        py="$(sed -n '1s/^#!//p' "$shim")"
+        if [[ -x "$py" ]] && "$py" -c "import agentic_ci" >/dev/null 2>&1; then
+            echo "$py"
+            return 0
+        fi
+    fi
+    echo python3
+}
+
 # URL-encode a string for use in API paths.
 urlencode() {
     python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
