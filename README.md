@@ -282,13 +282,13 @@ report token usage but do not produce a dollar estimate.
 | Variable | Default | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key. When set, uses direct API auth instead of Vertex AI |
-| `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`) |
+| `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
-| `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`) |
+| `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
 | `OPENAI_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
 | `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
-| `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`) |
+| `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
 | `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |
 | `AGENTIC_CI_LITELLM_COST_MAP` | — | Optional path to a LiteLLM-format JSON model-price map for Codex cost estimates |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
@@ -450,6 +450,56 @@ awareness of this file. `context_dir` is validated to stay within
 8. **Post-gates** -- each `post_gates` callable validates the output (e.g. sensitive file check, gitleaks)
 9. **Verdict** -- `verdict_loader` reads the agent's structured output
 10. **Report** -- `label_applier` applies labels, posts comments, transitions tickets
+
+### Model Routing with `run_routed_skill()`
+
+`run_routed_skill()` runs the same pipeline as `run_skill()` but picks the
+model per task. Before the skill runs, a short classifier invocation on the
+harness default model (`CLAUDE_MODEL`, `OPENCODE_MODEL` or `CODEX_MODEL`,
+else the harness default) rates the task as `low`, `medium` or `high` and
+writes `_run/route.json`. The skill then runs on the matching tier, a
+`ModelTier(model, effort)` where `effort` maps to `claude --effort`,
+`opencode --variant` or `codex -c model_reasoning_effort=`.
+
+```python
+from agentic_ci.routing import ModelTier
+from agentic_ci.skill import SkillConfig, run_routed_skill
+
+config = SkillConfig(
+    skill_name="my-resolve",
+    prompt_builder=my_prompt_fn,
+    verdict_loader=my_verdict_fn,
+    # Optional: override any tier; unlisted tiers keep the harness defaults.
+    model_tiers={"low": ModelTier("claude-sonnet-4-5", "low")},
+)
+result = run_routed_skill(config, ticket_key="PROJ-123", work_dir=work_dir, config_dir=cfg)
+print(result.rc, result.route.tier, result.route.model, result.route.source)
+```
+
+Default tiers (the `high` tier is always the harness default model):
+
+| Harness | `low` | `medium` | `high` |
+|---|---|---|---|
+| Claude Code | `claude-sonnet-4-5`, effort `medium` | `claude-sonnet-4-5`, effort `high` | `claude-opus-4-6`, effort `high` |
+| OpenCode | `google-vertex/claude-sonnet-4-5@20250929`, no variant | `google-vertex/claude-sonnet-4-5@20250929`, variant `high` | `google-vertex/claude-opus-4-6@default`, variant `high` |
+| Codex | `gpt-5.6-luna`, effort `xhigh` | `gpt-5.6-luna`, effort `xhigh` | `gpt-5.6-sol`, effort `high` |
+
+Behavior:
+
+- The classifier runs inside the same sandbox as the skill (same container,
+  credentials and network policy) and may read files to gauge scope. Its raw
+  stream goes to `_run/classifier-output.txt`. `classifier_max_turns` caps it
+  where the CLI supports a turn limit (Claude Code `--max-turns`).
+- Any classifier failure (non-zero exit, missing or invalid `route.json`)
+  logs a warning and falls back to the default model with no effort flag,
+  which is exactly what `run_skill()` would do. `RouteDecision.source` is
+  then `fallback`.
+- The decision is made once per call; retries inside `run_skill()` reuse it.
+- `force_tier="high"` skips the classifier and pins a tier.
+- A `skill.routed` event (tier, model, effort, source) is appended to the
+  run's `_run/claude-otel.jsonl`. OTEL cost totals include the classifier.
+- `config.container_runner` must be unset; custom runners have no model surface.
+- OpenCode variant names depend on the model: Claude 4.6 ids accept `low`, `medium`, `high`, `max`; `claude-sonnet-4-5` accepts only `high` and `max`.
 
 ### Example: jira-autofix
 

@@ -26,6 +26,15 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Agent was SIGKILL'd (timeout) after producing output but before writing verdict. The completion validator now checks verdict file existence before promoting SIGKILL exit to success.
 - **Where to look**: `skill.py:run_skill()` verdict loading, completion validator logic
 
+### Routed skill ran on the default model (source=fallback)
+- **Likely cause**: The classifier run failed: non-zero exit, `_run/route.json` missing or not valid JSON, or a `difficulty` outside low/medium/high. On Claude Code the `--max-turns` cap can expire before the agent writes the file. Routing is fail-open by design, so the run continues on the default model with a warning.
+- **Expected behavior**: `RouteDecision.source == "fallback"`, `tier is None`, and the `skill.routed` event in `_run/claude-otel.jsonl` records the fallback. The skill result itself is unaffected.
+- **Where to look**: `routing.py:classify()` / `load_route()`, `_run/classifier-output.txt`, `skill.py:run_routed_skill()`, `classifier_max_turns`
+
+### Routed run fails immediately with an unknown flag or variant
+- **Likely cause**: The tier's effort value is not accepted by the agent CLI in the runner image (Claude `--effort`, OpenCode `--variant`, Codex `-c model_reasoning_effort=`). Effort values are validated against a per-harness allow-list at config time, but the image's CLI version decides what actually works.
+- **Where to look**: `harness.py:build_effort_args()` allow-lists, `SkillConfig.model_tiers`, runner image CLI version pins under `images/runner/`
+
 ### Verdict rejected: string where array expected
 - **Likely cause**: LLM returns single values instead of arrays. Fixed by coercing string verdict list fields to arrays.
 - **Where to look**: `verdict.py` coercion logic, `skill.py` verdict validation

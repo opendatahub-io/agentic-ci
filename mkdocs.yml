@@ -78,6 +78,7 @@ nav:
       - Pipeline:
           - Gates: api/gates.md
           - Skill Runner: api/skill.md
+          - Model Routing: api/routing.md
           - Verdict: api/verdict.md
           - Git Operations: api/git.md
           - Pipeline Generation: api/pipeline.md

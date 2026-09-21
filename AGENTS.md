@@ -35,6 +35,7 @@ src/agentic_ci/
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
     stream.py           # Stream parsers for Claude Code, OpenCode, and Codex output
     telemetry.py        # Generic event transport for the OTLP trace pipeline
+    routing.py          # Difficulty classifier + model tier routing (run_routed_skill)
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -186,5 +187,6 @@ When investigating this repo specifically, focus on these areas by symptom:
 - **Container failed**: Check `backends/podman.py` or `backends/openshell/` for container launch logic. Check `harness.py` for agent CLI argument construction. Check `cli.py` for credential and OTEL setup. Check `stream.py` if output parsing failed.
 - **Skills not found / wrong skills loaded**: Check `plugins.py` for install-time skill discovery (`install_opencode_skills` fallback dirs, `install_codex_plugins` native/compatibility paths, manifest generation) and runtime filtering (`enable_plugins` reads `AGENT_ENABLED_PLUGINS`). Check `harness.py` `build_env_args()` and `build_env_script_lines()` for env var forwarding to the container. Claude Code disables unwanted plugins in `settings.json`; OpenCode deletes unwanted skill directories; Codex removes unwanted native plugins and only manifest-managed compatibility skills.
 - **Skill engine failure**: Check `skill.py` for the `run_skill()` flow: pre-gates, container launch, post-gates, verdict loading. Check which phase returned an error.
+- **Routed run used the wrong model**: Check `routing.py` (`classify()`, `load_route()`) and `skill.py` `run_routed_skill()`. `_run/route.json` holds the classifier rating, `_run/classifier-output.txt` its raw stream, and the `skill.routed` event in `_run/claude-otel.jsonl` records the decision (`source=fallback` means the classifier failed and the default model was used). Harness tier defaults and effort flags live in `harness.py` (`default_model_tiers()`, `build_effort_args()`).
 - **MR/PR operations failed**: Check `forge.py` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
 - **Gate framework issues**: Check `gates.py` for the gate registry and execution order. Check if a gate was added or changed that altered behavior. Gates run as pre/post hooks around the agent; the wiring is in the calling repo (autofix), but the gate implementations may be here.

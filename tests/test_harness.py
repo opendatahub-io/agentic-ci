@@ -12,6 +12,7 @@ from agentic_ci.harness import (
     OpenCodeHarness,
     create_harness,
 )
+from agentic_ci.routing import ModelTier
 from agentic_ci.stream import CodexStreamProcessor
 
 
@@ -229,6 +230,36 @@ class TestClaudeCodeHarness:
     def test_default_model(self):
         assert ClaudeCodeHarness().default_model() == "claude-opus-4-6"
 
+    def test_default_model_tiers(self):
+        harness = ClaudeCodeHarness()
+        tiers = harness.default_model_tiers()
+        assert set(tiers) == {"low", "medium", "high"}
+        assert tiers["high"].model == harness.default_model()
+        assert tiers["low"] == ModelTier("claude-sonnet-4-5", "medium")
+        assert tiers["medium"] == ModelTier("claude-sonnet-4-5", "high")
+        assert tiers["high"].effort == "high"
+
+    def test_build_effort_args_none_is_empty(self):
+        assert ClaudeCodeHarness().build_effort_args(None) == []
+
+    def test_build_effort_args(self):
+        assert ClaudeCodeHarness().build_effort_args("xhigh") == ["--effort", "xhigh"]
+
+    def test_build_effort_args_invalid_raises(self):
+        with pytest.raises(ValueError, match="Unsupported Claude Code effort"):
+            ClaudeCodeHarness().build_effort_args("turbo")
+
+    def test_classifier_effort(self):
+        assert ClaudeCodeHarness().classifier_effort() == "low"
+
+    def test_build_classifier_args(self):
+        assert ClaudeCodeHarness().build_classifier_args(7) == ["--max-turns", "7"]
+
+    def test_effort_args_appended_after_prompt(self):
+        harness = ClaudeCodeHarness()
+        args = harness.build_args("prompt", "model", extra_args=harness.build_effort_args("high"))
+        assert args[-2:] == ["--effort", "high"]
+
 
 class TestOpenCodeHarness:
     def test_name(self):
@@ -407,6 +438,36 @@ class TestOpenCodeHarness:
 
     def test_default_model(self):
         assert OpenCodeHarness().default_model() == "google-vertex/claude-opus-4-6@default"
+
+    def test_default_model_tiers(self):
+        harness = OpenCodeHarness()
+        tiers = harness.default_model_tiers()
+        assert set(tiers) == {"low", "medium", "high"}
+        assert tiers["high"].model == harness.default_model()
+        assert tiers["low"] == ModelTier("google-vertex/claude-sonnet-4-5@20250929", None)
+        assert tiers["medium"] == ModelTier("google-vertex/claude-sonnet-4-5@20250929", "high")
+        assert tiers["high"].effort == "high"
+
+    def test_build_effort_args_none_is_empty(self):
+        assert OpenCodeHarness().build_effort_args(None) == []
+
+    def test_build_effort_args(self):
+        assert OpenCodeHarness().build_effort_args("max") == ["--variant", "max"]
+
+    def test_build_effort_args_invalid_raises(self):
+        with pytest.raises(ValueError, match="Unsupported OpenCode variant"):
+            OpenCodeHarness().build_effort_args("xhigh")
+
+    def test_classifier_effort(self):
+        assert OpenCodeHarness().classifier_effort() is None
+
+    def test_build_classifier_args_has_no_turn_cap(self):
+        assert OpenCodeHarness().build_classifier_args(7) == []
+
+    def test_effort_args_appended_after_prompt(self):
+        harness = OpenCodeHarness()
+        args = harness.build_args("prompt", "model", extra_args=harness.build_effort_args("high"))
+        assert args[-2:] == ["--variant", "high"]
 
     def test_build_env_script_lines_with_otel(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -662,6 +723,39 @@ class TestCodexHarness:
 
     def test_default_model(self):
         assert CodexHarness().default_model() == "gpt-5.6-sol"
+
+    def test_default_model_tiers(self):
+        harness = CodexHarness()
+        tiers = harness.default_model_tiers()
+        assert set(tiers) == {"low", "medium", "high"}
+        assert tiers["high"].model == harness.default_model()
+        assert tiers["low"] == ModelTier("gpt-5.6-luna", "xhigh")
+        assert tiers["medium"] == ModelTier("gpt-5.6-luna", "xhigh")
+        assert tiers["high"].effort == "high"
+
+    def test_build_effort_args_none_is_empty(self):
+        assert CodexHarness().build_effort_args(None) == []
+
+    def test_build_effort_args(self):
+        assert CodexHarness().build_effort_args("low") == ["-c", "model_reasoning_effort=low"]
+
+    def test_build_effort_args_invalid_raises(self):
+        with pytest.raises(ValueError, match="Unsupported Codex reasoning effort"):
+            CodexHarness().build_effort_args("max")
+
+    def test_classifier_effort(self):
+        assert CodexHarness().classifier_effort() == "low"
+
+    def test_build_classifier_args_has_no_turn_cap(self):
+        assert CodexHarness().build_classifier_args(7) == []
+
+    def test_effort_args_stay_before_model_and_prompt(self):
+        harness = CodexHarness()
+        args = harness.build_args("prompt", "model", extra_args=harness.build_effort_args("low"))
+        assert args[-4:] == ["-m", "model", "--", "prompt"]
+        effort_index = args.index("model_reasoning_effort=low")
+        assert args[effort_index - 1] == "-c"
+        assert effort_index < args.index("-m")
 
     def test_supports_otel(self):
         assert CodexHarness().supports_otel is True

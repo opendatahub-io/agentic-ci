@@ -26,6 +26,7 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 |--------|-------------|
 | [Gates](gates.md) | Pre- and post-agent validation gates |
 | [Skill Runner](skill.md) | Generic skill runner framework |
+| [Model Routing](routing.md) | Difficulty-based model tier routing for skill runs |
 | [Verdict](verdict.md) | Structured verdict JSON validation |
 | [Git Operations](git.md) | Git operations for CI pipelines |
 | [Pipeline Generation](pipeline.md) | GitLab child pipeline YAML generation |

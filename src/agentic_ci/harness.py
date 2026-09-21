@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agentic_ci.routing import ModelTier
 from agentic_ci.stream import (
     ClaudeCodeStreamProcessor,
     CodexStreamProcessor,
@@ -118,6 +119,34 @@ class Harness(ABC):
     @abstractmethod
     def default_model(self) -> str:
         """Default model when no --model flag or env var is set."""
+
+    @abstractmethod
+    def default_model_tiers(self) -> dict[str, ModelTier]:
+        """Harness-shipped ``low``/``medium``/``high`` routing tiers.
+
+        The ``high`` tier matches :meth:`default_model` so routed runs never
+        regress hard tasks. ``SkillConfig.model_tiers`` overrides entries.
+        """
+
+    @abstractmethod
+    def build_effort_args(self, effort: str | None) -> list[str]:
+        """Return CLI args that set reasoning effort for this harness.
+
+        Returns ``[]`` when *effort* is ``None``. Raises ``ValueError`` for a
+        value this harness's CLI does not accept. The result is passed to
+        ``build_args()`` through ``extra_args``.
+        """
+
+    def classifier_effort(self) -> str | None:
+        """Effort to use for the difficulty classifier run (``None`` = no flag)."""
+        return None
+
+    def build_classifier_args(self, max_turns: int) -> list[str]:
+        """Extra CLI args that bound the classifier run.
+
+        Default is no bound; harnesses whose CLI has a turn cap override this.
+        """
+        return []
 
     @abstractmethod
     def build_local_env(
@@ -357,6 +386,31 @@ class ClaudeCodeHarness(Harness):
     def default_model(self):
         return "claude-opus-4-6"
 
+    _EFFORT_LEVELS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+    def default_model_tiers(self):
+        return {
+            "low": ModelTier("claude-sonnet-4-5", "medium"),
+            "medium": ModelTier("claude-sonnet-4-5", "high"),
+            "high": ModelTier(self.default_model(), "high"),
+        }
+
+    def build_effort_args(self, effort):
+        if effort is None:
+            return []
+        if effort not in self._EFFORT_LEVELS:
+            raise ValueError(
+                f"Unsupported Claude Code effort {effort!r}; "
+                f"expected one of {sorted(self._EFFORT_LEVELS)}"
+            )
+        return ["--effort", effort]
+
+    def classifier_effort(self):
+        return "low"
+
+    def build_classifier_args(self, max_turns):
+        return ["--max-turns", str(max_turns)]
+
     @property
     def supports_otel(self) -> bool:
         return True
@@ -531,6 +585,30 @@ class OpenCodeHarness(Harness):
 
     def default_model(self):
         return "google-vertex/claude-opus-4-6@default"
+
+    # OpenCode "variants" are named per model (opencode provider/transform.ts,
+    # verified against v1.18.25). Claude 4.6 ids on the anthropic and
+    # google-vertex providers get adaptive-thinking variants low/medium/high/max;
+    # older ids such as claude-sonnet-4-5 only get the thinking-budget variants
+    # high and max. The default tiers therefore use no variant or "high" on
+    # sonnet 4.5 and leave "low"/"medium" for callers overriding with 4.6 ids.
+    _VARIANTS = frozenset({"low", "medium", "high", "max"})
+
+    def default_model_tiers(self):
+        return {
+            "low": ModelTier("google-vertex/claude-sonnet-4-5@20250929", None),
+            "medium": ModelTier("google-vertex/claude-sonnet-4-5@20250929", "high"),
+            "high": ModelTier(self.default_model(), "high"),
+        }
+
+    def build_effort_args(self, effort):
+        if effort is None:
+            return []
+        if effort not in self._VARIANTS:
+            raise ValueError(
+                f"Unsupported OpenCode variant {effort!r}; expected one of {sorted(self._VARIANTS)}"
+            )
+        return ["--variant", effort]
 
     @property
     def supports_otel(self) -> bool:
@@ -715,6 +793,28 @@ class CodexHarness(Harness):
 
     def default_model(self):
         return "gpt-5.6-sol"
+
+    _REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high", "xhigh"})
+
+    def default_model_tiers(self):
+        return {
+            "low": ModelTier("gpt-5.6-luna", "xhigh"),
+            "medium": ModelTier("gpt-5.6-luna", "xhigh"),
+            "high": ModelTier(self.default_model(), "high"),
+        }
+
+    def build_effort_args(self, effort):
+        if effort is None:
+            return []
+        if effort not in self._REASONING_EFFORTS:
+            raise ValueError(
+                f"Unsupported Codex reasoning effort {effort!r}; "
+                f"expected one of {sorted(self._REASONING_EFFORTS)}"
+            )
+        return ["-c", f"model_reasoning_effort={effort}"]
+
+    def classifier_effort(self):
+        return "low"
 
     @property
     def supports_otel(self) -> bool:

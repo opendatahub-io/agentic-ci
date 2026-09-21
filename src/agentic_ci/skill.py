@@ -16,10 +16,16 @@ Usage::
         label_applier=my_label_fn,
     )
     rc = run_skill(config, ticket_key="PROJ-123", work_dir=Path("/tmp/work"), ...)
+
+``run_routed_skill()`` wraps the same pipeline with difficulty-based model
+routing: a classifier run on the default model rates the task, and the
+skill then runs on the matching ``ModelTier`` (see ``agentic_ci.routing``).
 """
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 import json
 import logging
 import os
@@ -39,6 +45,15 @@ from agentic_ci.otel import (
     start_collector,
     stop_collector,
 )
+from agentic_ci.routing import (
+    DEFAULT_CLASSIFIER_MAX_TURNS,
+    ModelTier,
+    RouteDecision,
+    classify,
+    forced_route,
+    resolve_model_tiers,
+)
+from agentic_ci.telemetry import emit_event
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +111,21 @@ class SkillConfig:
     container_env: dict[str, str] = field(default_factory=dict)
     container_runner: Callable[..., int] | None = None
 
+    model_tiers: dict[str, ModelTier] = field(default_factory=dict)
+    """Per-tier overrides of the harness default routing tiers (``run_routed_skill`` only)."""
+
+
+@dataclass(frozen=True)
+class RoutedSkillResult:
+    """Result of :func:`run_routed_skill`.
+
+    ``route`` is ``None`` when no agent ran (dry run or a pre-gate blocked
+    the run), so no routing decision was made.
+    """
+
+    rc: int
+    route: RouteDecision | None
+
 
 def _load_otel_cost(work_dir: Path) -> dict | None:
     """Load OTEL cost data from the run directory, if available."""
@@ -128,6 +158,110 @@ def _load_otel_cost(work_dir: Path) -> dict | None:
         return None
 
 
+class _AgentSession:
+    """One backend lifecycle: setup once, run the agent N times, stop once.
+
+    Owns the OTEL collector and the synthetic root span so that every
+    ``run()`` inside the session (for example a classifier run followed by
+    the real skill run) lands in a single trace.
+    """
+
+    def __init__(
+        self,
+        work_dir,
+        *,
+        image=None,
+        verdict_path=None,
+        container_env=None,
+        backend_name="podman",
+        harness_name="claude-code",
+    ):
+        self.work_dir = Path(work_dir)
+        self.run_dir = self.work_dir / "_run"
+        self.backend_name = backend_name
+        self.harness_name = harness_name
+        self.harness = create_harness(harness_name)
+        self.default_model = (
+            os.environ.get(self.harness.model_env_var()) or self.harness.default_model()
+        )
+        self.backend = create_backend(
+            backend_name,
+            harness=self.harness,
+            workdir=str(work_dir),
+            image=image,
+            extra_env=container_env or {},
+        )
+        if verdict_path is not None:
+            self.backend.verdict_path = verdict_path
+        self._otel_proc = None
+        self.otel_port = None
+        self._otel_log = None
+        self.traceparent = None
+        self.trace_id = None
+        self.span_id = None
+        self._start_ns = None
+        self.last_model = self.default_model
+        self.last_rc = 1
+
+    def __enter__(self):
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        if self.harness.supports_otel:
+            try:
+                self._otel_proc, self.otel_port, self._otel_log, _ = start_collector(
+                    str(self.run_dir), bind_addr=self.backend.collector_bind_address
+                )
+                self.trace_id, self.span_id, self.traceparent = generate_trace_context()
+            except Exception:
+                log.warning("Failed to start OTEL collector, continuing without telemetry")
+        self.backend.setup(otel_port=self.otel_port)
+        self._start_ns = time.time_ns()
+        return self
+
+    def run(self, prompt, *, model, effort=None, extra_args=None, output_file=None):
+        """Run the agent once with *model* and optional *effort*; returns the exit code."""
+        self.backend.output_file = output_file
+        args = [*self.harness.build_effort_args(effort), *(extra_args or [])]
+        self.last_model = model
+        self.last_rc = 1
+        self.last_rc = self.backend.run(
+            prompt,
+            model=model,
+            otel_port=self.otel_port,
+            traceparent=self.traceparent,
+            extra_args=args or None,
+        )
+        return self.last_rc
+
+    def __exit__(self, exc_type, exc, tb):
+        end_ns = time.time_ns()
+        if self._otel_proc:
+            stop_collector(self._otel_proc)
+            if self._start_ns and self._otel_log:
+                try:
+                    injected = inject_root_spans(
+                        self._otel_log,
+                        self._start_ns,
+                        end_ns,
+                        self.last_rc,
+                        fallback_trace_id=self.trace_id,
+                        fallback_span_id=self.span_id,
+                        attributes={
+                            "agent.backend": self.backend_name,
+                            "agent.harness": self.harness_name,
+                            "agent.model": self.last_model,
+                        },
+                    )
+                    if injected:
+                        log.info("Injected %d synthetic root span(s)", injected)
+                except Exception as exc_:
+                    print(
+                        f"Root span injection failed (non-fatal): {exc_}",
+                        file=sys.stderr,
+                    )
+        self.backend.stop()
+        return False
+
+
 def _default_run_container(
     work_dir,
     prompt,
@@ -138,73 +272,33 @@ def _default_run_container(
     container_env=None,
     backend_name="podman",
     harness_name="claude-code",
+    model=None,
+    effort=None,
+    router=None,
 ):
-    """Default container runner using the configured backend."""
-    harness = create_harness(harness_name)
-    model = os.environ.get(harness.model_env_var()) or harness.default_model()
-    backend = create_backend(
-        backend_name,
-        harness=harness,
-        workdir=str(work_dir),
+    """Default container runner using the configured backend.
+
+    *model* defaults to the harness env var or default model. *router*, when
+    given, is called as ``router(session, prompt)`` before the main run and
+    must return a :class:`~agentic_ci.routing.RouteDecision` whose model and
+    effort are then used for the run.
+    """
+    with _AgentSession(
+        work_dir,
         image=image,
-        extra_env=container_env or {},
-    )
-    if verdict_path is not None:
-        backend.verdict_path = verdict_path
-    backend.output_file = output_file
-
-    otel_proc = None
-    otel_port = None
-    otel_log = None
-    traceparent = None
-    trace_id = None
-    span_id = None
-    start_ns = None
-    if harness.supports_otel:
-        run_dir = Path(work_dir) / "_run"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            otel_proc, otel_port, otel_log, _ = start_collector(
-                str(run_dir), bind_addr=backend.collector_bind_address
-            )
-            trace_id, span_id, traceparent = generate_trace_context()
-        except Exception:
-            log.warning("Failed to start OTEL collector, continuing without telemetry")
-
-    rc = 1
-    try:
-        backend.setup(otel_port=otel_port)
-        start_ns = time.time_ns()
-        rc = backend.run(prompt, model=model, otel_port=otel_port, traceparent=traceparent)
-        return rc
-    finally:
-        end_ns = time.time_ns()
-
-        if otel_proc:
-            stop_collector(otel_proc)
-            if start_ns and otel_log:
-                try:
-                    injected = inject_root_spans(
-                        otel_log,
-                        start_ns,
-                        end_ns,
-                        rc,
-                        fallback_trace_id=trace_id,
-                        fallback_span_id=span_id,
-                        attributes={
-                            "agent.backend": backend_name,
-                            "agent.harness": harness_name,
-                            "agent.model": model,
-                        },
-                    )
-                    if injected:
-                        log.info("Injected %d synthetic root span(s)", injected)
-                except Exception as exc:
-                    print(
-                        f"Root span injection failed (non-fatal): {exc}",
-                        file=sys.stderr,
-                    )
-        backend.stop()
+        verdict_path=verdict_path,
+        container_env=container_env,
+        backend_name=backend_name,
+        harness_name=harness_name,
+    ) as session:
+        target_model = model or session.default_model
+        target_effort = effort
+        if router is not None:
+            decision = router(session, prompt)
+            target_model, target_effort = decision.model, decision.effort
+        return session.run(
+            prompt, model=target_model, effort=target_effort, output_file=output_file
+        )
 
 
 def run_skill(
@@ -427,3 +521,130 @@ def run_skill(
         verdict.get("verdict", "unknown"),
     )
     return 0
+
+
+def _emit_route_event(session, config, ticket_key, decision):
+    """Record the routing decision as a ``skill.routed`` telemetry event (best effort)."""
+    payload = {
+        "event_type": "skill.routed",
+        "skill_name": config.skill_name,
+        "ticket_key": ticket_key,
+        "harness": config.harness_name,
+        "backend": config.backend_name,
+        "default_model": session.default_model,
+        "tier": decision.tier,
+        "model": decision.model,
+        "effort": decision.effort,
+        "source": decision.source,
+    }
+    try:
+        emit_event(
+            payload,
+            log_root=session.run_dir,
+            correlation={"trace_id": session.trace_id} if session.trace_id else None,
+            parent_span_id=session.span_id,
+        )
+    except Exception as exc:
+        log.warning("skill.routed event not recorded: %s", exc)
+
+
+def run_routed_skill(
+    config: SkillConfig,
+    ticket_key: str,
+    work_dir: Path,
+    config_dir: Path,
+    *,
+    mode: str = "resolve",
+    ticket: dict | None = None,
+    dry_run: bool = False,
+    dry_run_verdict_path: Path | None = None,
+    classifier_max_turns: int = DEFAULT_CLASSIFIER_MAX_TURNS,
+    classifier_prompt_builder: Callable[[str], str] | None = None,
+    force_tier: str | None = None,
+    **extra_kwargs,
+) -> RoutedSkillResult:
+    """Run a skill with difficulty-based model routing.
+
+    Behaves like :func:`run_skill` with one addition: before the skill runs,
+    a classifier invocation on the harness default model (``CLAUDE_MODEL``,
+    ``OPENCODE_MODEL`` or ``CODEX_MODEL``, else ``Harness.default_model()``)
+    rates the task as ``low``, ``medium`` or ``high`` and writes
+    ``_run/route.json``. The skill then runs on the matching
+    :class:`~agentic_ci.routing.ModelTier` from the harness defaults,
+    overridden per key by ``config.model_tiers``.
+
+    The classifier runs inside the same sandbox as the skill (same container,
+    credentials and network policy). Its raw stream is written to
+    ``_run/classifier-output.txt``. Any classifier failure (non-zero exit,
+    exception, missing or invalid route file) logs a warning and falls back to
+    the default model with no effort flag, which is exactly what
+    :func:`run_skill` would do. Only configuration errors raise, and they
+    raise before any container starts.
+
+    The decision is made once per call and reused by every retry that
+    :func:`run_skill` performs, so all attempts use the same model. A
+    ``skill.routed`` event is appended to the run's ``_run/claude-otel.jsonl``.
+
+    Args:
+        classifier_max_turns: turn cap for the classifier where the CLI
+            supports one (Claude Code ``--max-turns``).
+        classifier_prompt_builder: replaces the default classifier prompt;
+            receives the skill prompt and returns the classifier prompt.
+        force_tier: skip the classifier and pin this tier.
+
+    ``config.container_runner`` must be ``None``; custom runners have no
+    model surface. ``extension_config_writer`` receives a copy of *config*
+    whose ``container_runner`` is the routing runner.
+
+    Returns:
+        :class:`RoutedSkillResult` with the exit code and the decision
+        (``None`` when no agent ran, e.g. ``dry_run`` or a pre-gate block).
+    """
+    if config.container_runner is not None:
+        raise ValueError("run_routed_skill requires the default container runner")
+    harness = create_harness(config.harness_name)
+    tiers = resolve_model_tiers(harness, config.model_tiers)
+    if force_tier is not None and force_tier not in tiers:
+        raise ValueError(f"Unknown force_tier {force_tier!r}; expected one of {sorted(tiers)}")
+
+    state: dict[str, RouteDecision] = {}
+
+    def _router(session, prompt):
+        if "decision" not in state:
+            if force_tier is not None:
+                decision = forced_route(force_tier, tiers)
+            else:
+                decision = classify(
+                    session.run,
+                    work_dir=work_dir,
+                    task_prompt=prompt,
+                    tiers=tiers,
+                    classifier_model=session.default_model,
+                    classifier_effort=session.harness.classifier_effort(),
+                    classifier_args=session.harness.build_classifier_args(classifier_max_turns),
+                    fallback=ModelTier(session.default_model, None),
+                    prompt_builder=classifier_prompt_builder,
+                )
+            state["decision"] = decision
+            _emit_route_event(session, config, ticket_key, decision)
+        return state["decision"]
+
+    runner = functools.partial(
+        _default_run_container,
+        verdict_path=config.verdict_path_fn(work_dir),
+        backend_name=config.backend_name,
+        harness_name=config.harness_name,
+        router=_router,
+    )
+    rc = run_skill(
+        dataclasses.replace(config, container_runner=runner),
+        ticket_key,
+        work_dir,
+        config_dir,
+        mode=mode,
+        ticket=ticket,
+        dry_run=dry_run,
+        dry_run_verdict_path=dry_run_verdict_path,
+        **extra_kwargs,
+    )
+    return RoutedSkillResult(rc=rc, route=state.get("decision"))
