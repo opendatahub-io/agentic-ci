@@ -148,17 +148,19 @@ def main() -> int:
 
     spans = _otel_spans(run_dir)
     routed = [s for s in spans if s.get("name") == "skill.routed"]
+    roots = [s for s in spans if not s.get("parentSpanId")]
+    root_ids = {s.get("spanId") for s in roots}
     checks["routed_event"] = len(routed) == 1
-    checks["routed_event_parented"] = bool(routed) and bool(routed[0].get("parentSpanId"))
+    checks["routed_event_parented"] = len(routed) == 1 and routed[0].get("parentSpanId") in root_ids
     if routed:
         payload = json.loads(routed[0]["events"][0]["attributes"][0]["value"]["stringValue"])
         checks["routed_event_matches"] = route is not None and (
             payload.get("model") == route.model and payload.get("source") == route.source
         )
-    roots = [s for s in spans if _attr(s, "agent.model") is not None]
-    checks["root_span_present"] = len(roots) >= 1
+    model_roots = [s for s in roots if _attr(s, "agent.model") is not None]
+    checks["root_span_present"] = len(model_roots) >= 1
     checks["root_span_model"] = route is not None and any(
-        _attr(s, "agent.model") == route.model for s in roots
+        _attr(s, "agent.model") == route.model for s in model_roots
     )
 
     for name, ok in checks.items():

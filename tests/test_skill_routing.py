@@ -355,3 +355,24 @@ class TestAgentSession:
         assert (tmp_path / "_run").is_dir()
         assert session.last_model == "b"
         assert session.last_rc == 0
+
+    def test_setup_failure_releases_collector_and_backend(self, tmp_path):
+        backend = RecordingBackend()
+        backend.setup = mock.Mock(side_effect=RuntimeError("image pull failed"))
+        harness = create_harness("claude-code")
+        fake_proc = object()
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend),
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+            mock.patch(
+                "agentic_ci.skill.start_collector",
+                return_value=(fake_proc, 4318, tmp_path / "_run" / "claude-otel.jsonl", None),
+            ),
+            mock.patch("agentic_ci.skill.stop_collector") as stop_collector,
+            pytest.raises(RuntimeError, match="image pull failed"),
+        ):
+            with _AgentSession(tmp_path):
+                pass
+
+        stop_collector.assert_called_once_with(fake_proc)
+        assert backend.calls == [("stop",)]

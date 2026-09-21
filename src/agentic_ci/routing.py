@@ -23,8 +23,27 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from agentic_ci.models import ModelTier
+
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
+
+__all__ = [
+    "CLASSIFIER_OUTPUT_FILENAME",
+    "DEFAULT_CLASSIFIER_MAX_TURNS",
+    "ModelTier",
+    "ROUTE_FILENAME",
+    "RouteDecision",
+    "RouteError",
+    "RunCallable",
+    "TIER_NAMES",
+    "build_classifier_prompt",
+    "classify",
+    "forced_route",
+    "load_route",
+    "resolve_model_tiers",
+    "route_path",
+]
 
 log = logging.getLogger(__name__)
 
@@ -69,18 +88,6 @@ When you have decided, write exactly this JSON (and nothing else) to the file \
 {task_prompt}
 --- END TASK ---
 """
-
-
-@dataclass(frozen=True)
-class ModelTier:
-    """One routing tier: a model id plus the default reasoning effort for it.
-
-    ``effort`` is harness-specific (see ``Harness.build_effort_args``) and
-    ``None`` means "do not pass an effort flag".
-    """
-
-    model: str
-    effort: str | None = None
 
 
 @dataclass(frozen=True)

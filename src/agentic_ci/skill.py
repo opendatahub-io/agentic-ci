@@ -213,7 +213,16 @@ class _AgentSession:
                 self.trace_id, self.span_id, self.traceparent = generate_trace_context()
             except Exception:
                 log.warning("Failed to start OTEL collector, continuing without telemetry")
-        self.backend.setup(otel_port=self.otel_port)
+        try:
+            self.backend.setup(otel_port=self.otel_port)
+        except BaseException:
+            # __exit__ does not run when __enter__ raises, so release the
+            # collector and any half-started backend here.
+            if self._otel_proc:
+                stop_collector(self._otel_proc)
+                self._otel_proc = None
+            self.backend.stop()
+            raise
         self._start_ns = time.time_ns()
         return self
 

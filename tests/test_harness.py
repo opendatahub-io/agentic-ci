@@ -455,7 +455,7 @@ class TestOpenCodeHarness:
         assert OpenCodeHarness().build_effort_args("max") == ["--variant", "max"]
 
     def test_build_effort_args_invalid_raises(self):
-        with pytest.raises(ValueError, match="Unsupported OpenCode variant"):
+        with pytest.raises(ValueError, match="Unsupported OpenCode effort"):
             OpenCodeHarness().build_effort_args("xhigh")
 
     def test_classifier_effort(self):
@@ -740,7 +740,7 @@ class TestCodexHarness:
         assert CodexHarness().build_effort_args("low") == ["-c", "model_reasoning_effort=low"]
 
     def test_build_effort_args_invalid_raises(self):
-        with pytest.raises(ValueError, match="Unsupported Codex reasoning effort"):
+        with pytest.raises(ValueError, match="Unsupported Codex effort"):
             CodexHarness().build_effort_args("max")
 
     def test_classifier_effort(self):

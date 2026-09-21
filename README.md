@@ -476,7 +476,7 @@ result = run_routed_skill(config, ticket_key="PROJ-123", work_dir=work_dir, conf
 print(result.rc, result.route.tier, result.route.model, result.route.source)
 ```
 
-Default tiers (the `high` tier is always the harness default model):
+Default tiers, defined once in `agentic_ci.models.MODEL_REGISTRY` together with each harness's default model and accepted effort values (the `high` tier is always the harness default model):
 
 | Harness | `low` | `medium` | `high` |
 |---|---|---|---|
