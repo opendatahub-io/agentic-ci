@@ -46,7 +46,7 @@ src/agentic_ci/
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CodexHarness`. Model ids and effort levels are not defined here; each harness reads them from `models.py` via its `registry_key`.
 
-- **`models.py`**: `MODEL_REGISTRY`, the single map of default model, `low`/`medium`/`high` routing tiers, accepted reasoning-effort values, and classifier effort per harness. Harnesses only know how to turn an effort value into a CLI flag (`effort_args()`).
+- **`models.py`**: `MODEL_REGISTRY`, the single map of default model, default reasoning effort, `low`/`medium`/`high` routing tiers, accepted reasoning-effort values, sub-agent effort, and classifier effort per harness. Harnesses only know how to turn an effort value into a CLI flag (`effort_args()`); `Harness.resolve_efforts()` applies the `--effort` flag, then the `*_REASONING_EFFORT` env var, then the registry default.
 
 - **`routing.py`**: Difficulty-based routing for `run_routed_skill()`: classifier prompt, `route.json` parsing, tier resolution, and `RouteDecision`. Pure module; the skill engine supplies the agent invocation.
 
@@ -66,6 +66,7 @@ src/agentic_ci/
 
 ### Key
 
+- **Reasoning effort** is passed on every run (`claude --effort`, `opencode --variant`, `codex -c model_reasoning_effort=` plus `agents.default_subagent_reasoning_effort`), default `high` from `models.py`; overrides via `--effort` or `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`.
 - **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `OPENAI_API_KEY` or local `$CODEX_HOME/auth.json` login state. The OpenShell backend requires `OPENAI_API_KEY`.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Claude Code and Codex export OTEL data; OpenCode provides token/cost data via its JSON output.
 
@@ -169,7 +170,7 @@ Fix any failures before moving on. Do not skip any of these checks.
 
 All model ids and effort levels live in `MODEL_REGISTRY` in `src/agentic_ci/models.py`, keyed by `--harness` name. To move a harness to a new model or effort set:
 
-1. Edit its `HarnessModels` entry: `default` (also the classifier model), `tiers` (`high` must reuse `default`), `efforts` (values the CLI accepts), `classifier_effort`.
+1. Edit its `HarnessModels` entry: `default` (also the classifier model), `default_effort` (every regular run, `high` everywhere), `tiers` (`high` must reuse `default`), `efforts` (values the CLI accepts), `subagent_effort` (Codex spawned agents, `None` follows the main effort), `classifier_effort`.
 2. Update the defaults in `README.md` (the `--model` flag table, the env var table, and the routing tier table).
 3. Run `tox -e py313`; `tests/test_models.py` checks every tier effort and the classifier effort against `efforts`.
 

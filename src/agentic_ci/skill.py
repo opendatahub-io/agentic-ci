@@ -42,6 +42,7 @@ from agentic_ci.otel import (
     generate_trace_context,
     inject_root_spans,
     parse_metrics,
+    root_span_attributes,
     start_collector,
     stop_collector,
 )
@@ -201,6 +202,8 @@ class _AgentSession:
         self.span_id = None
         self._start_ns = None
         self.last_model = self.default_model
+        self.last_effort: str | None = None
+        self.last_subagent_effort: str | None = None
         self.last_rc = 1
 
     def __enter__(self):
@@ -227,10 +230,23 @@ class _AgentSession:
         return self
 
     def run(self, prompt, *, model, effort=None, extra_args=None, output_file=None):
-        """Run the agent once with *model* and optional *effort*; returns the exit code."""
+        """Run the agent once with *model* and *effort*; returns the exit code.
+
+        ``effort=None`` resolves to the harness effort env var or the registry
+        ``default_effort`` (see ``Harness.resolve_efforts``).
+        """
         self.backend.output_file = output_file
-        args = [*self.harness.build_effort_args(effort), *(extra_args or [])]
+        main_effort, subagent_effort = self.harness.resolve_efforts(effort)
+        args = [
+            *self.harness.build_effort_args(main_effort, subagent_effort),
+            *(extra_args or []),
+        ]
+        log.info("Model: %s, reasoning effort: %s", model, main_effort or "default")
+        if subagent_effort is not None:
+            log.info("Sub-agent reasoning effort: %s", subagent_effort)
         self.last_model = model
+        self.last_effort = main_effort
+        self.last_subagent_effort = subagent_effort
         self.last_rc = 1
         self.last_rc = self.backend.run(
             prompt,
@@ -254,11 +270,13 @@ class _AgentSession:
                         self.last_rc,
                         fallback_trace_id=self.trace_id,
                         fallback_span_id=self.span_id,
-                        attributes={
-                            "agent.backend": self.backend_name,
-                            "agent.harness": self.harness_name,
-                            "agent.model": self.last_model,
-                        },
+                        attributes=root_span_attributes(
+                            self.backend_name,
+                            self.harness_name,
+                            self.last_model,
+                            self.last_effort,
+                            self.last_subagent_effort,
+                        ),
                     )
                     if injected:
                         log.info("Injected %d synthetic root span(s)", injected)
@@ -631,7 +649,7 @@ def run_routed_skill(
                     classifier_model=session.default_model,
                     classifier_effort=session.harness.classifier_effort(),
                     classifier_args=session.harness.build_classifier_args(classifier_max_turns),
-                    fallback=ModelTier(session.default_model, None),
+                    fallback=ModelTier(session.default_model, session.harness.resolve_efforts()[0]),
                     prompt_builder=classifier_prompt_builder,
                 )
             state["decision"] = decision

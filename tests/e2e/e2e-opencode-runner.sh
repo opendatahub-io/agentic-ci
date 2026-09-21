@@ -104,6 +104,7 @@ assert_ok "container exited successfully" test "$RC" -eq 0
 
 COMBINED_OUTPUT="$(cat "$TMPDIR_E2E/out.txt" 2>/dev/null)$(cat "$TMPDIR_E2E/err.txt" 2>/dev/null)"
 assert_ok "output captured" test -n "$COMBINED_OUTPUT"
+assert_contains "default reasoning effort is logged" "$COMBINED_OUTPUT" "Reasoning effort.*high"
 
 if [[ -s "$TMPDIR_E2E/out.txt" ]]; then
     echo "--- output ---"

@@ -25,6 +25,9 @@ def test_entry_is_consistent(name):
         assert tier.effort is None or tier.effort in entry.efforts, tier_name
     assert entry.tiers["high"].model == entry.default
     assert entry.classifier_effort is None or entry.classifier_effort in entry.efforts
+    assert entry.default_effort == "high"
+    assert entry.default_effort in entry.efforts
+    assert entry.subagent_effort is None or entry.subagent_effort in entry.efforts
 
 
 @pytest.mark.parametrize("name", HARNESSES)
@@ -38,7 +41,7 @@ def test_harness_reads_from_registry(name):
     assert harness.default_model_tiers() is not entry.tiers
     assert harness.classifier_effort() == entry.classifier_effort
     for effort in entry.efforts:
-        assert harness.build_effort_args(effort) == harness.effort_args(effort)
+        assert harness.build_effort_args(effort) == harness.effort_args(effort, None)
 
 
 def test_unknown_harness_raises():

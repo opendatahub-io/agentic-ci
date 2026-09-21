@@ -1,8 +1,9 @@
 """Model registry: the one place to bump model ids and effort levels.
 
-Every harness reads its default model, its ``low``/``medium``/``high``
-routing tiers, the reasoning-effort values its CLI accepts, and the effort
-used for the difficulty classifier from :data:`MODEL_REGISTRY`. The harness
+Every harness reads its default model, its default reasoning effort, its
+``low``/``medium``/``high`` routing tiers, the reasoning-effort values its
+CLI accepts, and the effort used for the difficulty classifier from
+:data:`MODEL_REGISTRY`. The harness
 classes only know how to turn an effort value into a CLI flag. To move a
 harness to a new model or effort set, edit its :class:`HarnessModels` entry
 here and the matching table in ``README.md``; nothing else needs to change.
@@ -35,13 +36,22 @@ class HarnessModels:
     is also the classifier model for routed runs. ``tiers`` maps ``low``,
     ``medium`` and ``high`` to a :class:`ModelTier`; ``high`` should reuse
     ``default`` so routed runs never regress hard tasks. ``efforts`` is the
-    set of effort values the harness CLI accepts; every tier effort and the
-    ``classifier_effort`` must be in it (or ``None``).
+    set of effort values the harness CLI accepts; ``default_effort``, every
+    tier effort, ``subagent_effort`` and ``classifier_effort`` must be in it
+    (or ``None``).
+
+    ``default_effort`` is the reasoning effort passed on every run when no
+    ``--effort`` flag, effort env var, or tier effort says otherwise. A
+    ``None`` effort anywhere (tier, classifier) means "use the default".
+    ``subagent_effort`` applies to agents the harness spawns, where the CLI
+    has a separate knob (Codex); ``None`` follows the main effort.
     """
 
     default: str
     tiers: dict[str, ModelTier] = field(default_factory=dict)
     efforts: frozenset[str] = frozenset()
+    default_effort: str | None = "high"
+    subagent_effort: str | None = None
     classifier_effort: str | None = None
 
 
@@ -55,6 +65,7 @@ MODEL_REGISTRY: dict[str, HarnessModels] = {
             "high": ModelTier("claude-opus-4-6", "high"),
         },
         efforts=frozenset({"low", "medium", "high", "xhigh", "max"}),
+        default_effort="high",
         classifier_effort="low",
     ),
     # OpenCode: ``opencode run --variant`` selects a per-model variant
@@ -71,10 +82,15 @@ MODEL_REGISTRY: dict[str, HarnessModels] = {
             "high": ModelTier("google-vertex/claude-opus-4-6@default", "high"),
         },
         efforts=frozenset({"low", "medium", "high", "max"}),
+        default_effort="high",
         classifier_effort=None,
     ),
     # Codex: ``codex -c model_reasoning_effort=`` accepts
-    # minimal/low/medium/high/xhigh.
+    # minimal/low/medium/high/xhigh. Codex does not reject unknown values,
+    # so ``efforts`` is the gate. Spawned sub-agents get
+    # ``agents.default_subagent_reasoning_effort`` (``subagent_effort``,
+    # following the main effort when None); without it they run at the model
+    # default, which is low for gpt-5.6-sol (RHAIFIRST-649).
     "codex": HarnessModels(
         default="gpt-5.6-sol",
         tiers={
@@ -83,6 +99,8 @@ MODEL_REGISTRY: dict[str, HarnessModels] = {
             "high": ModelTier("gpt-5.6-sol", "high"),
         },
         efforts=frozenset({"minimal", "low", "medium", "high", "xhigh"}),
+        default_effort="high",
+        subagent_effort=None,
         classifier_effort="low",
     ),
 }

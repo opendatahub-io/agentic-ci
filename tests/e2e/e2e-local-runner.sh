@@ -99,6 +99,8 @@ agentic-ci run --backend local \
 
 assert_ok "streaming local run exited successfully" test "$RC" -eq 0
 assert_ok "streaming output file is non-empty" test -s "$TMPDIR_E2E/stream-out.txt"
+assert_contains "default reasoning effort is logged" \
+    "$(cat "$TMPDIR_E2E/stream-out.txt")" "Reasoning effort.*high"
 assert_contains "streaming output contains response" \
     "$(cat "$TMPDIR_E2E/stream-out.txt")" "pong"
 
@@ -165,6 +167,10 @@ if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "API Requests:"
     assert_contains "Codex cost summary is present" \
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "Cost (USD)"
+    assert_contains "Codex default reasoning effort is high" \
+        "$(cat "$TMPDIR_E2E/codex-out.txt")" "Reasoning effort.*high"
+    assert_contains "Codex default sub-agent reasoning effort is high" \
+        "$(cat "$TMPDIR_E2E/codex-out.txt")" "Sub-agent reasoning effort.*high"
 
     print_step "Resuming the Codex session with --last..."
     RC=0

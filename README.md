@@ -118,6 +118,7 @@ agentic-ci {setup,run,stop} [options]
 | `--workdir PATH` | `.` | Working directory to mount |
 | `--image IMAGE` | — | Container or sandbox base image |
 | `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, and `gpt-5.6-sol` for Codex |
+| `--effort EFFORT` | `high` | Reasoning effort (`run` only): `claude --effort`, `opencode --variant`, or `codex -c model_reasoning_effort=`. `none` passes no effort flag. Invalid values fail before the agent starts |
 | `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
 | `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
@@ -283,12 +284,16 @@ report token usage but do not produce a dollar estimate.
 |---|---|---|
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key. When set, uses direct API auth instead of Vertex AI |
 | `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
+| `CLAUDE_REASONING_EFFORT` | `high` | Reasoning effort for Claude Code (`low`, `medium`, `high`, `xhigh`, `max`, or `none`; overridden by `--effort`) |
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |
 | `OPENCODE_MODEL` | `google-vertex/claude-opus-4-6@default` | Default model for OpenCode harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
+| `OPENCODE_REASONING_EFFORT` | `high` | OpenCode model variant (`low`, `medium`, `high`, `max`, or `none`; overridden by `--effort`). Variant names depend on the model |
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
 | `OPENAI_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
 | `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
 | `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
+| `CODEX_REASONING_EFFORT` | `high` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, `xhigh`, or `none`; overridden by `--effort`) |
+| `CODEX_SUBAGENT_REASONING_EFFORT` | value of `CODEX_REASONING_EFFORT` | Reasoning effort for agents Codex spawns (`agents.default_subagent_reasoning_effort`) |
 | `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |
 | `AGENTIC_CI_LITELLM_COST_MAP` | — | Optional path to a LiteLLM-format JSON model-price map for Codex cost estimates |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | — | Vertex AI project ID |
@@ -451,6 +456,19 @@ awareness of this file. `context_dir` is validated to stay within
 9. **Verdict** -- `verdict_loader` reads the agent's structured output
 10. **Report** -- `label_applier` applies labels, posts comments, transitions tickets
 
+### Reasoning Effort
+
+Every run passes a reasoning effort to the agent CLI so quality does not
+depend on the model's own default (Codex, for example, defaults to `low` on
+`gpt-5.6-sol`). The effective value is resolved as `--effort` flag, then the
+harness env var (`CLAUDE_REASONING_EFFORT`, `OPENCODE_REASONING_EFFORT`,
+`CODEX_REASONING_EFFORT`), then the registry `default_effort`, which is
+`high` for all three harnesses. Codex sub-agents follow
+`CODEX_SUBAGENT_REASONING_EFFORT`, else the main effort. The value `none`
+passes no flag. Invalid values fail before the agent starts. The effective
+effort is printed at run start and recorded on the synthetic root span as
+`agent.reasoning_effort` (and `agent.subagent_reasoning_effort`).
+
 ### Model Routing with `run_routed_skill()`
 
 `run_routed_skill()` runs the same pipeline as `run_skill()` but picks the
@@ -499,6 +517,7 @@ Behavior:
 - A `skill.routed` event (tier, model, effort, source) is appended to the
   run's `_run/claude-otel.jsonl`. OTEL cost totals include the classifier.
 - `config.container_runner` must be unset; custom runners have no model surface.
+- A tier with `effort=None` runs at the harness default effort (`--effort`, the effort env var, or the registry `default_effort`, which is `high`), the same as an unrouted run.
 - OpenCode variant names depend on the model: Claude 4.6 ids accept `low`, `medium`, `high`, `max`; `claude-sonnet-4-5` accepts only `high` and `max`.
 
 ### Example: jira-autofix

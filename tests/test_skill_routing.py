@@ -166,15 +166,18 @@ class TestRunRoutedSkill:
         _run(_config(), tmp_path, classifier_prompt_builder=lambda t: f"TASK TO RATE: {t}")
         assert _classifier_runs()[0]["prompt"].startswith("TASK TO RATE: ")
 
-    def test_fallback_on_classifier_failure(self, tmp_path):
+    def test_fallback_on_classifier_failure(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_REASONING_EFFORT", raising=False)
         FakeSession.classifier_rc = 1
         result = _run(_config(), tmp_path)
         assert result.rc == 0
         main = _main_runs()[0]
         assert main["model"] == "default-model"
-        assert main["effort"] is None
+        # fallback carries the registry default effort, same as an unrouted run
+        assert main["effort"] == "high"
         assert result.route.source == "fallback"
         assert result.route.tier is None
+        assert result.route.effort == "high"
 
     def test_fallback_on_missing_route_file(self, tmp_path):
         FakeSession.difficulty = None
@@ -330,6 +333,7 @@ class TestAgentSession:
 
     def test_one_setup_many_runs_one_stop(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CLAUDE_MODEL", "env-model")
+        monkeypatch.delenv("CLAUDE_REASONING_EFFORT", raising=False)
         backend = RecordingBackend()
         harness = create_harness("claude-code")
         with (
@@ -349,12 +353,44 @@ class TestAgentSession:
         assert backend.calls == [
             ("setup", None),
             ("run", "first", "a", ["--effort", "low"], tmp_path / "1.txt"),
-            ("run", "second", "b", ["--x"], tmp_path / "2.txt"),
+            # effort=None resolves to the registry default for regular runs
+            ("run", "second", "b", ["--effort", "high", "--x"], tmp_path / "2.txt"),
             ("stop",),
         ]
         assert (tmp_path / "_run").is_dir()
         assert session.last_model == "b"
+        assert session.last_effort == "high"
+        assert session.last_subagent_effort is None
         assert session.last_rc == 0
+
+    def test_env_effort_override_and_root_span_attributes(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CODEX_REASONING_EFFORT", "medium")
+        monkeypatch.setenv("CODEX_SUBAGENT_REASONING_EFFORT", "low")
+        backend = RecordingBackend()
+        harness = create_harness("codex")
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend),
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+            mock.patch(
+                "agentic_ci.skill.start_collector",
+                return_value=(object(), 4318, tmp_path / "_run" / "claude-otel.jsonl", None),
+            ),
+            mock.patch("agentic_ci.skill.stop_collector"),
+            mock.patch("agentic_ci.skill.inject_root_spans", return_value=1) as inject,
+        ):
+            with _AgentSession(tmp_path, harness_name="codex") as session:
+                session.run("p", model="gpt-5.6-sol")
+
+        assert backend.calls[1][3] == [
+            "-c",
+            "model_reasoning_effort=medium",
+            "-c",
+            "agents.default_subagent_reasoning_effort=low",
+        ]
+        attributes = inject.call_args.kwargs["attributes"]
+        assert attributes["agent.model"] == "gpt-5.6-sol"
+        assert attributes["agent.reasoning_effort"] == "medium"
+        assert attributes["agent.subagent_reasoning_effort"] == "low"
 
     def test_setup_failure_releases_collector_and_backend(self, tmp_path):
         backend = RecordingBackend()

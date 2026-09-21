@@ -245,6 +245,32 @@ class TestClaudeCodeHarness:
     def test_build_effort_args(self):
         assert ClaudeCodeHarness().build_effort_args("xhigh") == ["--effort", "xhigh"]
 
+    def test_effort_env_var(self):
+        assert ClaudeCodeHarness().effort_env_var() == "CLAUDE_REASONING_EFFORT"
+        assert ClaudeCodeHarness().subagent_effort_env_var() is None
+
+    def test_resolve_efforts_default_is_high(self):
+        assert ClaudeCodeHarness().resolve_efforts(env={}) == ("high", None)
+
+    def test_resolve_efforts_env_override(self):
+        env = {"CLAUDE_REASONING_EFFORT": "max"}
+        assert ClaudeCodeHarness().resolve_efforts(env=env) == ("max", None)
+
+    def test_resolve_efforts_explicit_beats_env(self):
+        env = {"CLAUDE_REASONING_EFFORT": "max"}
+        assert ClaudeCodeHarness().resolve_efforts("low", env=env) == ("low", None)
+
+    def test_resolve_efforts_none_disables_flag(self):
+        harness = ClaudeCodeHarness()
+        assert harness.resolve_efforts(env={"CLAUDE_REASONING_EFFORT": "none"}) == (None, None)
+        assert harness.build_effort_args(None, None) == []
+
+    def test_invalid_env_effort_fails_before_run(self):
+        harness = ClaudeCodeHarness()
+        effort, sub = harness.resolve_efforts(env={"CLAUDE_REASONING_EFFORT": "bogus"})
+        with pytest.raises(ValueError, match="Unsupported Claude Code effort 'bogus'"):
+            harness.build_effort_args(effort, sub)
+
     def test_build_effort_args_invalid_raises(self):
         with pytest.raises(ValueError, match="Unsupported Claude Code effort"):
             ClaudeCodeHarness().build_effort_args("turbo")
@@ -453,6 +479,21 @@ class TestOpenCodeHarness:
 
     def test_build_effort_args(self):
         assert OpenCodeHarness().build_effort_args("max") == ["--variant", "max"]
+
+    def test_effort_env_var(self):
+        assert OpenCodeHarness().effort_env_var() == "OPENCODE_REASONING_EFFORT"
+        assert OpenCodeHarness().subagent_effort_env_var() is None
+
+    def test_resolve_efforts_default_is_high(self):
+        assert OpenCodeHarness().resolve_efforts(env={}) == ("high", None)
+
+    def test_resolve_efforts_env_override(self):
+        env = {"OPENCODE_REASONING_EFFORT": "max"}
+        assert OpenCodeHarness().resolve_efforts(env=env) == ("max", None)
+
+    def test_resolve_efforts_none_disables_flag(self):
+        harness = OpenCodeHarness()
+        assert harness.resolve_efforts(env={"OPENCODE_REASONING_EFFORT": "none"}) == (None, None)
 
     def test_build_effort_args_invalid_raises(self):
         with pytest.raises(ValueError, match="Unsupported OpenCode effort"):
@@ -738,6 +779,51 @@ class TestCodexHarness:
 
     def test_build_effort_args(self):
         assert CodexHarness().build_effort_args("low") == ["-c", "model_reasoning_effort=low"]
+
+    def test_build_effort_args_with_subagent(self):
+        assert CodexHarness().build_effort_args("high", "medium") == [
+            "-c",
+            "model_reasoning_effort=high",
+            "-c",
+            "agents.default_subagent_reasoning_effort=medium",
+        ]
+
+    def test_effort_env_vars(self):
+        assert CodexHarness().effort_env_var() == "CODEX_REASONING_EFFORT"
+        assert CodexHarness().subagent_effort_env_var() == "CODEX_SUBAGENT_REASONING_EFFORT"
+
+    def test_resolve_efforts_default_is_high_for_main_and_subagents(self):
+        assert CodexHarness().resolve_efforts(env={}) == ("high", "high")
+
+    def test_resolve_efforts_subagent_follows_main_override(self):
+        env = {"CODEX_REASONING_EFFORT": "medium"}
+        assert CodexHarness().resolve_efforts(env=env) == ("medium", "medium")
+
+    def test_resolve_efforts_subagent_env_override(self):
+        env = {"CODEX_REASONING_EFFORT": "high", "CODEX_SUBAGENT_REASONING_EFFORT": "low"}
+        assert CodexHarness().resolve_efforts(env=env) == ("high", "low")
+
+    def test_resolve_efforts_none_disables_both(self):
+        assert CodexHarness().resolve_efforts(env={"CODEX_REASONING_EFFORT": "none"}) == (
+            None,
+            None,
+        )
+
+    def test_invalid_subagent_effort_fails_before_run(self):
+        harness = CodexHarness()
+        effort, sub = harness.resolve_efforts(env={"CODEX_SUBAGENT_REASONING_EFFORT": "bogus"})
+        with pytest.raises(ValueError, match="Unsupported Codex sub-agent effort 'bogus'"):
+            harness.build_effort_args(effort, sub)
+
+    def test_default_run_sets_both_efforts_in_args(self):
+        harness = CodexHarness()
+        effort, sub = harness.resolve_efforts(env={})
+        args = harness.build_args(
+            "prompt", "model", extra_args=harness.build_effort_args(effort, sub)
+        )
+        assert "model_reasoning_effort=high" in args
+        assert "agents.default_subagent_reasoning_effort=high" in args
+        assert args[-4:] == ["-m", "model", "--", "prompt"]
 
     def test_build_effort_args_invalid_raises(self):
         with pytest.raises(ValueError, match="Unsupported Codex effort"):

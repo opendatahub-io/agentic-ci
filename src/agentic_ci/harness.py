@@ -22,6 +22,9 @@ from agentic_ci.stream import (
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 
+EFFORT_NONE = "none"
+"""Effort override value meaning "pass no effort flag"."""
+
 
 class Harness(ABC):
     """Base class for agent CLI harnesses."""
@@ -136,25 +139,65 @@ class Harness(ABC):
         """
         return dict(self.models.tiers)
 
-    def build_effort_args(self, effort: str | None) -> list[str]:
+    @abstractmethod
+    def effort_env_var(self) -> str:
+        """Env var name for the reasoning effort override."""
+
+    def subagent_effort_env_var(self) -> str | None:
+        """Env var name for the sub-agent effort override (``None`` = no separate knob)."""
+        return None
+
+    def resolve_efforts(
+        self, effort: str | None = None, env: Mapping[str, str] | None = None
+    ) -> tuple[str | None, str | None]:
+        """Return the effective ``(effort, subagent_effort)`` for a run.
+
+        Precedence for the main effort: explicit *effort* argument, then the
+        :meth:`effort_env_var` value, then the registry ``default_effort``.
+        The sub-agent effort is the :meth:`subagent_effort_env_var` value,
+        then the registry ``subagent_effort``, then the main effort; it is
+        ``None`` for harnesses without a separate sub-agent knob. The literal
+        value ``none`` selects "no effort flag". Values are validated by
+        :meth:`build_effort_args`.
+        """
+        config_env = env if env is not None else os.environ
+        main = effort or config_env.get(self.effort_env_var()) or self.models.default_effort
+        if main == EFFORT_NONE:
+            main = None
+        sub_var = self.subagent_effort_env_var()
+        if sub_var is None:
+            return main, None
+        sub = config_env.get(sub_var) or self.models.subagent_effort or main
+        if sub == EFFORT_NONE:
+            sub = None
+        return main, sub
+
+    def build_effort_args(
+        self, effort: str | None, subagent_effort: str | None = None
+    ) -> list[str]:
         """Return CLI args that set reasoning effort for this harness.
 
-        Returns ``[]`` when *effort* is ``None``. Raises ``ValueError`` for a
-        value outside the registry's ``efforts`` set. The result is passed
-        to ``build_args()`` through ``extra_args``.
+        Returns ``[]`` when both values are ``None``. Raises ``ValueError``
+        for a value outside the registry's ``efforts`` set, so an invalid
+        override fails before the agent starts. The result is passed to
+        ``build_args()`` through ``extra_args``.
         """
-        if effort is None:
+        for label, value in (("effort", effort), ("sub-agent effort", subagent_effort)):
+            if value is not None and value not in self.models.efforts:
+                raise ValueError(
+                    f"Unsupported {self.name} {label} {value!r}; "
+                    f"expected one of {sorted(self.models.efforts)} or {EFFORT_NONE!r}"
+                )
+        if effort is None and subagent_effort is None:
             return []
-        if effort not in self.models.efforts:
-            raise ValueError(
-                f"Unsupported {self.name} effort {effort!r}; "
-                f"expected one of {sorted(self.models.efforts)}"
-            )
-        return self.effort_args(effort)
+        return self.effort_args(effort, subagent_effort)
 
     @abstractmethod
-    def effort_args(self, effort: str) -> list[str]:
-        """CLI fragment that sets an already-validated *effort* for this harness."""
+    def effort_args(self, effort: str | None, subagent_effort: str | None) -> list[str]:
+        """CLI fragment for already-validated efforts.
+
+        Harnesses without a sub-agent knob ignore *subagent_effort*.
+        """
 
     def classifier_effort(self) -> str | None:
         """Effort for the difficulty classifier run, from the registry (``None`` = no flag)."""
@@ -404,8 +447,11 @@ class ClaudeCodeHarness(Harness):
     def model_env_var(self):
         return "CLAUDE_MODEL"
 
-    def effort_args(self, effort):
-        return ["--effort", effort]
+    def effort_env_var(self):
+        return "CLAUDE_REASONING_EFFORT"
+
+    def effort_args(self, effort, subagent_effort):
+        return ["--effort", effort] if effort else []
 
     def build_classifier_args(self, max_turns):
         return ["--max-turns", str(max_turns)]
@@ -584,8 +630,11 @@ class OpenCodeHarness(Harness):
     def model_env_var(self):
         return "OPENCODE_MODEL"
 
-    def effort_args(self, effort):
-        return ["--variant", effort]
+    def effort_env_var(self):
+        return "OPENCODE_REASONING_EFFORT"
+
+    def effort_args(self, effort, subagent_effort):
+        return ["--variant", effort] if effort else []
 
     @property
     def supports_otel(self) -> bool:
@@ -770,8 +819,19 @@ class CodexHarness(Harness):
     def model_env_var(self):
         return "CODEX_MODEL"
 
-    def effort_args(self, effort):
-        return ["-c", f"model_reasoning_effort={effort}"]
+    def effort_env_var(self):
+        return "CODEX_REASONING_EFFORT"
+
+    def subagent_effort_env_var(self):
+        return "CODEX_SUBAGENT_REASONING_EFFORT"
+
+    def effort_args(self, effort, subagent_effort):
+        args = []
+        if effort:
+            args.extend(["-c", f"model_reasoning_effort={effort}"])
+        if subagent_effort:
+            args.extend(["-c", f"agents.default_subagent_reasoning_effort={subagent_effort}"])
+        return args
 
     @property
     def supports_otel(self) -> bool:

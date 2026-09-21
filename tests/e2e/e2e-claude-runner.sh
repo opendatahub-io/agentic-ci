@@ -101,6 +101,8 @@ agentic-ci run "Reply with only the word pong" \
 
 assert_ok "streaming container exited successfully" test "$RC" -eq 0
 assert_ok "streaming output file is non-empty" test -s "$TMPDIR_E2E/stream-out.txt"
+assert_contains "default reasoning effort is logged" \
+    "$(cat "$TMPDIR_E2E/stream-out.txt")" "Reasoning effort.*high"
 assert_contains "streaming output contains response" \
     "$(cat "$TMPDIR_E2E/stream-out.txt")" "pong"
 

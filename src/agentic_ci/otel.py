@@ -661,6 +661,28 @@ def _write_records(log_file, records):
             f.write(json.dumps(rec) + "\n")
 
 
+def root_span_attributes(
+    backend: str,
+    harness: str,
+    model: str,
+    effort: str | None = None,
+    subagent_effort: str | None = None,
+) -> dict[str, str]:
+    """Return the synthetic root span attributes for one agent run.
+
+    Always sets ``agent.backend``, ``agent.harness`` and ``agent.model``;
+    adds ``agent.reasoning_effort`` and ``agent.subagent_reasoning_effort``
+    when those efforts are in effect, so MLflow and JSONL consumers can see
+    the effective effort next to the model.
+    """
+    attributes = {"agent.backend": backend, "agent.harness": harness, "agent.model": model}
+    if effort is not None:
+        attributes["agent.reasoning_effort"] = effort
+    if subagent_effort is not None:
+        attributes["agent.subagent_reasoning_effort"] = subagent_effort
+    return attributes
+
+
 def inject_root_spans(
     log_file,
     start_ns,
