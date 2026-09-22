@@ -42,6 +42,7 @@ class FakeSession:
         self.trace_id = TRACE_ID
         self.span_id = SPAN_ID
         self.runs = []
+        self.completion_files = []
         self.entered = 0
         self.exited = 0
         FakeSession.instances.append(self)
@@ -55,7 +56,9 @@ class FakeSession:
         self.exited += 1
         return False
 
-    def run(self, prompt, *, model, effort=None, extra_args=None, output_file=None):
+    def run(
+        self, prompt, *, model, effort=None, extra_args=None, output_file=None, completion_file=None
+    ):
         self.runs.append(
             {
                 "prompt": prompt,
@@ -65,6 +68,7 @@ class FakeSession:
                 "output_file": output_file,
             }
         )
+        self.completion_files.append(completion_file)
         if "TASK TO RATE" in prompt:
             if FakeSession.difficulty is not None:
                 route_path(self.work_dir).write_text(
@@ -146,6 +150,8 @@ class TestRunRoutedSkill:
         assert main["effort"] == "high"
         assert main["extra_args"] is None
         assert main["output_file"] == tmp_path / "agent-output.txt"
+        # The classifier completes on its route file; the skill run keeps the verdict.
+        assert session.completion_files == [tmp_path / "_run" / "route.json", None]
         assert result.route == RouteDecision(
             model="claude-sonnet-4-5", effort="high", tier="medium", source="classifier", reason="r"
         )
@@ -362,6 +368,34 @@ class TestAgentSession:
         assert session.last_effort == "high"
         assert session.last_subagent_effort is None
         assert session.last_rc == 0
+
+    def test_completion_file_overrides_verdict_path_for_one_run(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_REASONING_EFFORT", raising=False)
+        backend = RecordingBackend()
+        seen = []
+        original_run = backend.run
+
+        def run(*args, **kwargs):
+            seen.append(backend.verdict_path)
+            return original_run(*args, **kwargs)
+
+        backend.run = run
+        harness = create_harness("claude-code")
+        route = tmp_path / "_run" / "route.json"
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend),
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+            mock.patch.object(
+                type(harness), "supports_otel", new_callable=mock.PropertyMock
+            ) as otel,
+        ):
+            otel.return_value = False
+            with _AgentSession(tmp_path, verdict_path=tmp_path / "v.json") as session:
+                session.run("classify", model="a", completion_file=route)
+                session.run("skill", model="b")
+
+        assert seen == [route, tmp_path / "v.json"]
+        assert backend.verdict_path == tmp_path / "v.json"
 
     def test_env_effort_override_and_root_span_attributes(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CODEX_REASONING_EFFORT", "medium")
