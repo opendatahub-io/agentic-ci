@@ -61,6 +61,8 @@ Good for: production CI where you need to control what the agent can
 access on the network and filesystem.
 
 Requires: `openshell` and `openshell-gateway` installed on the host.
+See [Local Development with OpenShell](https://opendatahub-io.github.io/agentic-ci/guides/openshell-local/)
+to set it up on your workstation.
 
 ## Install
 

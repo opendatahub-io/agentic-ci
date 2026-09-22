@@ -5,6 +5,10 @@ The OpenShell backend runs AI agents inside
 policy enforcement, filesystem isolation, and Landlock-based access
 control.
 
+New to OpenShell? Start with
+[Local Development with OpenShell](../guides/openshell-local.md), a
+step-by-step guide to running agents in a sandbox on your workstation.
+
 ## How It Works
 
 The backend manages three components: a **gateway** (control plane),
