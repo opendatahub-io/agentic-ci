@@ -257,7 +257,7 @@ class TestRunRoutedSkill:
         assert session.kwargs["verdict_path"] == tmp_path / "verdict.json"
         assert session.kwargs["harness_name"] == "codex"
         assert session.kwargs["backend_name"] == "local"
-        assert _main_runs()[0]["model"] == "gpt-5.6-luna"
+        assert _main_runs()[0]["model"] == "gpt-6-luna"
         assert _classifier_runs()[0]["extra_args"] is None
 
     def test_routed_event_written_under_run_root(self, tmp_path):
@@ -413,7 +413,7 @@ class TestAgentSession:
             mock.patch("agentic_ci.skill.inject_root_spans", return_value=1) as inject,
         ):
             with _AgentSession(tmp_path, harness_name="codex") as session:
-                session.run("p", model="gpt-5.6-sol")
+                session.run("p", model="gpt-6-sol")
 
         assert backend.calls[1][3] == [
             "-c",
@@ -422,7 +422,7 @@ class TestAgentSession:
             "agents.default_subagent_reasoning_effort=low",
         ]
         attributes = inject.call_args.kwargs["attributes"]
-        assert attributes["agent.model"] == "gpt-5.6-sol"
+        assert attributes["agent.model"] == "gpt-6-sol"
         assert attributes["agent.reasoning_effort"] == "medium"
         assert attributes["agent.subagent_reasoning_effort"] == "low"
 

@@ -624,7 +624,7 @@ class TestCodexHarness:
 
     def test_build_args(self):
         harness = CodexHarness()
-        args = harness.build_args("do something", "gpt-5.6-sol")
+        args = harness.build_args("do something", "gpt-6-sol")
         assert args[0:2] == ["bash", "-c"]
         assert "codex login --with-api-key" in args[2]
         assert "codex login --with-api-key failed" in args[2]
@@ -641,7 +641,7 @@ class TestCodexHarness:
         config_values = [args[index + 1] for index, arg in enumerate(args) if arg == "-c"]
         assert "check_for_update_on_startup=false" in config_values
         assert "-m" in args
-        assert "gpt-5.6-sol" in args
+        assert "gpt-6-sol" in args
         assert "do something" in args
 
     def test_build_env_script_lines_exports_traceparent(self, monkeypatch):
@@ -670,12 +670,12 @@ class TestCodexHarness:
         assert "TRACEPARENT" not in CodexHarness().build_local_env()
 
     def test_build_args_externally_sandboxed_bypasses_inner_sandbox(self):
-        args = CodexHarness().build_args("do something", "gpt-5.6-sol", externally_sandboxed=True)
+        args = CodexHarness().build_args("do something", "gpt-6-sol", externally_sandboxed=True)
         assert "--dangerously-bypass-approvals-and-sandbox" in args
         assert "--approve-for-me" not in args
 
     def test_build_args_default_keeps_codex_safeguards(self):
-        args = CodexHarness().build_args("do something", "gpt-5.6-sol")
+        args = CodexHarness().build_args("do something", "gpt-6-sol")
         assert "--approve-for-me" in args
         assert "--dangerously-bypass-approvals-and-sandbox" not in args
 
@@ -822,15 +822,15 @@ class TestCodexHarness:
         assert CodexHarness().model_env_var() == "CODEX_MODEL"
 
     def test_default_model(self):
-        assert CodexHarness().default_model() == "gpt-5.6-sol"
+        assert CodexHarness().default_model() == "gpt-6-sol"
 
     def test_default_model_tiers(self):
         harness = CodexHarness()
         tiers = harness.default_model_tiers()
         assert set(tiers) == {"low", "medium", "high"}
         assert tiers["high"].model == harness.default_model()
-        assert tiers["low"] == ModelTier("gpt-5.6-luna", "xhigh")
-        assert tiers["medium"] == ModelTier("gpt-5.6-luna", "xhigh")
+        assert tiers["low"] == ModelTier("gpt-6-luna", "xhigh")
+        assert tiers["medium"] == ModelTier("gpt-6-luna", "xhigh")
         assert tiers["high"].effort == "high"
 
     def test_build_effort_args_none_is_empty(self):

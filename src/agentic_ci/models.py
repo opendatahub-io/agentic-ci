@@ -94,11 +94,11 @@ MODEL_REGISTRY: dict[str, HarnessModels] = {
     # following the main effort when None); without it they run at the model
     # default, which is low for gpt-5.6-sol (RHAIFIRST-649).
     "codex": HarnessModels(
-        default="gpt-5.6-sol",
+        default="gpt-6-sol",
         tiers={
-            "low": ModelTier("gpt-5.6-luna", "xhigh"),
-            "medium": ModelTier("gpt-5.6-luna", "xhigh"),
-            "high": ModelTier("gpt-5.6-sol", "high"),
+            "low": ModelTier("gpt-6-luna", "xhigh"),
+            "medium": ModelTier("gpt-6-luna", "xhigh"),
+            "high": ModelTier("gpt-6-sol", "high"),
         },
         efforts=frozenset({"minimal", "low", "medium", "high", "xhigh"}),
         default_effort="high",
