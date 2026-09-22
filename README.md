@@ -117,7 +117,7 @@ agentic-ci {setup,run,stop} [options]
 | `--harness` | `claude-code` | Agent harness (`claude-code`, `opencode`, or `codex`) |
 | `--workdir PATH` | `.` | Working directory to mount |
 | `--image IMAGE` | — | Container or sandbox base image |
-| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, and `gpt-5.6-sol` for Codex |
+| `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, and `gpt-6-sol` for Codex |
 | `--effort EFFORT` | `high` | Reasoning effort (`run` only): `claude --effort`, `opencode --variant`, or `codex -c model_reasoning_effort=`. `none` passes no effort flag. Invalid values fail before the agent starts |
 | `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
 | `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
@@ -291,7 +291,7 @@ report token usage but do not produce a dollar estimate.
 | `OPENCODE_CONTAINER_IMAGE` | — | Default container image for OpenCode harness |
 | `OPENAI_API_KEY` | — | OpenAI API key scoped to a non-interactive Codex run |
 | `CODEX_HOME` | `~/.codex` | Codex configuration, authentication, plugins, and skills directory |
-| `CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
+| `CODEX_MODEL` | `gpt-6-sol` | Default model for Codex harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
 | `CODEX_REASONING_EFFORT` | `high` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, `xhigh`, or `none`; overridden by `--effort`) |
 | `CODEX_SUBAGENT_REASONING_EFFORT` | value of `CODEX_REASONING_EFFORT` | Reasoning effort for agents Codex spawns (`agents.default_subagent_reasoning_effort`) |
 | `CODEX_CONTAINER_IMAGE` | — | Default container image for Codex harness |
@@ -500,7 +500,7 @@ Default tiers, defined once in `agentic_ci.models.MODEL_REGISTRY` together with 
 |---|---|---|---|
 | Claude Code | `claude-sonnet-4-5`, effort `medium` | `claude-sonnet-4-5`, effort `high` | `claude-opus-4-6`, effort `high` |
 | OpenCode | `google-vertex/claude-sonnet-4-5@20250929`, no variant | `google-vertex/claude-sonnet-4-5@20250929`, variant `high` | `google-vertex/claude-opus-4-6@default`, variant `high` |
-| Codex | `gpt-5.6-luna`, effort `xhigh` | `gpt-5.6-luna`, effort `xhigh` | `gpt-5.6-sol`, effort `high` |
+| Codex | `gpt-6-luna`, effort `xhigh` | `gpt-6-luna`, effort `xhigh` | `gpt-6-sol`, effort `high` |
 
 Behavior:
 
