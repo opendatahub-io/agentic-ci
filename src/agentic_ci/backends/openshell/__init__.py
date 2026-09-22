@@ -104,9 +104,10 @@ class OpenShellBackend(Backend):
 
     OpenShell provides security-focused sandboxing with network policy
     enforcement, filesystem isolation, and Landlock-based access control.
-    Authentication is handled through the OpenShell google-cloud provider,
-    which injects GCP credentials via the supervisor proxy. The agent
-    uses its native Vertex AI integration directly.
+    Authentication is handled through an OpenShell provider (google-vertex-ai,
+    anthropic, or openai). The gateway holds the real credential and injects
+    a placeholder into the sandbox; the supervisor proxy swaps it for the
+    real value on requests to the provider profile's endpoints.
 
     Unlike PodmanBackend, which bind-mounts the workdir so changes are
     visible immediately on the host, OpenShellBackend copies the workdir
@@ -146,6 +147,14 @@ class OpenShellBackend(Backend):
         env = self._merged_env()
         auth_mode = self.harness.auth_mode_for_env(env)
         provider.validate_credentials(auth_mode, env)
+
+        if gateway.is_running() and not gateway.config_is_current():
+            # The gateway reads gateway.toml only at startup, so a running
+            # gateway would keep creating sandboxes with the old supervisor
+            # and sandbox runtime images. Tear down the sandbox and gateway
+            # so the new config takes effect.
+            log.section("OpenShell gateway config changed; restarting gateway")
+            self.stop()
 
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
@@ -359,9 +368,10 @@ class OpenShellBackend(Backend):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
         Uses the harness's native env script (Vertex AI vars, API key, and
-        OTEL vars) since the google-cloud provider injects GCP credentials
-        directly. The harness handles OTEL endpoint configuration using the
-        gateway host address.
+        OTEL vars). Provider credentials arrive as gateway-injected
+        placeholders in the sandbox environment, so the script only wires
+        the harness to them. The harness handles OTEL endpoint configuration
+        using the gateway host address.
         """
         env = self._merged_env() if env is None else env
         auth_mode = self.harness.auth_mode_for_env(env) if auth_mode is None else auth_mode

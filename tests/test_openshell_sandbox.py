@@ -1,11 +1,15 @@
 """Tests for OpenShell sandbox lifecycle commands."""
 
+import os
+import subprocess
 from unittest import mock
 
 import pytest
+import yaml
 
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import sandbox
+from agentic_ci.backends.openshell.policy import BASE_POLICY
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
 
 
@@ -24,9 +28,15 @@ def created():
     return _create
 
 
+def _without_policy_flag(args):
+    """Drop the ``--policy <tempfile>`` pair whose path differs per call."""
+    index = args.index("--policy")
+    return args[:index] + args[index + 2 :]
+
+
 class TestCreateResourceFlags:
     def test_no_resource_flags_by_default(self, created):
-        assert created() == [
+        assert _without_policy_flag(created()) == [
             "openshell",
             "sandbox",
             "create",
@@ -96,10 +106,50 @@ def test_create_uses_detached_persistent_main_process():
     assert create_args[-3:] == ["--", "sleep", "infinity"]
 
 
+class TestCreateBasePolicy:
+    def test_passes_base_policy_file_and_removes_it(self):
+        seen = {}
+
+        def capture(args, **kwargs):
+            path = args[args.index("--policy") + 1]
+            with open(path) as f:
+                seen["policy"] = yaml.safe_load(f)
+            seen["path"] = path
+
+        with (
+            mock.patch.object(sandbox, "_run", side_effect=capture),
+            mock.patch.object(sandbox, "_apply_policy"),
+        ):
+            sandbox.create()
+
+        assert seen["policy"] == BASE_POLICY
+        assert seen["policy"]["version"] == 1
+        assert "filesystem_policy" in seen["policy"]
+        assert not os.path.exists(seen["path"])
+
+    def test_policy_flag_precedes_the_command_terminator(self, created):
+        args = created()
+        assert args.index("--policy") < args.index("--")
+
+    def test_policy_file_removed_when_create_fails(self):
+        seen = {}
+
+        def fail(args, **kwargs):
+            seen["path"] = args[args.index("--policy") + 1]
+            raise subprocess.CalledProcessError(1, args)
+
+        with (
+            mock.patch.object(sandbox, "_run", side_effect=fail),
+            pytest.raises(subprocess.CalledProcessError),
+        ):
+            sandbox.create()
+
+        assert not os.path.exists(seen["path"])
+
+
 def test_apply_policy_allows_hummingbird_binary_aliases():
     with (
         mock.patch.object(sandbox, "resolve_endpoints", return_value=["github.com:443:full"]),
-        mock.patch.object(sandbox, "_apply_credential_bindings"),
         mock.patch.object(sandbox, "_run") as run,
     ):
         sandbox._apply_policy(policy_path=None)

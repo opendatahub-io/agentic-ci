@@ -114,24 +114,40 @@ else
     CODEX_SANDBOX="localhost/codex-sandbox:latest"
 fi
 
-# --- Resolve supervisor image ---
-# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE in as an ENV, so
-# this fallback only applies to local dev runs outside that image. Derive the
-# tag from the Containerfile so it stays matched to the pinned CLI/gateway
-# version after a bump rather than drifting.
+# --- Resolve supervisor and sandbox runtime images ---
+# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE and
+# OPENSHELL_SANDBOX_RUNTIME_IMAGE in as ENVs, so these fallbacks only apply
+# to local dev runs outside that image. Derive the tag from the Containerfile
+# so it stays matched to the pinned CLI/gateway version after a bump rather
+# than drifting. Both images must share a tag: the supervisor runs in its
+# own container and the sandbox runtime supplies the openshell-sandbox
+# binary mounted into the workload.
+os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
+    "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
 elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
-    os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
-        "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
     export OPENSHELL_SUPERVISOR_IMAGE="quay.io/opendatahub/odh-openshell-supervisor:${os_tag:-latest}"
 fi
+if [[ -n "${SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE"
+elif [[ -z "${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="quay.io/opendatahub/odh-openshell-sandbox:${os_tag:-latest}"
+fi
 print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
+print_step "Using sandbox runtime image: $OPENSHELL_SANDBOX_RUNTIME_IMAGE"
 
 # Helper: run a command inside a sandbox image as the sandbox user
 run_in() {
     local image="$1"; shift
     podman run --rm --entrypoint "" "$image" "$@"
+}
+
+# Helper: same, but with network=none so Podman leaves the image's own
+# /etc/resolv.conf in place (the OpenShell workload runs this way).
+run_in_netnone() {
+    local image="$1"; shift
+    podman run --rm --network none --entrypoint "" "$image" "$@"
 }
 
 # --- shared sandbox checks ---
@@ -142,6 +158,12 @@ assert_ok "gh is installed" run_in "$CLAUDE_SANDBOX" gh --version
 assert_ok "glab is installed" run_in "$CLAUDE_SANDBOX" glab --version
 assert_ok "shellcheck is installed" run_in "$CLAUDE_SANDBOX" shellcheck --version
 assert_ok "git is installed" run_in "$CLAUDE_SANDBOX" git --version
+assert_ok "Claude sandbox resolv.conf points at the policy DNS relay" \
+    run_in_netnone "$CLAUDE_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
+assert_ok "OpenCode sandbox resolv.conf points at the policy DNS relay" \
+    run_in_netnone "$OPENCODE_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
+assert_ok "Codex sandbox resolv.conf points at the policy DNS relay" \
+    run_in_netnone "$CODEX_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
 assert_ok "nsenter is installed in Claude sandbox" \
     run_in "$CLAUDE_SANDBOX" nsenter --version
 assert_ok "nsenter is installed in OpenCode sandbox" \
@@ -327,6 +349,7 @@ else
     echo "  openshell (wheel): $(openshell --version 2>&1 || echo unknown)"
     echo "  openshell-gateway: $(openshell-gateway --version 2>&1 || echo unknown)"
     echo "  supervisor image:  ${OPENSHELL_SUPERVISOR_IMAGE:-unknown}"
+    echo "  sandbox runtime:   ${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-unknown}"
     echo "  podman:            $(podman --version 2>&1 || echo unknown)"
     echo "  claude:            $(run_in "$CLAUDE_SANDBOX" claude --version 2>&1 || echo unknown)"
     echo "  opencode:          $(run_in "$OPENCODE_SANDBOX" opencode --version 2>&1 || echo unknown)"
@@ -427,6 +450,10 @@ else
     assert_contains "routed (openshell): OTEL log survived download" "$OUTPUT" "routed_event=ok"
     assert_contains "routed (openshell): verdict downloaded" "$OUTPUT" "verdict_file=ok"
     grep "ROUTED_" "$ROUTED_LOG" || true
+    if [[ "$RC" -ne 0 ]]; then
+        print_warning "routed driver failed (rc=$RC); last 60 lines:"
+        tail -60 "$ROUTED_LOG" || true
+    fi
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
@@ -450,6 +477,10 @@ else
         assert_contains "routed (openshell codex): classifier decided" "$OUTPUT" "source=classifier"
         assert_contains "routed (openshell codex): verdict downloaded" "$OUTPUT" "verdict_file=ok"
         grep "ROUTED_" "$ROUTED_LOG" || true
+        if [[ "$RC" -ne 0 ]]; then
+            print_warning "routed driver failed (rc=$RC); last 60 lines:"
+            tail -60 "$ROUTED_LOG" || true
+        fi
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true

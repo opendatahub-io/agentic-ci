@@ -1,26 +1,40 @@
 """Policy resolution for OpenShell sandbox."""
 
-import copy
 import os
 
 import yaml
 
-from agentic_ci.backends.openshell.provider import PROVIDER_NAME
-
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
+
+# Base sandbox policy passed to ``openshell sandbox create --policy``.
+#
+# Mirrors OpenShell's restrictive default policy (openshell_policy::
+# restrictive_default_policy). Passing it explicitly keeps the supervisor
+# from discovering the image's own /etc/openshell/policy.yaml: the
+# Hummingbird agentic images ship one in a foreign schema, and OpenShell
+# v0.0.116-rhaiv.8+ rejects the sandbox with "Image policy is invalid"
+# instead of falling back to its default. Network endpoints and binaries
+# are layered on afterwards with ``openshell policy update``.
+BASE_POLICY = {
+    "version": 1,
+    "filesystem_policy": {
+        "include_workdir": True,
+        "read_only": ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/etc", "/var/log"],
+        "read_write": ["/tmp", "/dev/null"],
+    },
+    "landlock": {"compatibility": "best_effort"},
+}
 
 # Default network endpoints in openshell policy update format:
 #   host:port:access[:protocol[:enforcement]]
 # No protocol is specified so endpoints are L4-only (CONNECT tunneling).
-# Using protocol=rest would enable L7 inspection which blocks CONNECT
-# requests that Vertex AI streaming/gRPC clients use.
 #
-# Hosts that a provider profile marks as credentialed (api.anthropic.com for
-# the anthropic provider, api.openai.com for the openai provider) reject
-# L4-only rules since OpenShell v0.0.116 unless the endpoint explicitly opts
-# in with the allow-uninspected-credentials option. This mirrors the
-# allow_uninspected_credentials flag build_credential_binding_patch sets on
-# the GCP endpoints.
+# Inference hosts are deliberately absent. The attached provider profile
+# (backends/openshell/profiles/*.yaml) contributes them as an L7 ``rest``
+# layer with the harness binaries, and the supervisor proxy resolves the
+# credential placeholder there. Declaring the same host again here makes
+# the gateway reject the update with "network endpoint ambiguity validation
+# failed ... conflicting metadata".
 DEFAULT_ENDPOINTS = [
     "github.com:443:full",
     "*.github.com:443:full",
@@ -30,19 +44,16 @@ DEFAULT_ENDPOINTS = [
     "files.pythonhosted.org:443:read-only",
 ]
 
+# Extra endpoints per auth mode, beyond what the provider profile supplies.
 AUTH_ENDPOINTS = {
-    "vertex": [
-        "aiplatform.googleapis.com:443:read-write",
-        "*.aiplatform.googleapis.com:443:read-write",
-        "oauth2.googleapis.com:443:read-write",
-    ],
-    "api-key": [
-        "api.anthropic.com:443:read-write:::allow-uninspected-credentials",
-    ],
+    # google-vertex-ai profile: *-aiplatform / aiplatform / *.rep hosts.
+    "vertex": [],
+    # anthropic profile: api.anthropic.com.
+    "api-key": [],
+    # openai profile: api.openai.com. Codex's ChatGPT backend API is served
+    # under chatgpt.com/backend-api; OpenShell policies match hosts, not URL
+    # paths, and no profile declares that host.
     "openai": [
-        "api.openai.com:443:read-write:::allow-uninspected-credentials",
-        # Codex's ChatGPT backend API is served under chatgpt.com/backend-api.
-        # OpenShell policies match hosts, not URL paths.
         "chatgpt.com:443:read-write",
     ],
 }
@@ -93,45 +104,3 @@ def resolve_endpoints(flag_path=None, workdir=".", auth_mode=None):
             endpoints.append(ep)
             seen.add(ep)
     return endpoints
-
-
-# GCP hosts that need credential_binding.provider for the endpointless
-# google-cloud profile.
-_GCP_CREDENTIAL_HOSTS = {
-    "aiplatform.googleapis.com",
-    "*.aiplatform.googleapis.com",
-    "oauth2.googleapis.com",
-}
-
-
-def build_credential_binding_patch(policy_get_output, provider_name=PROVIDER_NAME):
-    """Patch a policy to add credential_binding on GCP endpoints.
-
-    Takes the JSON output of ``openshell policy get --base -o json``
-    (which wraps the policy under a ``policy`` key), extracts the raw
-    policy, adds ``credential_binding.provider`` to GCP endpoints, and
-    returns the raw policy dict suitable for ``openshell policy set``.
-    Returns None if no changes are needed.
-    """
-    raw_policy = policy_get_output.get("policy")
-    if not isinstance(raw_policy, dict):
-        return None
-
-    patched = copy.deepcopy(raw_policy)
-    network_policies = patched.get("network_policies")
-    if not isinstance(network_policies, dict):
-        return None
-
-    changed = False
-    for rule in network_policies.values():
-        endpoints = rule.get("endpoints")
-        if not isinstance(endpoints, list):
-            continue
-        for ep in endpoints:
-            host = ep.get("host", "")
-            if host in _GCP_CREDENTIAL_HOSTS and "credential_binding" not in ep:
-                ep["credential_binding"] = {"provider": provider_name}
-                ep["allow_uninspected_credentials"] = True
-                changed = True
-
-    return patched if changed else None

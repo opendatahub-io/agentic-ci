@@ -1,0 +1,40 @@
+# Provider profile imported into the OpenShell gateway by agentic-ci.
+#
+# Copied from opendatahub-io/openshell providers/anthropic.yaml at
+# v0.0.116-rhaiv.11. OpenShell v0.0.116-rhaiv.8+ ships no provider
+# profiles in the gateway binary, so agentic-ci imports these at provider
+# setup time (see backends/openshell/provider.py:ensure_profiles).
+#
+# Local change: `binaries` lists the agent launchers baked into the
+# agentic-ci sandbox images (see sandbox.py:AGENT_BINARY_PATHS) instead of
+# the upstream community-image paths, so the generated provider policy
+# layer admits the harness processes.
+id: anthropic
+display_name: Anthropic
+description: Anthropic inference API
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: Anthropic API key
+    env_vars: [ANTHROPIC_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+discovery:
+  credentials: [api_key]
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  - /usr/local/bin/claude
+  - /usr/local/sbin/claude
+  - /usr/local/bin/opencode
+  - /usr/local/sbin/opencode
+  - /usr/local/bin/codex
+  - /usr/local/sbin/codex
+  - /usr/bin/curl
+  - /usr/local/bin/curl
