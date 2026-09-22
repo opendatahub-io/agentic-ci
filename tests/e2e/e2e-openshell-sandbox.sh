@@ -150,6 +150,21 @@ run_in_netnone() {
     podman run --rm --network none --entrypoint "" "$image" "$@"
 }
 
+# Plugins enabled for Claude runs through the OpenShell backend: everything the
+# image ships except agent-eval-harness. That plugin's SessionStart hook
+# bulk-installs MLflow with uv, and uv reuses a policy-DNS synthetic IP past
+# its ~30s mapping lifetime. The resulting transparent_tcp_mapping_denied
+# while other relays are open crashes the OpenShell supervisor ("control-mode
+# proxy accept loop exited unexpectedly"), upstream NVIDIA/OpenShell#3396.
+# Drop this once the supervisor survives that denial.
+CLAUDE_E2E_PLUGINS="$(run_in "$CLAUDE_SANDBOX" python3 -c "
+import json, pathlib
+d = json.loads(pathlib.Path('/sandbox/.claude/settings.json').read_text())
+names = sorted({k.split('@')[0] for k in d.get('enabledPlugins', {})})
+print(','.join(n for n in names if n != 'agent-eval-harness'))
+")"
+print_step "Claude OpenShell runs use AGENT_ENABLED_PLUGINS=$CLAUDE_E2E_PLUGINS"
+
 # --- shared sandbox checks ---
 print_header "=== shared sandbox: binaries ==="
 
@@ -363,6 +378,7 @@ else
 
     print_step "Running Claude Code via agentic-ci (openshell backend)..."
     RC=0
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run "Reply with only the word pong" \
         --backend openshell \
         --image "$CLAUDE_SANDBOX" \
@@ -438,6 +454,7 @@ else
     print_step "Running routed skill (openshell, claude-code, classifier)..."
     ROUTED_LOG="$TMPDIR_E2E/routed-claude.log"
     RC=0
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     "$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
         --backend openshell --harness claude-code \
         --image "$CLAUDE_SANDBOX" --workdir "$WORKDIR" \
@@ -505,6 +522,7 @@ POLICY
     print_step "Running Claude Code with repo-level policy (packages.redhat.com allowed)..."
     POLICY_LOG="$TMPDIR_E2E/repo-policy.log"
     RC=0
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Use curl to fetch https://packages.redhat.com. If you get a response, reply with only the word pong. If you cannot reach it, reply with only the word fail." \
         --backend openshell \
@@ -538,6 +556,7 @@ CONFIG
     print_step "Running Claude Code with setup steps..."
     SETUP_LOG="$TMPDIR_E2E/setup-steps.log"
     RC=0
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
         --backend openshell \
@@ -571,6 +590,7 @@ CONFIG
     SKIP_LOG="$TMPDIR_E2E/skip-setup.log"
     RC=0
     AGENTIC_CI_SKIP_SETUP=1 \
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
         --backend openshell \
@@ -605,6 +625,7 @@ GITIGNORE
     print_step "Running Claude Code to create a file in a gitignored directory..."
     VERDICT_LOG="$TMPDIR_E2E/verdict-download.log"
     RC=0
+    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Create the directory autofix-output/ then write the file autofix-output/verdict.json with the content {\"verdict\": \"committed\"}. Do not say anything else." \
         --backend openshell \
