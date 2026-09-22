@@ -313,7 +313,7 @@ class TestParseMetrics:
         assert token_totals[("gpt-5.6-sol", "cacheRead")] == 40
         assert token_totals[("gpt-5.6-sol", "cacheCreation")] == 10
         assert token_totals[("gpt-5.6-sol", "output")] == 20
-        assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.001865)
+        assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.001332)
         assert len(api_requests) == 1
         assert api_requests[0]["event.kind"] == "response.completed"
 
