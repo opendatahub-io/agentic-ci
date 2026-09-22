@@ -53,6 +53,7 @@ from agentic_ci.routing import (
     classify,
     forced_route,
     resolve_model_tiers,
+    route_path,
 )
 from agentic_ci.telemetry import emit_event
 
@@ -229,12 +230,31 @@ class _AgentSession:
         self._start_ns = time.time_ns()
         return self
 
-    def run(self, prompt, *, model, effort=None, extra_args=None, output_file=None):
+    def run(
+        self, prompt, *, model, effort=None, extra_args=None, output_file=None, completion_file=None
+    ):
         """Run the agent once with *model* and *effort*; returns the exit code.
 
         ``effort=None`` resolves to the harness effort env var or the registry
         ``default_effort`` (see ``Harness.resolve_efforts``).
+
+        ``completion_file`` replaces the session's verdict path for this run
+        only. When the stream processor saw the run finish but the process had
+        to be terminated (for example Codex lingering after its last event), the
+        backend promotes that exit code to 0 only if this file exists. The
+        classifier uses ``_run/route.json`` here, since it never writes the
+        skill's verdict file.
         """
+        if completion_file is None:
+            return self._run_once(prompt, model, effort, extra_args, output_file)
+        saved = self.backend.verdict_path
+        self.backend.verdict_path = completion_file
+        try:
+            return self._run_once(prompt, model, effort, extra_args, output_file)
+        finally:
+            self.backend.verdict_path = saved
+
+    def _run_once(self, prompt, model, effort, extra_args, output_file):
         self.backend.output_file = output_file
         main_effort, subagent_effort = self.harness.resolve_efforts(effort)
         args = [
@@ -643,7 +663,9 @@ def run_routed_skill(
                 decision = forced_route(force_tier, tiers)
             else:
                 decision = classify(
-                    session.run,
+                    # The classifier's evidence of completion is its route file,
+                    # not the skill verdict.
+                    functools.partial(session.run, completion_file=route_path(work_dir)),
                     work_dir=work_dir,
                     task_prompt=prompt,
                     tiers=tiers,

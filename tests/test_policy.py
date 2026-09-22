@@ -3,7 +3,6 @@
 from agentic_ci.backends.openshell.policy import (
     AUTH_ENDPOINTS,
     DEFAULT_ENDPOINTS,
-    build_credential_binding_patch,
     resolve_endpoints,
 )
 
@@ -56,102 +55,19 @@ def test_duplicate_endpoints_deduplicated(tmp_path):
     assert result.count("github.com:443:full") == 1
 
 
-def test_endpoints_include_vertex_ai():
-    result = resolve_endpoints(auth_mode="vertex")
-    assert any("aiplatform.googleapis.com" in ep for ep in result)
-    assert not any("api.anthropic.com" in ep for ep in result)
-    assert not any("api.openai.com" in ep for ep in result)
-
-
-def test_endpoints_include_anthropic_api():
-    result = resolve_endpoints(auth_mode="api-key")
-    assert "api.anthropic.com:443:read-write:::allow-uninspected-credentials" in result
-    assert not any("aiplatform.googleapis.com" in ep for ep in result)
-    assert not any("api.openai.com" in ep for ep in result)
-
-
-def test_credential_binding_patch_adds_binding_to_gcp():
-    policy_get_output = {
-        "scope": "sandbox",
-        "sandbox": "ci",
-        "version": 2,
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [
-                        {"host": "github.com", "port": 443, "access": "full"},
-                        {"host": "aiplatform.googleapis.com", "port": 443, "access": "read-write"},
-                        {"host": "oauth2.googleapis.com", "port": 443, "access": "read-write"},
-                    ],
-                    "binaries": [{"path": "/usr/local/bin/claude"}],
-                }
-            },
-        },
-    }
-    patched = build_credential_binding_patch(policy_get_output)
-    assert patched is not None
-    assert "scope" not in patched
-    endpoints = patched["network_policies"]["ci"]["endpoints"]
-    github_ep = [e for e in endpoints if e["host"] == "github.com"][0]
-    assert "credential_binding" not in github_ep
-    assert "allow_uninspected_credentials" not in github_ep
-    gcp_ep = [e for e in endpoints if e["host"] == "aiplatform.googleapis.com"][0]
-    assert gcp_ep["credential_binding"]["provider"] == "ci-gcp"
-    assert gcp_ep["allow_uninspected_credentials"] is True
-    oauth_ep = [e for e in endpoints if e["host"] == "oauth2.googleapis.com"][0]
-    assert oauth_ep["credential_binding"]["provider"] == "ci-gcp"
-    assert oauth_ep["allow_uninspected_credentials"] is True
-
-
-def test_credential_binding_patch_returns_none_when_no_gcp():
-    policy_get_output = {
-        "scope": "sandbox",
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [{"host": "github.com", "port": 443, "access": "full"}],
-                }
-            },
-        },
-    }
-    assert build_credential_binding_patch(policy_get_output) is None
-
-
-def test_credential_binding_patch_preserves_existing_binding():
-    policy_get_output = {
-        "scope": "sandbox",
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [
-                        {
-                            "host": "aiplatform.googleapis.com",
-                            "port": 443,
-                            "credential_binding": {"provider": "other-provider"},
-                        },
-                    ],
-                }
-            },
-        },
-    }
-    assert build_credential_binding_patch(policy_get_output) is None
+def test_inference_hosts_come_from_provider_profiles_not_policy():
+    # The google-vertex-ai, anthropic and openai profiles contribute their
+    # hosts as an L7 layer; declaring them here again makes the gateway
+    # reject the policy update as ambiguous.
+    for auth_mode in ("vertex", "api-key", "openai"):
+        result = resolve_endpoints(auth_mode=auth_mode)
+        assert not any("aiplatform.googleapis.com" in ep for ep in result)
+        assert not any("api.anthropic.com" in ep for ep in result)
+        assert not any("api.openai.com" in ep for ep in result)
+        assert result[: len(DEFAULT_ENDPOINTS)] == list(DEFAULT_ENDPOINTS)
 
 
 def test_endpoints_include_openai_apis():
     result = resolve_endpoints(auth_mode="openai")
     assert result == list(DEFAULT_ENDPOINTS) + AUTH_ENDPOINTS["openai"]
-    assert "api.openai.com:443:read-write:::allow-uninspected-credentials" in result
     assert "chatgpt.com:443:read-write" in result
-    assert not any("aiplatform.googleapis.com" in ep for ep in result)
-    assert not any("api.anthropic.com" in ep for ep in result)
-
-
-def test_credentialed_provider_hosts_allow_uninspected_credentials():
-    # OpenShell >= v0.0.116 rejects L4-only rules for hosts the attached
-    # provider profile marks as credentialed unless the endpoint opts in.
-    for auth_mode, host in (("api-key", "api.anthropic.com"), ("openai", "api.openai.com")):
-        matching = [ep for ep in resolve_endpoints(auth_mode=auth_mode) if ep.startswith(host)]
-        assert matching == [f"{host}:443:read-write:::allow-uninspected-credentials"]

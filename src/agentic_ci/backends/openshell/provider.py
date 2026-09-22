@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 from collections.abc import Mapping
+from pathlib import Path
 
 from agentic_ci import log
 from agentic_ci.gcp import adc_path as _adc_path
@@ -12,7 +13,21 @@ from agentic_ci.gcp import read_credential_type as _adc_credential_type
 
 PROVIDER_NAME = "ci-gcp"
 
-_SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "OPENAI_API_KEY=")
+# Provider profiles imported into the gateway before a provider is created.
+# OpenShell v0.0.116-rhaiv.8+ ships no profiles in the gateway binary, so
+# ``openshell provider create --type <id>`` fails with "provider profile
+# '<id>' not found" until a matching profile is imported. The YAML files are
+# vendored copies of the upstream ``providers/`` examples with ``binaries``
+# adjusted for the agentic-ci sandbox images.
+PROFILES_DIR = Path(__file__).parent / "profiles"
+PROFILE_IDS = ("google-vertex-ai", "openai", "anthropic")
+
+# Credential key the gateway refreshes for service-account Vertex auth. The
+# sandbox receives it as an opaque placeholder that the supervisor proxy
+# resolves on requests to the aiplatform endpoints declared by the profile.
+VERTEX_SA_TOKEN_KEY = "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN"
+
+_SECRET_PREFIXES = ("private_key=", f"{VERTEX_SA_TOKEN_KEY}=", "OPENAI_API_KEY=")
 _PROVIDER_AUTH_MODES = {
     "google-cloud": "vertex",
     "google-vertex-ai": "vertex",
@@ -39,9 +54,13 @@ def _run(args, **kwargs):
 def setup(auth_mode, env: Mapping[str, str] | None = None):
     """Configure the OpenShell provider.
 
-    Creates a google-cloud provider that injects GCP credentials into the
-    sandbox via the OpenShell supervisor proxy. The agent uses its native
-    Vertex AI integration — no inference.local proxy is needed.
+    Creates a google-vertex-ai provider for Vertex AI auth. The gateway
+    keeps the refresh material and mints short-lived access tokens; the
+    sandbox only sees a placeholder env var that the supervisor proxy
+    resolves on requests to the aiplatform endpoints. (OpenShell
+    v0.0.116-rhaiv.8+ removed the GCE metadata emulator the older
+    google-cloud provider relied on, so SDK-side ADC discovery no longer
+    works inside the sandbox.)
 
     For user OAuth credentials (from gcloud auth application-default login),
     --from-gcloud-adc handles everything. For service account keys (CI),
@@ -56,12 +75,70 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
         # is not supported. The existing provider is reused regardless of
         # its type. To switch, tear down the environment and start fresh.
         print(f"  Provider '{PROVIDER_NAME}' already exists", flush=True)
-    elif auth_mode == "api-key":
+        return
+
+    ensure_profiles()
+    if auth_mode == "api-key":
         _create_anthropic_provider(credential_env)
     elif auth_mode == "openai":
         _create_openai_provider(credential_env)
     else:
         _create_gcp_provider(credential_env)
+
+
+def _collect_profile_ids(node, ids):
+    """Collect every ``id``/``name`` string value from a nested JSON document.
+
+    ``openshell provider list-profiles -o json`` wraps profiles differently
+    across versions, so walk the whole document instead of assuming a shape.
+    """
+    if isinstance(node, dict):
+        for key in ("id", "name"):
+            value = node.get(key)
+            if isinstance(value, str):
+                ids.add(value)
+        for value in node.values():
+            _collect_profile_ids(value, ids)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_profile_ids(value, ids)
+
+
+def installed_profile_ids():
+    """Return the IDs of platform-scoped provider profiles the gateway serves."""
+    result = _run(
+        ["openshell", "provider", "list-profiles", "--global", "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        return set()
+    try:
+        data = json.loads(result.stdout)
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    ids: set[str] = set()
+    _collect_profile_ids(data, ids)
+    return ids
+
+
+def ensure_profiles():
+    """Import the vendored provider profiles the gateway does not have yet.
+
+    Import is create-only on the gateway side, so profiles that are already
+    present are skipped rather than re-imported.
+    """
+    installed = installed_profile_ids()
+    for profile_id in PROFILE_IDS:
+        if profile_id in installed:
+            continue
+        path = PROFILES_DIR / f"{profile_id}.yaml"
+        print(f"  Importing provider profile '{profile_id}'", flush=True)
+        _run(
+            ["openshell", "provider", "profile", "import", "-f", str(path), "--global"],
+            check=True,
+        )
 
 
 def validate_credentials(auth_mode, env: Mapping[str, str] | None = None):
@@ -191,8 +268,16 @@ def _create_gcp_provider(env: Mapping[str, str] | None = None):
         _create_gcp_provider_adc(project, region)
 
 
+def _vertex_config_args(project, region):
+    args = []
+    if project:
+        args.extend(["--config", f"VERTEX_AI_PROJECT_ID={project}"])
+    args.extend(["--config", f"VERTEX_AI_REGION={region}"])
+    return args
+
+
 def _create_gcp_provider_adc(project, region):
-    """Create a GCP provider from gcloud ADC user credentials."""
+    """Create a Vertex AI provider from gcloud ADC user credentials."""
     args = [
         "openshell",
         "provider",
@@ -200,22 +285,20 @@ def _create_gcp_provider_adc(project, region):
         "--name",
         PROVIDER_NAME,
         "--type",
-        "google-cloud",
+        "google-vertex-ai",
         "--from-gcloud-adc",
+        *_vertex_config_args(project, region),
     ]
-    if project:
-        args.extend(["--config", f"project_id={project}"])
-    args.extend(["--config", f"region={region}"])
     _run(args, check=True)
 
 
 def _create_gcp_provider_sa(project, region):
-    """Create a GCP provider from a service account key.
+    """Create a Vertex AI provider from a service account key.
 
     --from-gcloud-adc only accepts user OAuth credentials. For service
-    accounts we create the provider bare, then configure the JWT refresh
-    strategy with the service account's email and private key so the
-    gateway can mint access tokens.
+    accounts we create the provider with a placeholder token, then
+    configure the JWT refresh strategy with the service account's email
+    and private key so the gateway can mint access tokens.
     """
     adc = _adc_path()
     with open(adc) as f:
@@ -231,14 +314,11 @@ def _create_gcp_provider_sa(project, region):
         "--name",
         PROVIDER_NAME,
         "--type",
-        "google-cloud",
+        "google-vertex-ai",
         "--credential",
-        "GCP_SA_ACCESS_TOKEN=placeholder",
+        f"{VERTEX_SA_TOKEN_KEY}=placeholder",
+        *_vertex_config_args(project, region),
     ]
-    if project:
-        args.extend(["--config", f"project_id={project}"])
-    args.extend(["--config", f"region={region}"])
-    args.extend(["--config", f"service_account_email={client_email}"])
     _run(args, check=True)
 
     _run(
@@ -248,7 +328,7 @@ def _create_gcp_provider_sa(project, region):
             "refresh",
             "configure",
             "--credential-key",
-            "GCP_SA_ACCESS_TOKEN",
+            VERTEX_SA_TOKEN_KEY,
             "--strategy",
             "google-service-account-jwt",
             "--material",
@@ -284,7 +364,7 @@ def rotate_token():
             "refresh",
             "rotate",
             "--credential-key",
-            "GCP_SA_ACCESS_TOKEN",
+            VERTEX_SA_TOKEN_KEY,
             PROVIDER_NAME,
         ],
         check=True,

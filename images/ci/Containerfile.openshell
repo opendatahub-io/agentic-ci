@@ -9,17 +9,25 @@
 # inference.local), and network policy enforcement. Agents run
 # inside OpenShell sandboxes (containers managed by podman).
 #
-# OpenShell artifacts (UBI9-based):
+# OpenShell artifacts (UBI9-based), four images sharing one tag:
 #   - CLI:        binary copied from the odh-openshell-cli image
 #   - gateway:    binary copied from the odh-openshell-gateway image
-#   - supervisor: pulled at runtime via OPENSHELL_SUPERVISOR_IMAGE
+#   - supervisor: pulled at runtime via OPENSHELL_SUPERVISOR_IMAGE; runs
+#                 in its own container next to each sandbox
+#   - sandbox:    pulled at runtime via OPENSHELL_SANDBOX_RUNTIME_IMAGE;
+#                 supplies the static openshell-sandbox binary that the
+#                 podman driver mounts into each workload container
+# The supervisor/sandbox split landed in v0.0.116-rhaiv.8
+# (NVIDIA/OpenShell#2942, opendatahub-io/openshell#44). Older tags ship a
+# single supervisor image and have no odh-openshell-sandbox image.
 # Because these artifacts are UBI9, this image is UBI9 too (the podman
 # CI image, images/ci/Containerfile.podman, stays on UBI10).
 #
 # x86_64 only.
 
-# OpenShell component version (image tag shared by CLI, gateway, supervisor).
-ARG OPENSHELL_IMAGE_TAG=v0.0.116-rhaiv.1
+# OpenShell component version (image tag shared by CLI, gateway,
+# supervisor, and sandbox runtime).
+ARG OPENSHELL_IMAGE_TAG=v0.0.116-rhaiv.11
 
 # CLI and gateway binaries copied from the published images.
 FROM quay.io/opendatahub/odh-openshell-cli:${OPENSHELL_IMAGE_TAG} AS cli
@@ -79,10 +87,12 @@ COPY --from=cli /usr/local/bin/openshell /usr/local/bin/openshell
 # OpenShell gateway server (binary from the published gateway image).
 COPY --from=gateway /usr/local/bin/openshell-gateway /usr/local/bin/openshell-gateway
 
-# OpenShell supervisor runs per-sandbox; it is pulled at runtime from the
-# published image (see backends/openshell/gateway.py).
+# OpenShell supervisor and sandbox runtime images are pulled at runtime by
+# the gateway's podman driver. backends/openshell/gateway.py renders these
+# env vars into gateway.toml as supervisor_image and sandbox_runtime_image.
 ARG OPENSHELL_IMAGE_TAG
 ENV OPENSHELL_SUPERVISOR_IMAGE=quay.io/opendatahub/odh-openshell-supervisor:${OPENSHELL_IMAGE_TAG}
+ENV OPENSHELL_SANDBOX_RUNTIME_IMAGE=quay.io/opendatahub/odh-openshell-sandbox:${OPENSHELL_IMAGE_TAG}
 
 # GitHub CLI (pinned)
 RUN curl -fsSL -o /tmp/gh.tar.gz \
