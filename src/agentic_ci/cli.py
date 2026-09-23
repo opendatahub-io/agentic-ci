@@ -9,7 +9,7 @@ import time
 from importlib.metadata import version
 from pathlib import Path
 
-from agentic_ci import log, mlflow, otel, plugins, vertex_token_stub
+from agentic_ci import log, mlflow, otel, plugins
 from agentic_ci.backends import create_backend
 from agentic_ci.container import configure_podman_storage
 from agentic_ci.forge.cli import register_subcommands
@@ -271,12 +271,6 @@ def main():
         help="Container timeout in seconds (podman backend only, default: 1200)",
     )
 
-    p_stub = sub.add_parser(
-        "vertex-token-stub",
-        help="Serve a loopback GCP token-exchange stub (used inside OpenShell sandboxes)",
-    )
-    p_stub.add_argument("--port", type=int, default=vertex_token_stub.DEFAULT_PORT)
-
     sub.add_parser("setup", parents=[common], help="Prepare the AI agent sandbox environment")
     sub.add_parser("stop", parents=[common], help="Tear down the sandbox environment")
 
@@ -397,9 +391,6 @@ def main():
     if args.command == "enable-plugins":
         plugins.enable_plugins()
         return
-
-    if args.command == "vertex-token-stub":
-        sys.exit(vertex_token_stub.main(["--port", str(args.port)]))
 
     if args.command not in ("setup", "run", "stop"):
         parser.print_help()

@@ -16,9 +16,7 @@ _GATEWAY_DB_PATH: str | None = None
 
 _GATEWAY_TOML = """\
 [openshell]
-# Schema version 2 is required by OpenShell v0.0.116-rhaiv.8+; the gateway
-# rejects version 1 files outright.
-version = 2
+version = 1
 
 [openshell.gateway]
 # 0.0.0.0 is required: the sandbox supervisor connects to the gateway
@@ -26,22 +24,8 @@ version = 2
 # not reachable on 127.0.0.1. TLS+mTLS is enabled, so unauthenticated
 # access is rejected.
 bind_address = "0.0.0.0:{port}"
-# Singular selector. OpenShell v0.0.116-rhaiv.8+ rejects the legacy
-# plural list form as an unknown field.
-compute_driver = "podman"
+compute_drivers = ["podman"]
 """
-
-# (label, env var, gateway.toml key) for the OpenShell driver images. The
-# gateway does not read these env vars itself; agentic-ci renders them into
-# the ``[openshell.drivers.podman]`` section of gateway.toml. Since the
-# supervisor/sandbox split (NVIDIA/OpenShell#2942) the podman driver needs
-# two images per sandbox: the supervisor runs in its own container and the
-# sandbox runtime image supplies the static ``openshell-sandbox`` binary
-# that is mounted read-only into the workload container.
-_DRIVER_IMAGES = (
-    ("Supervisor image", "OPENSHELL_SUPERVISOR_IMAGE", "supervisor_image"),
-    ("Sandbox runtime image", "OPENSHELL_SANDBOX_RUNTIME_IMAGE", "sandbox_runtime_image"),
-)
 
 
 def is_running():
@@ -83,10 +67,9 @@ def start():
         _write_config()
         _generate_certs()
 
-        for label, env_name, _key in _DRIVER_IMAGES:
-            image = os.environ.get(env_name)
-            if image:
-                print(f"  {label}: {image}", flush=True)
+        supervisor_image = os.environ.get("OPENSHELL_SUPERVISOR_IMAGE")
+        if supervisor_image:
+            print(f"  Supervisor image: {supervisor_image}", flush=True)
 
         state_dir = os.path.expanduser("~/.local/state/openshell")
         os.makedirs(state_dir, exist_ok=True)
@@ -241,54 +224,23 @@ def _wait_for_socket(path, timeout=15):
     raise RuntimeError(f"Podman socket did not appear at {path} within {timeout}s")
 
 
-def _config_path():
-    return os.path.expanduser("~/.config/openshell/gateway.toml")
-
-
-def _render_config():
-    """Render the full gateway TOML config from the current environment."""
-    return _GATEWAY_TOML.format(port=GATEWAY_PORT) + _render_podman_driver_section()
-
-
-def config_is_current():
-    """Return True when the on-disk gateway.toml matches the current environment.
-
-    The gateway only reads gateway.toml at startup, so a running gateway
-    keeps using the driver images it was started with. Callers use this to
-    decide whether an already-running gateway can be reused or must be
-    restarted after the supervisor or sandbox runtime image changed.
-    """
-    try:
-        with open(_config_path()) as f:
-            return f.read() == _render_config()
-    except FileNotFoundError:
-        return False
-
-
 def _write_config():
     """Write the gateway TOML config, updating it if the content changed."""
-    if config_is_current():
-        return
-    config_path = _config_path()
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    config_dir = os.path.expanduser("~/.config/openshell")
+    config_path = os.path.join(config_dir, "gateway.toml")
+    rendered = _GATEWAY_TOML.format(port=GATEWAY_PORT)
+
+    supervisor_image = os.environ.get("OPENSHELL_SUPERVISOR_IMAGE")
+    if supervisor_image:
+        rendered += f'\n[openshell.drivers.podman]\nsupervisor_image = "{supervisor_image}"\n'
+
+    if os.path.isfile(config_path):
+        with open(config_path) as f:
+            if f.read() == rendered:
+                return
+    os.makedirs(config_dir, exist_ok=True)
     with open(config_path, "w") as f:
-        f.write(_render_config())
-
-
-def _render_podman_driver_section():
-    """Render the ``[openshell.drivers.podman]`` block from the image env vars.
-
-    Returns an empty string when neither image env var is set so the
-    driver falls back to its compiled-in defaults.
-    """
-    lines = []
-    for _label, env_name, key in _DRIVER_IMAGES:
-        image = os.environ.get(env_name)
-        if image:
-            lines.append(f'{key} = "{image}"')
-    if not lines:
-        return ""
-    return "\n[openshell.drivers.podman]\n" + "\n".join(lines) + "\n"
+        f.write(rendered)
 
 
 def _generate_certs():

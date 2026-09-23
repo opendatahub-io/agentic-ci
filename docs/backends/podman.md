@@ -169,7 +169,7 @@ enables SELinux relabeling for rootless podman.
 |--------|--------|-----------|
 | Isolation | Standard container | Sandbox with Landlock, network policy |
 | Network | Host networking | Policy-controlled egress |
-| Credentials | Bind-mounted files | Provider-injected placeholder, resolved by the supervisor proxy |
+| Credentials | Bind-mounted files | Provider + metadata emulator |
 | Auth inside container | Agent authenticates directly | Supervisor proxy handles auth |
 | OTEL | Host-accessible (network host) | Requires gateway IP routing |
 | Timeout | `sleep <timeout>` (default 1200s) | Sandbox lifecycle managed by gateway |

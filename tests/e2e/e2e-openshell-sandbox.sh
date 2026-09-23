@@ -114,56 +114,25 @@ else
     CODEX_SANDBOX="localhost/codex-sandbox:latest"
 fi
 
-# --- Resolve supervisor and sandbox runtime images ---
-# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE and
-# OPENSHELL_SANDBOX_RUNTIME_IMAGE in as ENVs, so these fallbacks only apply
-# to local dev runs outside that image. Derive the tag from the Containerfile
-# so it stays matched to the pinned CLI/gateway version after a bump rather
-# than drifting. Both images must share a tag: the supervisor runs in its
-# own container and the sandbox runtime supplies the openshell-sandbox
-# binary mounted into the workload.
-os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
-    "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
+# --- Resolve supervisor image ---
+# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE in as an ENV, so
+# this fallback only applies to local dev runs outside that image. Derive the
+# tag from the Containerfile so it stays matched to the pinned CLI/gateway
+# version after a bump rather than drifting.
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
 elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
+    os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
+        "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
     export OPENSHELL_SUPERVISOR_IMAGE="quay.io/opendatahub/odh-openshell-supervisor:${os_tag:-latest}"
 fi
-if [[ -n "${SANDBOX_RUNTIME_IMAGE:-}" ]]; then
-    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE"
-elif [[ -z "${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-}" ]]; then
-    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="quay.io/opendatahub/odh-openshell-sandbox:${os_tag:-latest}"
-fi
 print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
-print_step "Using sandbox runtime image: $OPENSHELL_SANDBOX_RUNTIME_IMAGE"
 
 # Helper: run a command inside a sandbox image as the sandbox user
 run_in() {
     local image="$1"; shift
     podman run --rm --entrypoint "" "$image" "$@"
 }
-
-# Helper: same, but with network=none so Podman leaves the image's own
-# /etc/resolv.conf in place (the OpenShell workload runs this way).
-run_in_netnone() {
-    local image="$1"; shift
-    podman run --rm --network none --entrypoint "" "$image" "$@"
-}
-
-# Plugins enabled for Claude runs through the OpenShell backend: everything the
-# image ships except agent-eval-harness. That plugin's SessionStart hook
-# bulk-installs MLflow with uv, and uv reuses a policy-DNS synthetic IP past
-# its ~30s mapping lifetime. The resulting transparent_tcp_mapping_denied
-# while other relays are open crashes the OpenShell supervisor ("control-mode
-# proxy accept loop exited unexpectedly"), upstream NVIDIA/OpenShell#3396.
-# Drop this once the supervisor survives that denial.
-CLAUDE_E2E_PLUGINS="$(run_in "$CLAUDE_SANDBOX" python3 -c "
-import json, pathlib
-d = json.loads(pathlib.Path('/sandbox/.claude/settings.json').read_text())
-names = sorted({k.split('@')[0] for k in d.get('enabledPlugins', {})})
-print(','.join(n for n in names if n != 'agent-eval-harness'))
-")"
-print_step "Claude OpenShell runs use AGENT_ENABLED_PLUGINS=$CLAUDE_E2E_PLUGINS"
 
 # --- shared sandbox checks ---
 print_header "=== shared sandbox: binaries ==="
@@ -174,12 +143,6 @@ assert_ok "glab is installed" run_in "$CLAUDE_SANDBOX" glab --version
 assert_ok "shellcheck is installed" run_in "$CLAUDE_SANDBOX" shellcheck --version
 assert_ok "shfmt is installed" run_in "$CLAUDE_SANDBOX" shfmt --version
 assert_ok "git is installed" run_in "$CLAUDE_SANDBOX" git --version
-assert_ok "Claude sandbox resolv.conf points at the policy DNS relay" \
-    run_in_netnone "$CLAUDE_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
-assert_ok "OpenCode sandbox resolv.conf points at the policy DNS relay" \
-    run_in_netnone "$OPENCODE_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
-assert_ok "Codex sandbox resolv.conf points at the policy DNS relay" \
-    run_in_netnone "$CODEX_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
 assert_ok "nsenter is installed in Claude sandbox" \
     run_in "$CLAUDE_SANDBOX" nsenter --version
 assert_ok "nsenter is installed in OpenCode sandbox" \
@@ -373,7 +336,6 @@ else
     echo "  openshell (wheel): $(openshell --version 2>&1 || echo unknown)"
     echo "  openshell-gateway: $(openshell-gateway --version 2>&1 || echo unknown)"
     echo "  supervisor image:  ${OPENSHELL_SUPERVISOR_IMAGE:-unknown}"
-    echo "  sandbox runtime:   ${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-unknown}"
     echo "  podman:            $(podman --version 2>&1 || echo unknown)"
     echo "  claude:            $(run_in "$CLAUDE_SANDBOX" claude --version 2>&1 || echo unknown)"
     echo "  opencode:          $(run_in "$OPENCODE_SANDBOX" opencode --version 2>&1 || echo unknown)"
@@ -387,7 +349,6 @@ else
 
     print_step "Running Claude Code via agentic-ci (openshell backend)..."
     RC=0
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run "Reply with only the word pong" \
         --backend openshell \
         --image "$CLAUDE_SANDBOX" \
@@ -463,7 +424,6 @@ else
     print_step "Running routed skill (openshell, claude-code, classifier)..."
     ROUTED_LOG="$TMPDIR_E2E/routed-claude.log"
     RC=0
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     "$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
         --backend openshell --harness claude-code \
         --image "$CLAUDE_SANDBOX" --workdir "$WORKDIR" \
@@ -476,10 +436,6 @@ else
     assert_contains "routed (openshell): OTEL log survived download" "$OUTPUT" "routed_event=ok"
     assert_contains "routed (openshell): verdict downloaded" "$OUTPUT" "verdict_file=ok"
     grep "ROUTED_" "$ROUTED_LOG" || true
-    if [[ "$RC" -ne 0 ]]; then
-        print_warning "routed driver failed (rc=$RC); last 60 lines:"
-        tail -60 "$ROUTED_LOG" || true
-    fi
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
@@ -503,10 +459,6 @@ else
         assert_contains "routed (openshell codex): classifier decided" "$OUTPUT" "source=classifier"
         assert_contains "routed (openshell codex): verdict downloaded" "$OUTPUT" "verdict_file=ok"
         grep "ROUTED_" "$ROUTED_LOG" || true
-        if [[ "$RC" -ne 0 ]]; then
-            print_warning "routed driver failed (rc=$RC); last 60 lines:"
-            tail -60 "$ROUTED_LOG" || true
-        fi
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true
@@ -531,7 +483,6 @@ POLICY
     print_step "Running Claude Code with repo-level policy (packages.redhat.com allowed)..."
     POLICY_LOG="$TMPDIR_E2E/repo-policy.log"
     RC=0
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Use curl to fetch https://packages.redhat.com. If you get a response, reply with only the word pong. If you cannot reach it, reply with only the word fail." \
         --backend openshell \
@@ -565,7 +516,6 @@ CONFIG
     print_step "Running Claude Code with setup steps..."
     SETUP_LOG="$TMPDIR_E2E/setup-steps.log"
     RC=0
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
         --backend openshell \
@@ -599,7 +549,6 @@ CONFIG
     SKIP_LOG="$TMPDIR_E2E/skip-setup.log"
     RC=0
     AGENTIC_CI_SKIP_SETUP=1 \
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
         --backend openshell \
@@ -634,7 +583,6 @@ GITIGNORE
     print_step "Running Claude Code to create a file in a gitignored directory..."
     VERDICT_LOG="$TMPDIR_E2E/verdict-download.log"
     RC=0
-    AGENT_ENABLED_PLUGINS="$CLAUDE_E2E_PLUGINS" \
     agentic-ci run \
         "Create the directory autofix-output/ then write the file autofix-output/verdict.json with the content {\"verdict\": \"committed\"}. Do not say anything else." \
         --backend openshell \

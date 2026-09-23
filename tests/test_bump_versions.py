@@ -35,12 +35,6 @@ QUAY_RESPONSE_MIXED_TAGS = {
 
 
 class TestQuayLatestOpenshell:
-    @pytest.fixture(autouse=True)
-    def all_tags_published(self, bump_versions):
-        """Treat every candidate tag as published in all component repos."""
-        with mock.patch.object(bump_versions, "_quay_tag_exists", return_value=True):
-            yield
-
     def test_picks_highest_version(self, bump_versions):
         with mock.patch.object(bump_versions, "_fetch_json", return_value=QUAY_RESPONSE_MIXED_TAGS):
             tag = bump_versions._quay_latest_openshell()
@@ -134,56 +128,6 @@ class TestQuayLatestOpenshell:
         with mock.patch.object(bump_versions, "_fetch_json", side_effect=[page1, page2]):
             tag = bump_versions._quay_latest_openshell()
         assert tag == "v0.0.200-rhaiv.0"
-
-
-class TestQuayTagExists:
-    def test_true_when_tag_listed(self, bump_versions):
-        data = {"tags": [{"name": "v0.0.101-rhaiv.0"}]}
-        with mock.patch.object(bump_versions, "_fetch_json", return_value=data) as fetch:
-            assert bump_versions._quay_tag_exists("odh-openshell-sandbox", "v0.0.101-rhaiv.0")
-        url = fetch.call_args.args[0]
-        assert "/odh-openshell-sandbox/tag/" in url
-        assert "specificTag=v0.0.101-rhaiv.0" in url
-
-    def test_false_when_tag_missing(self, bump_versions):
-        with mock.patch.object(bump_versions, "_fetch_json", return_value={"tags": []}):
-            assert not bump_versions._quay_tag_exists("odh-openshell-sandbox", "v0.0.101-rhaiv.0")
-
-
-class TestQuayLatestOpenshellAcrossRepos:
-    """The chosen tag must be published for gateway, supervisor, and sandbox too."""
-
-    def test_skips_tag_missing_from_sandbox_repo(self, bump_versions):
-        def tag_exists(repo, tag):
-            return not (repo == "odh-openshell-sandbox" and tag == "v0.0.101-rhaiv.0")
-
-        with (
-            mock.patch.object(bump_versions, "_fetch_json", return_value=QUAY_RESPONSE_MIXED_TAGS),
-            mock.patch.object(bump_versions, "_quay_tag_exists", side_effect=tag_exists),
-        ):
-            tag = bump_versions._quay_latest_openshell()
-        assert tag == "v0.0.100-rhaiv.0"
-
-    def test_checks_every_non_cli_repo(self, bump_versions):
-        with (
-            mock.patch.object(bump_versions, "_fetch_json", return_value=QUAY_RESPONSE_MIXED_TAGS),
-            mock.patch.object(bump_versions, "_quay_tag_exists", return_value=True) as exists,
-        ):
-            bump_versions._quay_latest_openshell()
-        checked = {call.args[0] for call in exists.call_args_list}
-        assert checked == {
-            "odh-openshell-gateway",
-            "odh-openshell-supervisor",
-            "odh-openshell-sandbox",
-        }
-
-    def test_raises_when_no_tag_published_everywhere(self, bump_versions):
-        with (
-            mock.patch.object(bump_versions, "_fetch_json", return_value=QUAY_RESPONSE_MIXED_TAGS),
-            mock.patch.object(bump_versions, "_quay_tag_exists", return_value=False),
-        ):
-            with pytest.raises(RuntimeError, match="published for all of"):
-                bump_versions._quay_latest_openshell()
 
 
 class TestBumpOpenshell:

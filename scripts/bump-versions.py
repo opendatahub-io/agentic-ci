@@ -242,58 +242,39 @@ def bump_opencode(check_only):
     return result
 
 
-OPENSHELL_QUAY_REPO = "https://quay.io/api/v1/repository/opendatahub"
 OPENSHELL_QUAY_TAGS = (
-    f"{OPENSHELL_QUAY_REPO}/odh-openshell-cli/tag/"
+    "https://quay.io/api/v1/repository/opendatahub/odh-openshell-cli/tag/"
     "?limit=50&onlyActiveTags=true&filter_tag_name=like:v"
 )
-# Every OpenShell image that must carry the same tag. The CLI repository is
-# the source of candidate tags; the other three are checked so a bump never
-# lands on a tag whose runtime images (pulled by the gateway's podman driver)
-# have not been published yet.
-OPENSHELL_IMAGES = (
-    "odh-openshell-cli",
-    "odh-openshell-gateway",
-    "odh-openshell-supervisor",
-    "odh-openshell-sandbox",
-)
-_OPENSHELL_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-rhaiv\.(\d+)$")
-
-
-def _quay_tag_exists(repo, tag):
-    """Return True when ``tag`` is an active tag of ``repo`` on quay.io."""
-    url = f"{OPENSHELL_QUAY_REPO}/{repo}/tag/?specificTag={tag}&onlyActiveTags=true"
-    data = _fetch_json(url)
-    return any(entry["name"] == tag for entry in data.get("tags", []))
 
 
 def _quay_latest_openshell():
-    """Return the latest openshell image tag published for every component.
+    """Return the latest openshell image tag from quay.io.
 
     Fetches tags from the odh-openshell-cli repository and picks the highest
-    semver release that also exists in the gateway, supervisor, and sandbox
-    repositories. Only tags matching the v<major>.<minor>.<patch>-rhaiv.<n>
+    semver release. Only tags matching the v<major>.<minor>.<patch>-rhaiv.<n>
     pattern are considered (arch suffixes and build metadata tags are excluded).
     Paginates through all result pages.
     """
-    candidates = {}
+    tag_re = re.compile(r"^v(\d+)\.(\d+)\.(\d+)-rhaiv\.(\d+)$")
+    best_key = None
+    best_tag = None
     page = 1
     while True:
         data = _fetch_json(f"{OPENSHELL_QUAY_TAGS}&page={page}")
         for entry in data.get("tags", []):
-            m = _OPENSHELL_TAG_RE.match(entry["name"])
-            if m:
-                candidates[tuple(int(g) for g in m.groups())] = entry["name"]
+            m = tag_re.match(entry["name"])
+            if not m:
+                continue
+            key = tuple(int(g) for g in m.groups())
+            if best_key is None or key > best_key:
+                best_key, best_tag = key, entry["name"]
         if not data.get("has_additional", False):
             break
         page += 1
-    if not candidates:
+    if not best_tag:
         raise RuntimeError("openshell tag not found on quay.io")
-    for key in sorted(candidates, reverse=True):
-        tag = candidates[key]
-        if all(_quay_tag_exists(repo, tag) for repo in OPENSHELL_IMAGES[1:]):
-            return tag
-    raise RuntimeError("no openshell tag is published for all of: " + ", ".join(OPENSHELL_IMAGES))
+    return best_tag
 
 
 def bump_openshell(check_only):
