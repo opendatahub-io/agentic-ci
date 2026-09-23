@@ -55,6 +55,8 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Guides:
+      - Local Development with OpenShell: guides/openshell-local.md
   - Container Images:
       - Overview: image/index.md
       - Build Pipeline: image/build.md
