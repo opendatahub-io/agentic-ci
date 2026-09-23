@@ -6,6 +6,9 @@ ARG UV_SHA256=aa4b1f8770910f7c7c543c7acc980e4270e52e70750c996acef813ea1c7c2912
 ARG SHELLCHECK_VERSION=0.11.0
 ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 
+ARG SHFMT_VERSION=3.14.1
+ARG SHFMT_SHA256=76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7bf
+
 ARG GH_VERSION=2.99.0
 ARG GH_SHA256=ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832
 
@@ -42,6 +45,11 @@ RUN curl -fsSL -o /tmp/shellcheck.tar.xz \
     && mv /tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck /usr/local/bin/shellcheck \
     && chmod +x /usr/local/bin/shellcheck \
     && rm -rf /tmp/shellcheck.tar.xz /tmp/shellcheck-v${SHELLCHECK_VERSION}
+
+RUN curl -fsSL -o /usr/local/bin/shfmt \
+        "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" \
+    && echo "${SHFMT_SHA256}  /usr/local/bin/shfmt" | sha256sum -c - \
+    && chmod +x /usr/local/bin/shfmt
 
 RUN curl -fsSL -o /tmp/gh.tar.gz \
         "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \

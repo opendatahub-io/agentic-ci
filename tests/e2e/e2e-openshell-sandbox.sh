@@ -172,6 +172,7 @@ assert_ok "uv is installed" run_in "$CLAUDE_SANDBOX" uv --version
 assert_ok "gh is installed" run_in "$CLAUDE_SANDBOX" gh --version
 assert_ok "glab is installed" run_in "$CLAUDE_SANDBOX" glab --version
 assert_ok "shellcheck is installed" run_in "$CLAUDE_SANDBOX" shellcheck --version
+assert_ok "shfmt is installed" run_in "$CLAUDE_SANDBOX" shfmt --version
 assert_ok "git is installed" run_in "$CLAUDE_SANDBOX" git --version
 assert_ok "Claude sandbox resolv.conf points at the policy DNS relay" \
     run_in_netnone "$CLAUDE_SANDBOX" grep -q "nameserver 127.0.0.53" /etc/resolv.conf
@@ -186,6 +187,14 @@ assert_ok "nsenter is installed in OpenCode sandbox" \
 assert_ok "nsenter is installed in Codex sandbox" \
     run_in "$CODEX_SANDBOX" nsenter --version
 assert_ok "python3 is installed" run_in "$CLAUDE_SANDBOX" python3 --version
+assert_ok "python3.12 is installed in Claude sandbox" \
+    run_in "$CLAUDE_SANDBOX" /usr/bin/python3.12 --version
+assert_ok "python3.12 is installed in OpenCode sandbox" \
+    run_in "$OPENCODE_SANDBOX" /usr/bin/python3.12 --version
+assert_ok "python3.12 is installed in Codex sandbox" \
+    run_in "$CODEX_SANDBOX" /usr/bin/python3.12 --version
+assert_ok "shfmt is installed in Codex sandbox" \
+    run_in "$CODEX_SANDBOX" shfmt --version
 assert_ok "ruff is installed" run_in "$CLAUDE_SANDBOX" ruff --version
 
 print_header "=== shared sandbox: runtime/user/workdir ==="
