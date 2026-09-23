@@ -10,6 +10,12 @@
 #               AIPCC_CICD_GCP_SERVICE_ACCOUNT_KEY / AIPCC_CICD_GCP_PROJECT_ID
 #               take precedence over GCP_* if defined.
 #   Direct:     ANTHROPIC_API_KEY (no setup needed)
+#   Claude subscription: CLAUDE_CODE_OAUTH_TOKEN (Claude Code only, no setup needed)
+#
+# For Claude Code, a GCP key wins: it sets CLAUDE_CODE_USE_VERTEX=1, which
+# Claude Code ranks above ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN. This
+# differs from agentic-ci (API key, then OAuth token, then Vertex AI), so leave
+# the GCP key unset to use a direct credential.
 
 set -euo pipefail
 

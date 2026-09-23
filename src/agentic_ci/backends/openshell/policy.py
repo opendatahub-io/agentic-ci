@@ -39,6 +39,11 @@ AUTH_ENDPOINTS = {
     "api-key": [
         "api.anthropic.com:443:read-write:::allow-uninspected-credentials",
     ],
+    # No provider backs a Claude subscription OAuth token, so the host
+    # carries no provider credential and needs no uninspected opt-in.
+    "oauth": [
+        "api.anthropic.com:443:read-write",
+    ],
     "openai": [
         "api.openai.com:443:read-write:::allow-uninspected-credentials",
         # Codex's ChatGPT backend API is served under chatgpt.com/backend-api.

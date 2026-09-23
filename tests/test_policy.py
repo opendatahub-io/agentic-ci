@@ -140,6 +140,13 @@ def test_credential_binding_patch_preserves_existing_binding():
     assert build_credential_binding_patch(policy_get_output) is None
 
 
+def test_endpoints_include_anthropic_api_for_oauth():
+    # No provider backs the OAuth token, so the endpoint carries no
+    # provider credential and needs no uninspected-credentials opt-in.
+    result = resolve_endpoints(auth_mode="oauth")
+    assert result == list(DEFAULT_ENDPOINTS) + ["api.anthropic.com:443:read-write"]
+
+
 def test_endpoints_include_openai_apis():
     result = resolve_endpoints(auth_mode="openai")
     assert result == list(DEFAULT_ENDPOINTS) + AUTH_ENDPOINTS["openai"]

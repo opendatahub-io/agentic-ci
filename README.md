@@ -201,9 +201,9 @@ every missing variable and which gate needs it.
 ## Credentials
 
 Anthropic, Vertex AI, and OpenAI authentication are supported. The auth family
-follows the selected harness — Claude Code auto-detects Anthropic API key vs
-Vertex AI, while Codex always uses OpenAI — and the resolved mode is logged at
-startup.
+follows the selected harness — Claude Code auto-detects Anthropic API key,
+Claude subscription OAuth token, or Vertex AI, while Codex always uses OpenAI —
+and the resolved mode is logged at startup.
 
 ### Anthropic API key (direct)
 
@@ -217,10 +217,29 @@ export ANTHROPIC_API_KEY=sk-ant-...
 agentic-ci run "Fix the bug" --image ghcr.io/opendatahub-io/ai-helpers:latest
 ```
 
+### Claude subscription (OAuth token)
+
+For individual use, the Claude Code harness can authenticate with a Claude
+Pro or Max subscription instead of an API key or Vertex AI. Generate a
+long-lived token with `claude setup-token` and export it:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+agentic-ci run "Fix the bug" --image ghcr.io/opendatahub-io/ai-helpers:latest
+```
+
+`ANTHROPIC_API_KEY` wins when both are set. The local and podman backends pass
+the token to the agent the same way as an API key. On OpenShell no provider is
+created: the sandbox env script exports the token, and the agent can read it
+from its environment, as with an API key. The token is tied to your
+subscription and its usage limits, so use it for personal and development
+runs, not shared CI. OpenCode and Codex do not read it.
+
 ### Vertex AI (default)
 
-When `ANTHROPIC_API_KEY` is not set, both backends use Vertex AI for
-Claude API access via gcloud Application Default Credentials.
+When neither `ANTHROPIC_API_KEY` nor, for Claude Code, `CLAUDE_CODE_OAUTH_TOKEN`
+is set, all backends use Vertex AI for Claude API access via gcloud
+Application Default Credentials.
 
 The **podman** backend checks credentials in this order:
 
@@ -285,6 +304,7 @@ report token usage but do not produce a dollar estimate.
 | Variable | Default | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key. When set, uses direct API auth instead of Vertex AI |
+| `CLAUDE_CODE_OAUTH_TOKEN` | -- | Claude subscription token from `claude setup-token` (Claude Code harness only). Used instead of Vertex AI when `ANTHROPIC_API_KEY` is not set |
 | `CLAUDE_MODEL` | `claude-opus-4-6` | Default model for Claude Code harness (overridden by `--model`; also the classifier model for `run_routed_skill()`) |
 | `CLAUDE_REASONING_EFFORT` | `high` | Reasoning effort for Claude Code (`low`, `medium`, `high`, `xhigh`, `max`, or `none`; overridden by `--effort`) |
 | `CLAUDE_CONTAINER_IMAGE` | — | Default container image for Claude Code harness |

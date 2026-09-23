@@ -56,7 +56,7 @@ src/agentic_ci/
 
 - **`config.py`**: Loads project configuration from `.agentic-ci/config.yml` in the workdir. Currently supports a `setup` key with a list of commands (bare strings or `{name, run}` objects) that run on the host before sandbox upload, enabling dependency installation for repos whose agents need it.
 
-- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
+- **`backends/openshell/`**: `OpenShellBackend` — runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `oauth`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. `oauth` (a Claude subscription token) creates no provider, so its mode is recorded only in the sandbox identity file. Submodules: `gateway.py`, `sandbox.py`, `policy.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. `CodexStreamProcessor` parses Codex JSONL events. All produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 
@@ -67,7 +67,7 @@ src/agentic_ci/
 ### Key
 
 - **Reasoning effort** is passed on every run (`claude --effort`, `opencode --variant`, `codex -c model_reasoning_effort=` plus `agents.default_subagent_reasoning_effort`), default `high` from `models.py`; overrides via `--effort` or `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`. Callers pass the resolved effort to `Backend.run(effort=...)` alongside the flags in `extra_args`, and every backend exports it to the agent as `AGENT_REASONING_EFFORT` next to `AGENT_MODEL` (output only, never read back).
-- **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `OPENAI_API_KEY` or local `$CODEX_HOME/auth.json` login state. The OpenShell backend requires `OPENAI_API_KEY`.
+- **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set, then `CLAUDE_CODE_OAUTH_TOKEN` (a subscription token from `claude setup-token`, with no OpenShell provider), and otherwise Vertex AI with gcloud ADC files; Codex uses `OPENAI_API_KEY` or local `$CODEX_HOME/auth.json` login state. The OpenShell backend requires `OPENAI_API_KEY`.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Claude Code and Codex export OTEL data; OpenCode provides token/cost data via its JSON output.
 
 ## Container images

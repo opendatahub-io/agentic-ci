@@ -151,7 +151,8 @@ The entrypoint supports two credential sources (checked in order):
 2. `GCP_SERVICE_ACCOUNT_KEY` — base64-encoded credentials (fallback)
 
 If neither is set, `ANTHROPIC_API_KEY` is used directly (no gcloud
-config needed).
+config needed). The Claude Code image also accepts a Claude subscription
+token in `CLAUDE_CODE_OAUTH_TOKEN`, used directly the same way.
 
 ## Tags
 

@@ -9,7 +9,7 @@ import yaml
 
 from agentic_ci import log
 from agentic_ci.backends.openshell.policy import build_credential_binding_patch, resolve_endpoints
-from agentic_ci.backends.openshell.provider import PROVIDER_NAME
+from agentic_ci.backends.openshell.provider import PROVIDER_NAME, requires_provider
 
 SANDBOX_NAME = "ci"
 
@@ -49,7 +49,7 @@ def create(
     cpu: str | None = None,
     gpu: int | None = None,
 ) -> None:
-    """Create a persistent sandbox with the CI provider attached.
+    """Create a persistent sandbox with the CI provider attached, if *auth_mode* uses one.
 
     The sandbox is created first, then the network policy is applied
     via ``openshell policy update --wait`` to ensure the supervisor
@@ -82,9 +82,9 @@ def create(
         SANDBOX_NAME,
         "--no-tty",
         "--no-auto-providers",
-        "--provider",
-        PROVIDER_NAME,
     ]
+    if requires_provider(auth_mode):
+        args.extend(["--provider", PROVIDER_NAME])
     if approval_mode:
         args.extend(["--approval-mode", approval_mode])
     if image:
@@ -134,6 +134,7 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
        policy set`` to add credential_binding.provider on GCP endpoints.
        The google-cloud provider profile is endpointless, so the gateway
        withholds credentials unless the sandbox policy explicitly binds them.
+       Skipped for auth modes with no provider, which has nothing to bind.
     """
     endpoints = resolve_endpoints(policy_path, workdir=workdir, auth_mode=auth_mode)
     if otel_port:
@@ -154,7 +155,8 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
     args.append(SANDBOX_NAME)
     _run(args, check=True)
 
-    _apply_credential_bindings()
+    if requires_provider(auth_mode):
+        _apply_credential_bindings()
 
 
 def _apply_credential_bindings():

@@ -7,7 +7,8 @@
 # This test verifies streaming, non-streaming, and extra args passthrough.
 #
 # Requires: python3, claude, agentic-ci
-# Credentials: ANTHROPIC_API_KEY or Vertex AI (GCP_SERVICE_ACCOUNT_KEY, etc.)
+# Credentials: ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or Vertex AI
+#              (GCP_SERVICE_ACCOUNT_KEY, etc.)
 #
 # Usage:
 #   ./tests/e2e/e2e-local-runner.sh
@@ -71,6 +72,7 @@ _has_creds() {
     [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]] || \
     [[ -n "${GCLOUD_CREDENTIALS:-}" ]] || \
     [[ -n "${ANTHROPIC_API_KEY:-}" ]] || \
+    [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] || \
     [[ -f "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] || \
     [[ -f "${HOME}/.config/gcloud/application_default_credentials.json" ]]
 }
@@ -78,7 +80,7 @@ _has_creds() {
 if ! _has_creds; then
     echo ""
     print_warning "Skipping e2e tests (no credentials set)"
-    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, ANTHROPIC_API_KEY, or configure gcloud ADC"
+    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or configure gcloud ADC"
     exit 0
 fi
 

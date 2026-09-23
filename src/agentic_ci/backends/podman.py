@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 _OPENAI_CREDENTIAL_ENV_VARS = frozenset({"OPENAI_API_KEY"})
+_ANTHROPIC_CREDENTIAL_ENV_VARS = frozenset({"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
 
 
 class PodmanBackend(Backend):
@@ -248,6 +249,11 @@ class PodmanBackend(Backend):
                 continue
             if key in _OPENAI_CREDENTIAL_ENV_VARS:
                 if openai_mode and key not in args:
+                    args.extend(["--env", key])
+            elif key in _ANTHROPIC_CREDENTIAL_ENV_VARS:
+                # By reference, so the value stays out of the podman argv. Not gated
+                # on auth mode: OpenCode also reads ANTHROPIC_API_KEY.
+                if key not in args:
                     args.extend(["--env", key])
             else:
                 args.extend(["--env", f"{key}={val}"])
