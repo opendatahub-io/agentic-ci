@@ -82,6 +82,20 @@
         "^images/runner/shared/Containerfile\\.base$",
         "^images/runner/claude-code/Containerfile\\.openshell$",
         "^images/runner/opencode/Containerfile\\.openshell$",
+        "^images/runner/codex/Containerfile\\.openshell$"
+      ],
+      "matchStrings": ["ARG SHFMT_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "mvdan/sh",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^images/runner/shared/Containerfile\\.base$",
+        "^images/runner/claude-code/Containerfile\\.openshell$",
+        "^images/runner/opencode/Containerfile\\.openshell$",
         "^images/runner/codex/Containerfile\\.openshell$",
         "^images/ci/Containerfile\\.podman$",
         "^images/ci/Containerfile\\.openshell$"

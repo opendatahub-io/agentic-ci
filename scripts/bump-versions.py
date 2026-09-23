@@ -136,6 +136,20 @@ def bump_shellcheck(check_only):
     return result
 
 
+def bump_shfmt(check_only):
+    version = _github_latest("mvdan/sh")
+    url = f"https://github.com/mvdan/sh/releases/download/v{version}/shfmt_v{version}_linux_amd64"
+    sha = _sha256_of_url(url)
+
+    result = {"tool": "shfmt", "version": version, "sha256": sha}
+    if not check_only:
+        for cf in [BASE_CF, *ALL_SANDBOX_CFS]:
+            if cf.exists():
+                _update_arg(cf, "SHFMT_VERSION", version)
+                _update_arg(cf, "SHFMT_SHA256", sha)
+    return result
+
+
 def bump_gh(check_only):
     version = _github_latest("cli/cli")
     url = f"https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_amd64.tar.gz"
@@ -357,6 +371,7 @@ def bump_agentic_ci(check_only):
 TOOLS = {
     "uv": bump_uv,
     "shellcheck": bump_shellcheck,
+    "shfmt": bump_shfmt,
     "gh": bump_gh,
     "glab": bump_glab,
     "gitleaks": bump_gitleaks,
@@ -421,6 +436,26 @@ def sync_shellcheck():
         for cf in files:
             _update_arg(cf, "SHELLCHECK_SHA256", sha)
     return {"tool": "shellcheck", "versions": list(versions)}
+
+
+def sync_shfmt():
+    versions = {}
+    for cf in [BASE_CF, *ALL_SANDBOX_CFS]:
+        if not cf.exists():
+            continue
+        version = _current_value(cf, "SHFMT_VERSION")
+        if version:
+            versions.setdefault(version, []).append(cf)
+    if not versions:
+        return {"tool": "shfmt", "skipped": "SHFMT_VERSION not found"}
+    for version, files in versions.items():
+        url = (
+            f"https://github.com/mvdan/sh/releases/download/v{version}/shfmt_v{version}_linux_amd64"
+        )
+        sha = _sha256_of_url(url)
+        for cf in files:
+            _update_arg(cf, "SHFMT_SHA256", sha)
+    return {"tool": "shfmt", "versions": list(versions)}
 
 
 def sync_gh():
@@ -566,6 +601,7 @@ def sync_agentic_ci():
 SYNC_TOOLS = {
     "uv": sync_uv,
     "shellcheck": sync_shellcheck,
+    "shfmt": sync_shfmt,
     "gh": sync_gh,
     "glab": sync_glab,
     "gitleaks": sync_gitleaks,
@@ -700,6 +736,7 @@ def main():
         version_args = {
             "uv": "UV_VERSION",
             "shellcheck": "SHELLCHECK_VERSION",
+            "shfmt": "SHFMT_VERSION",
             "gh": "GH_VERSION",
             "glab": "GLAB_VERSION",
             "gitleaks": "GITLEAKS_VERSION",

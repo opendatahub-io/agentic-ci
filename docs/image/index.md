@@ -63,7 +63,7 @@ entrypoint handles credential setup only for standalone use (direct
 | HTTP | curl, jq |
 | Build | make, which, tar, xz |
 | VCS CLIs | gh (GitHub), glab (GitLab) |
-| Linting | shellcheck, ruff |
+| Linting | shellcheck, shfmt, ruff |
 | Python | uv |
 | Library | agentic-ci |
 
@@ -92,6 +92,7 @@ SHA256 checksum. Only x86_64 binaries are included.
 | Tool | Pinning |
 |------|---------|
 | ShellCheck | Version + SHA256 |
+| shfmt | Version + SHA256 |
 | gh | Version + SHA256 |
 | glab | Version + SHA256 |
 | uv | Version + SHA256 |
