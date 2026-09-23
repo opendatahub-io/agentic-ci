@@ -52,8 +52,15 @@ class Backend(ABC):
         otel_rate_file=None,
         extra_args=None,
         traceparent=None,
+        effort=None,
     ) -> int:
-        """Execute the agent with the given prompt. Returns the exit code."""
+        """Execute the agent with the given prompt. Returns the exit code.
+
+        *effort* is the resolved reasoning effort (``None`` when no effort
+        flag is passed). It is exported to the agent as
+        ``AGENT_REASONING_EFFORT`` next to ``AGENT_MODEL``; the matching CLI
+        flags come from the caller through *extra_args*.
+        """
 
     def _process_stream(self, proc, streaming):
         """Read output from proc.stdout through the harness stream processor.

@@ -11,6 +11,7 @@ from uuid import uuid4
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.gcp import find_credentials as _find_gcp_credentials
+from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -123,12 +124,14 @@ class PodmanBackend(Backend):
         otel_rate_file=None,
         extra_args=None,
         traceparent=None,
+        effort=None,
     ):
         if not self.is_running():
             self.setup(otel_port=otel_port)
 
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
+        effort_env = ["--env", f"{AGENT_EFFORT_ENV_VAR}={effort}"] if effort is not None else []
         otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
         agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
@@ -138,6 +141,7 @@ class PodmanBackend(Backend):
                 "exec",
                 "--env",
                 f"AGENT_MODEL={model}",
+                *effort_env,
                 *otel_env,
                 self._container_name,
                 *agent_args,
@@ -238,6 +242,10 @@ class PodmanBackend(Backend):
         credential_env = os.environ if env is None else env
         openai_mode = self.harness.auth_mode_for_env(credential_env) == "openai"
         for key, val in self._extra_env.items():
+            # run() exports the effort in effect per exec; a container-level
+            # value would survive runs where effort is none.
+            if key == AGENT_EFFORT_ENV_VAR:
+                continue
             if key in _OPENAI_CREDENTIAL_ENV_VARS:
                 if openai_mode and key not in args:
                     args.extend(["--env", key])

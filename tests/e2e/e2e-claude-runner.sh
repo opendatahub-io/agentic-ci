@@ -199,6 +199,30 @@ assert_contains "setup-steps: marker file found by agent" "$OUTPUT" "pong"
 
 agentic-ci stop --harness claude-code 2>/dev/null || true
 
+# -- Reasoning effort export test ---------------------------------------------
+print_header "=== agentic-ci run: AGENT_REASONING_EFFORT (podman) ==="
+
+WORKDIR="$TMPDIR_E2E/effort"
+mkdir -p "$WORKDIR"
+
+print_step "Running Claude Code with --effort low (podman)..."
+EFFORT_LOG="$TMPDIR_E2E/effort-out.txt"
+RC=0
+agentic-ci run \
+    "Run this shell command and then reply with only the word done: printenv AGENT_REASONING_EFFORT > effort.txt" \
+    --image "$IMAGE" \
+    --harness claude-code \
+    --effort low \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    > "$EFFORT_LOG" 2>&1 || RC=$?
+
+assert_ok "effort run exited successfully" test "$RC" -eq 0
+assert_contains "agent environment carries the effective effort" \
+    "$(cat "$WORKDIR/effort.txt" 2>/dev/null)" "^low$"
+
+agentic-ci stop --harness claude-code 2>/dev/null || true
+
 # -- AGENTIC_CI_SKIP_SETUP test -----------------------------------------------
 print_header "=== agentic-ci run: AGENTIC_CI_SKIP_SETUP (podman) ==="
 

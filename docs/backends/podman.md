@@ -54,6 +54,7 @@ creation.
 ```bash
 podman exec \
   --env AGENT_MODEL=<MODEL> \
+  --env AGENT_REASONING_EFFORT=<EFFORT> \   # unless effort is none
   --env CLAUDE_CODE_ENABLE_TELEMETRY=1 \    # OTEL vars (if enabled)
   --env OTEL_METRICS_EXPORTER=otlp \
   --env OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:<PORT> \
@@ -136,6 +137,7 @@ API key auth:
 | Variable | Value |
 |----------|-------|
 | `AGENT_MODEL` | The model being used |
+| `AGENT_REASONING_EFFORT` | The effective reasoning effort (omitted when effort is `none`) |
 | OTEL vars | Only when `--no-otel` is not set |
 
 ### Extra env vars

@@ -153,6 +153,51 @@ def test_local_codex_extra_openai_key_overrides_global_key(monkeypatch, tmp_path
     assert child_env["OPENAI_API_KEY"] == "extra-key"
 
 
+def test_local_exports_effort_to_agent(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    backend = LocalBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen") as popen,
+        mock.patch.object(backend, "_process_stream", return_value=(0, False)),
+    ):
+        backend.run("prompt", "model", streaming=False, effort="xhigh")
+
+    child_env = popen.call_args.kwargs["env"]
+    assert child_env["AGENT_MODEL"] == "model"
+    assert child_env["AGENT_REASONING_EFFORT"] == "xhigh"
+
+
+def test_local_drops_host_effort_when_no_effort_is_in_effect(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("AGENT_REASONING_EFFORT", "max")
+    backend = LocalBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen") as popen,
+        mock.patch.object(backend, "_process_stream", return_value=(0, False)),
+    ):
+        backend.run("prompt", "model", streaming=False, effort=None)
+
+    assert "AGENT_REASONING_EFFORT" not in popen.call_args.kwargs["env"]
+
+
+def test_openshell_run_passes_effort_to_env_script(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch.object(backend, "_write_env_script") as write_env_script,
+        mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd_streaming"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.download"),
+        mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+        mock.patch.object(backend, "_wait_for_otel_flush"),
+    ):
+        assert backend.run("prompt", "claude-opus-4-6", effort="max") == 0
+
+    assert write_env_script.call_args.kwargs["effort"] == "max"
+
+
 def test_podman_codex_openai_key_is_passed_without_secret_in_args(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
@@ -465,6 +510,52 @@ class TestOpenShellEnvScript:
 
         assert len(captured) == 1
         assert "export OPENAI_API_KEY=super-secret" in captured[0]
+
+    @pytest.mark.parametrize(
+        ("effort", "expected"),
+        [("high", "export AGENT_REASONING_EFFORT=high"), (None, None)],
+    )
+    def test_env_script_exports_effort(self, monkeypatch, tmp_path, effort, expected):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+        captured = []
+
+        def mock_upload(path):
+            with open(path) as env_script:
+                captured.append(env_script.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=mock_upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("claude-opus-4-6", effort=effort)
+
+        assert "export AGENT_MODEL=claude-opus-4-6" in captured[0]
+        if expected is None:
+            assert "AGENT_REASONING_EFFORT" not in captured[0]
+        else:
+            assert expected in captured[0]
+
+    def test_env_script_ignores_extra_env_effort(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        backend = OpenShellBackend(
+            workdir=str(tmp_path),
+            harness=ClaudeCodeHarness(),
+            extra_env={"AGENT_REASONING_EFFORT": "max"},
+        )
+        captured = []
+
+        def mock_upload(path):
+            with open(path) as env_script:
+                captured.append(env_script.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=mock_upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("claude-opus-4-6", effort=None)
+
+        assert "AGENT_REASONING_EFFORT" not in captured[0]
 
 
 class TestTokenKeepalive:

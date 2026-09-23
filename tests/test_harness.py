@@ -265,6 +265,11 @@ class TestClaudeCodeHarness:
         assert harness.resolve_efforts(env={"CLAUDE_REASONING_EFFORT": "none"}) == (None, None)
         assert harness.build_effort_args(None, None) == []
 
+    def test_resolve_efforts_ignores_exported_agent_effort(self):
+        """AGENT_REASONING_EFFORT is output only; a nested run must not inherit it."""
+        env = {"AGENT_REASONING_EFFORT": "max"}
+        assert ClaudeCodeHarness().resolve_efforts(env=env) == ("high", None)
+
     def test_invalid_env_effort_fails_before_run(self):
         harness = ClaudeCodeHarness()
         effort, sub = harness.resolve_efforts(env={"CLAUDE_REASONING_EFFORT": "bogus"})

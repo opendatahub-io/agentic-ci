@@ -25,6 +25,15 @@ _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
 EFFORT_NONE = "none"
 """Effort override value meaning "pass no effort flag"."""
 
+AGENT_EFFORT_ENV_VAR = "AGENT_REASONING_EFFORT"
+"""Env var carrying the effective reasoning effort into the agent environment.
+
+Backends export it next to ``AGENT_MODEL`` so skills can read the effort in
+use without knowing the harness. Like ``AGENT_MODEL`` it is output only:
+:meth:`Harness.resolve_efforts` never reads it, so an agentic-ci run started
+inside an agent does not inherit the outer run's effort.
+"""
+
 
 class Harness(ABC):
     """Base class for agent CLI harnesses."""

@@ -271,6 +271,7 @@ class _AgentSession:
         self.last_rc = self.backend.run(
             prompt,
             model=model,
+            effort=main_effort,
             otel_port=self.otel_port,
             traceparent=self.traceparent,
             extra_args=args or None,

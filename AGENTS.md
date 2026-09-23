@@ -66,7 +66,7 @@ src/agentic_ci/
 
 ### Key
 
-- **Reasoning effort** is passed on every run (`claude --effort`, `opencode --variant`, `codex -c model_reasoning_effort=` plus `agents.default_subagent_reasoning_effort`), default `high` from `models.py`; overrides via `--effort` or `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`.
+- **Reasoning effort** is passed on every run (`claude --effort`, `opencode --variant`, `codex -c model_reasoning_effort=` plus `agents.default_subagent_reasoning_effort`), default `high` from `models.py`; overrides via `--effort` or `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`. Callers pass the resolved effort to `Backend.run(effort=...)` alongside the flags in `extra_args`, and every backend exports it to the agent as `AGENT_REASONING_EFFORT` next to `AGENT_MODEL` (output only, never read back).
 - **Authentication** is harness-specific: Claude Code uses `ANTHROPIC_API_KEY` when set and otherwise Vertex AI with gcloud ADC files; Codex uses `OPENAI_API_KEY` or local `$CODEX_HOME/auth.json` login state. The OpenShell backend requires `OPENAI_API_KEY`.
 - **OTEL collector runs on the host**, not inside the sandbox/container. Claude Code and Codex export OTEL data; OpenCode provides token/cost data via its JSON output.
 

@@ -55,6 +55,7 @@ def test_default_effort_is_high(tmp_path, monkeypatch):
     backend = RecordingBackend()
     assert _run(_args(tmp_path), backend, create_harness("claude-code")) == 0
     assert backend.run_kwargs["extra_args"] == ["--effort", "high", "--max-turns", "3"]
+    assert backend.run_kwargs["effort"] == "high"
 
 
 def test_flag_overrides_env(tmp_path, monkeypatch):
@@ -81,4 +82,5 @@ def test_none_passes_no_effort_flag(tmp_path, capsys):
     backend = RecordingBackend()
     assert _run(_args(tmp_path, effort="none"), backend, create_harness("claude-code")) == 0
     assert backend.run_kwargs["extra_args"] == ["--max-turns", "3"]
+    assert backend.run_kwargs["effort"] is None
     assert "Reasoning effort: none" in capsys.readouterr().out

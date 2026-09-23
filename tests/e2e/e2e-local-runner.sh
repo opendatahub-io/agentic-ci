@@ -110,6 +110,30 @@ if [[ -s "$TMPDIR_E2E/stream-out.txt" ]]; then
     echo "--- end streaming output ---"
 fi
 
+# -- Reasoning effort export test ---------------------------------------------
+print_header "=== agentic-ci run --backend local: AGENT_REASONING_EFFORT ==="
+
+WORKDIR="$TMPDIR_E2E/effort"
+mkdir -p "$WORKDIR"
+
+# A stale host value (as when agentic-ci runs inside another agent) must be
+# replaced by the effort actually passed to the agent.
+print_step "Running Claude Code with --effort low and a stale AGENT_REASONING_EFFORT..."
+RC=0
+AGENT_REASONING_EFFORT=max agentic-ci run --backend local \
+    "Run this shell command and then reply with only the word done: printenv AGENT_REASONING_EFFORT > effort.txt" \
+    --harness claude-code \
+    --effort low \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    > "$TMPDIR_E2E/effort-out.txt" 2>"$TMPDIR_E2E/effort-err.txt" || RC=$?
+
+assert_ok "effort local run exited successfully" test "$RC" -eq 0
+assert_contains "effective effort is logged" \
+    "$(cat "$TMPDIR_E2E/effort-out.txt")" "Reasoning effort.*low"
+assert_contains "agent environment carries the effective effort" \
+    "$(cat "$WORKDIR/effort.txt" 2>/dev/null)" "^low$"
+
 # -- Non-streaming test -------------------------------------------------------
 print_header "=== agentic-ci run --backend local: non-streaming ==="
 
