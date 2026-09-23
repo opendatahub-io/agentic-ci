@@ -328,18 +328,31 @@ from agentic_ci.harness import create_harness
 
 harness = create_harness("claude-code")
 
+# Reasoning effort: env var, else the registry default ("high"). Pass the CLI
+# flags and the value; the backend exports it to the agent as
+# AGENT_REASONING_EFFORT.
+effort, subagent_effort = harness.resolve_efforts()
+effort_args = harness.build_effort_args(effort, subagent_effort)
+
 # Podman backend
 backend = create_backend(
     "podman", harness=harness, workdir="/path/to/repo", image="my-image:latest"
 )
 backend.setup()
-rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6")
+rc = backend.run(
+    prompt="Fix the bug", model="claude-sonnet-4-6", extra_args=effort_args, effort=effort
+)
 backend.stop()
 
 # Local backend (no container)
 backend = create_backend("local", harness=harness, workdir="/path/to/repo")
 backend.setup()
-rc = backend.run(prompt="Fix the bug", model="claude-sonnet-4-6", extra_args=["--max-turns", "10"])
+rc = backend.run(
+    prompt="Fix the bug",
+    model="claude-sonnet-4-6",
+    extra_args=[*effort_args, "--max-turns", "10"],
+    effort=effort,
+)
 backend.stop()
 ```
 
@@ -470,6 +483,13 @@ harness env var (`CLAUDE_REASONING_EFFORT`, `OPENCODE_REASONING_EFFORT`,
 passes no flag. Invalid values fail before the agent starts. The effective
 effort is printed at run start and recorded on the synthetic root span as
 `agent.reasoning_effort` (and `agent.subagent_reasoning_effort`).
+
+Every backend exports the effective effort to the agent as
+`AGENT_REASONING_EFFORT`, next to `AGENT_MODEL`, so skills can read the model
+and effort in use (including the defaults) without knowing the harness. It is
+unset when `none` disables the effort flag. Like `AGENT_MODEL`, it is output
+only: agentic-ci never reads it, so a run started inside an agent does not
+inherit the outer run's effort.
 
 ### Model Routing with `run_routed_skill()`
 

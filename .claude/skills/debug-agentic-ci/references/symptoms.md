@@ -33,7 +33,7 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 
 ### Agents run at low reasoning effort (shallow reviews, tiny reasoning token counts)
 - **Likely cause**: No effort reached the agent CLI, so the model default applied (Codex defaults to `low` on `gpt-5.6-sol`, RHAIFIRST-649). Fixed by passing the registry `default_effort` (`high`) on every run and `agents.default_subagent_reasoning_effort` for Codex sub-agents. Recurs if an env override sets `none` or a low value.
-- **Expected behavior**: Run start logs `Reasoning effort: high`; the synthetic root span carries `agent.reasoning_effort` (and `agent.subagent_reasoning_effort` for Codex); Codex `codex.conversation_starts` events report the effort.
+- **Expected behavior**: Run start logs `Reasoning effort: high`; the synthetic root span carries `agent.reasoning_effort` (and `agent.subagent_reasoning_effort` for Codex); the agent environment has `AGENT_REASONING_EFFORT=high`; Codex `codex.conversation_starts` events report the effort.
 - **Where to look**: `harness.py:resolve_efforts()`, `models.py:MODEL_REGISTRY` (`default_effort`, `subagent_effort`), `CLAUDE_REASONING_EFFORT` / `OPENCODE_REASONING_EFFORT` / `CODEX_REASONING_EFFORT` / `CODEX_SUBAGENT_REASONING_EFFORT`, `--effort`
 
 ### Run fails before the agent starts with "Unsupported ... effort"

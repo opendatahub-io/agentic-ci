@@ -604,6 +604,33 @@ GITIGNORE
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
+    # --- AGENT_REASONING_EFFORT via OpenShell ---
+    # Verifies that the env script exports the effective effort to the agent.
+    print_header "=== agentic-ci run: AGENT_REASONING_EFFORT via OpenShell ==="
+
+    WORKDIR="$TMPDIR_E2E/effort"
+    mkdir -p "$WORKDIR"
+    git -C "$WORKDIR" init -q
+
+    print_step "Running Claude Code with --effort low..."
+    EFFORT_LOG="$TMPDIR_E2E/effort.log"
+    RC=0
+    agentic-ci run \
+        "Run this shell command and then reply with only the word done: printenv AGENT_REASONING_EFFORT > effort.txt" \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --effort low \
+        --workdir "$WORKDIR" \
+        --no-otel 2>&1 | tee "$EFFORT_LOG" || RC=$?
+
+    assert_ok "effort run exited successfully" test "$RC" -eq 0
+    assert_contains "agent environment carries the effective effort" \
+        "$(cat "$WORKDIR/effort.txt" 2>/dev/null)" "^low$"
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
     # --- AGENT_ENABLED_PLUGINS via OpenShell ---
     # Verifies that the env script sources entrypoint.sh and calls
     # _enable_plugins so only the requested plugins are loaded.

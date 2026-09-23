@@ -48,6 +48,18 @@ def test_build_env_args_extra_env(tmp_path, claude_harness):
     assert "MY_VAR=value" in args
 
 
+def test_build_env_args_skips_extra_env_effort(tmp_path, claude_harness):
+    """run() exports the effort per exec; a container-level copy would outlive it."""
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        harness=claude_harness,
+        extra_env={"AGENT_REASONING_EFFORT": "max", "FOO": "bar"},
+    )
+    args = backend._build_env_args()
+    assert "FOO=bar" in args
+    assert not any(arg.startswith("AGENT_REASONING_EFFORT") for arg in args)
+
+
 def test_build_env_args_does_not_forward_openai_credentials_to_claude(tmp_path, claude_harness):
     backend = PodmanBackend(
         workdir=str(tmp_path),
@@ -336,3 +348,27 @@ def test_run_passes_otel_port_to_implicit_setup(tmp_path, claude_harness):
         assert backend.run("test", "test-model", otel_port=4318) == 0
 
     setup.assert_called_once_with(otel_port=4318)
+
+
+@pytest.mark.parametrize("effort", ["medium", None])
+def test_run_exports_model_and_effort(tmp_path, claude_harness, effort):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    with (
+        mock.patch.object(backend, "is_running", return_value=True),
+        mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+        mock.patch.object(backend, "_wait_for_otel_flush"),
+        mock.patch("agentic_ci.backends.podman.subprocess.Popen") as popen,
+    ):
+        backend.run("test", "test-model", effort=effort)
+
+    cmd = popen.call_args.args[0]
+    assert cmd[cmd.index("AGENT_MODEL=test-model") - 1] == "--env"
+    if effort is None:
+        assert not any(arg.startswith("AGENT_REASONING_EFFORT=") for arg in cmd)
+    else:
+        assert cmd[cmd.index(f"AGENT_REASONING_EFFORT={effort}") - 1] == "--env"

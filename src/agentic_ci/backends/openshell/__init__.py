@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -295,6 +296,7 @@ class OpenShellBackend(Backend):
         otel_rate_file=None,
         extra_args=None,
         traceparent=None,
+        effort=None,
     ):
         env = self._merged_env()
         auth_mode = self.harness.auth_mode_for_env(env)
@@ -305,6 +307,7 @@ class OpenShellBackend(Backend):
             traceparent=traceparent,
             env=env,
             auth_mode=auth_mode,
+            effort=effort,
         )
         otel_endpoint = f"http://{_OPENSHELL_HOST}:{otel_port}" if otel_port else None
         agent_args = self.harness.build_args(
@@ -355,6 +358,7 @@ class OpenShellBackend(Backend):
         traceparent=None,
         env=None,
         auth_mode=None,
+        effort=None,
     ):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
@@ -385,9 +389,14 @@ class OpenShellBackend(Backend):
         for key, val in self._extra_env.items():
             if auth_mode == "openai" and key in _OPENAI_CREDENTIAL_ENV_VARS:
                 continue
+            # Exported below from *effort*, so the agent only sees the effort in effect.
+            if key == AGENT_EFFORT_ENV_VAR:
+                continue
             lines.append(f"export {key}={shlex.quote(val)}")
 
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
+        if effort is not None:
+            lines.append(f"export {AGENT_EFFORT_ENV_VAR}={shlex.quote(effort)}")
 
         lines.extend(
             [

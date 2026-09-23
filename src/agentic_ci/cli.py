@@ -161,6 +161,7 @@ def cmd_run(args, backend, harness):
             extra_args=extra_args,
             streaming=not args.no_streaming,
             traceparent=traceparent,
+            effort=effort,
         )
 
         print(flush=True)

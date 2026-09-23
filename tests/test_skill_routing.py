@@ -320,6 +320,7 @@ class RecordingBackend:
 
     def __init__(self):
         self.calls = []
+        self.efforts = []
         self.output_file = None
         self.verdict_path = None
 
@@ -328,6 +329,7 @@ class RecordingBackend:
 
     def run(self, prompt, model, otel_port=None, traceparent=None, extra_args=None, **kw):
         self.calls.append(("run", prompt, model, extra_args, self.output_file))
+        self.efforts.append(kw.get("effort"))
         return 0
 
     def stop(self):
@@ -363,6 +365,8 @@ class TestAgentSession:
             ("run", "second", "b", ["--effort", "high", "--x"], tmp_path / "2.txt"),
             ("stop",),
         ]
+        # The resolved effort reaches the backend, which exports it to the agent.
+        assert backend.efforts == ["low", "high"]
         assert (tmp_path / "_run").is_dir()
         assert session.last_model == "b"
         assert session.last_effort == "high"

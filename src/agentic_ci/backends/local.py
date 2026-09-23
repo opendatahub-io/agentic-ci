@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.backend import Backend
+from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -44,6 +45,7 @@ class LocalBackend(Backend):
         otel_rate_file=None,
         extra_args=None,
         traceparent=None,
+        effort=None,
     ):
         log.section(f"Executing {self.harness.name} locally")
 
@@ -58,6 +60,11 @@ class LocalBackend(Backend):
             ),
             "AGENT_MODEL": model,
         }
+        # The host env may carry a stale AGENT_REASONING_EFFORT (e.g. when
+        # agentic-ci runs inside another agent); export only this run's effort.
+        env.pop(AGENT_EFFORT_ENV_VAR, None)
+        if effort is not None:
+            env[AGENT_EFFORT_ENV_VAR] = effort
         otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
         agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
