@@ -39,8 +39,10 @@ To see what happens under the hood, read the
 
     `agentic-ci` reuses whatever gateway `openshell status` reports as
     healthy. If your own gateway is active and running, agentic-ci creates
-    its `ci-gcp` provider and `ci` sandbox on it, and teardown deletes any
-    sandbox named `ci` there. Stop your gateway before running agentic-ci.
+    its `ci-gcp` provider and `ci` sandbox on it. It can also delete any
+    sandbox named `ci` there and kill whatever listens on port 17670, at
+    the end of a run and, in newer releases, at the start of every run, so
+    `--keep` does not persist. Stop your gateway before running agentic-ci.
 
     When no gateway is running, agentic-ci starts its own: it rewrites
     `~/.config/openshell/gateway.toml` and registers a `ci` gateway as the
@@ -276,6 +278,15 @@ Podman backend. Changing `--harness`, `--image`, or the auth mode (for
 example exporting `ANTHROPIC_API_KEY`) recreates the sandbox
 automatically.
 
+Run every command from a shell that has sourced
+`~/.config/agentic-ci/openshell.env`. If the supervisor or sandbox runtime
+image differs from the one the gateway was started with, as in an IDE
+terminal or a shell opened before you edited your profile, newer
+releases restart the gateway. That deletes the kept sandbox and only logs
+`OpenShell gateway config changed; restarting gateway`. Your working tree
+is safe, since each run downloads it back, but anything installed inside
+the sandbox is gone.
+
 !!! warning "A kept sandbox does not see your local edits"
 
     Your repository is uploaded only when the sandbox is created. Later
@@ -342,10 +353,12 @@ setup:
 Both files are read when the sandbox is created, so run
 `openshell sandbox delete ci` after editing them. To try out a policy
 without committing it, pass `--policy my-policy.yml`. Its endpoints
-replace the repository file's, and the defaults still apply. A path that
-does not exist is ignored silently, so check the `Policy source:` line in
-the output. See [Project Configuration](../configuration.md) for the full
-reference.
+replace the repository file's, and the defaults still apply. A relative
+path is resolved from your current directory, not from `--workdir`. If
+the path does not exist, agentic-ci silently uses the repository file (or
+only the defaults when there is none), so check that the
+`Policy source:` line in the output names your file. See
+[Project Configuration](../configuration.md) for the full reference.
 
 ## Alternative: run everything in a container
 
