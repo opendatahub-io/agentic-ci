@@ -131,3 +131,11 @@ class TestProviderSetup:
             setup("openai", {"OPENAI_API_KEY": "extra-key"})
 
         assert mock_run.call_args.kwargs["env"]["OPENAI_API_KEY"] == "extra-key"
+
+    def test_oauth_mode_creates_no_provider(self):
+        # The OAuth token reaches the sandbox through the env script only;
+        # OpenShell has no provider profile for it.
+        with mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run:
+            setup("oauth", {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"})
+
+        mock_run.assert_not_called()

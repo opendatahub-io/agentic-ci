@@ -73,6 +73,34 @@ def test_build_env_args_does_not_forward_openai_credentials_to_claude(tmp_path, 
     assert not any("unrelated-key" in arg for arg in args)
 
 
+@pytest.mark.parametrize("key", ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"])
+def test_build_env_args_passes_anthropic_extra_env_by_reference(tmp_path, claude_harness, key):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        harness=claude_harness,
+        extra_env={key: "secret-value"},
+    )
+
+    # The harness also forwards the selected credential by reference; no duplicate.
+    args = backend._build_env_args({key: "secret-value"})
+
+    assert args.count(key) == 1
+    assert not any("secret-value" in arg for arg in args)
+
+
+def test_build_env_args_forwards_anthropic_extra_env_the_harness_skips(tmp_path, opencode_harness):
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        harness=opencode_harness,
+        extra_env={"CLAUDE_CODE_OAUTH_TOKEN": "secret-value"},
+    )
+
+    args = backend._build_env_args({"CLAUDE_CODE_OAUTH_TOKEN": "secret-value"})
+
+    assert args.count("CLAUDE_CODE_OAUTH_TOKEN") == 1
+    assert not any("secret-value" in arg for arg in args)
+
+
 def test_resolve_credentials_creates_config(monkeypatch, tmp_path, claude_harness):
     creds = json.dumps({"type": "authorized_user", "client_id": "test"})
     monkeypatch.setenv("GCLOUD_CREDENTIALS", creds)
@@ -170,6 +198,36 @@ def test_build_env_args_api_key(monkeypatch, tmp_path, claude_harness):
     assert "ANTHROPIC_API_KEY" in args
     assert "ANTHROPIC_API_KEY=sk-test-key" not in args
     assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+
+
+def test_setup_oauth_token_skips_gcloud_credentials(monkeypatch, tmp_path, claude_harness):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    backend = PodmanBackend(
+        workdir=str(tmp_path),
+        image="localhost/test:latest",
+        harness=claude_harness,
+    )
+
+    calls = []
+
+    def mock_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ["podman", "container", "inspect"]:
+            return _subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return _subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(_subprocess, "run", mock_run)
+
+    with mock.patch.object(backend, "_resolve_credentials") as resolve_credentials:
+        backend.setup()
+
+    resolve_credentials.assert_not_called()
+    run_cmd = next(c for c in calls if c[:2] == ["podman", "run"])
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in run_cmd
+    assert "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test" not in run_cmd
+    assert "CLAUDE_CODE_USE_VERTEX=1" not in run_cmd
+    assert ".config/gcloud" not in " ".join(run_cmd)
 
 
 def test_setup_does_not_override_entrypoint(monkeypatch, tmp_path, claude_harness):

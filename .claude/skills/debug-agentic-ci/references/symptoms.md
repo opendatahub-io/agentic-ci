@@ -86,8 +86,16 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Where to look**: `harness.py` auth mode, `backends/openshell/provider.py`, `backends/openshell/policy.py`
 
 ### OpenShell harness cannot reach its model API, or can reach another harness's API
-- **Likely cause**: The sandbox policy was resolved without the harness auth mode. Authentication endpoints are scoped to `vertex`, `api-key`, or `openai`; only common forge and package endpoints are shared.
+- **Likely cause**: The sandbox policy was resolved without the harness auth mode. Authentication endpoints are scoped to `vertex`, `api-key`, `oauth`, or `openai`; only common forge and package endpoints are shared.
 - **Where to look**: `backends/openshell/policy.py`, `backends/openshell/sandbox.py` auth mode wiring
+
+### Claude Code ignores CLAUDE_CODE_OAUTH_TOKEN and uses Vertex AI or the API key
+- **Likely cause**: `ANTHROPIC_API_KEY` is also set (it wins over the token), the token is empty, or the harness is not Claude Code. Only `ClaudeCodeHarness` selects the `oauth` auth mode; OpenCode and Codex ignore the token. The startup log shows `Auth: Claude subscription (OAuth token)` when the mode is selected. On the local backend the agent inherits the host environment, so a `CLAUDE_CODE_USE_VERTEX=1` left in the shell makes Claude Code use Vertex AI even though the log says OAuth token. A standalone runner image does the same when `GCP_SERVICE_ACCOUNT_KEY` is also set: its entrypoint exports `CLAUDE_CODE_USE_VERTEX=1`.
+- **Where to look**: `ClaudeCodeHarness.auth_mode_for_env()` in `harness.py`, the `Auth:` line in the run log, `env | grep CLAUDE_CODE_USE` on the host for local runs, `_detect_tool` in `images/runner/shared/entrypoint.sh` for standalone images
+
+### OpenShell setup fails with "no identifiable provider" or "Could not determine the existing OpenShell sandbox identity" after using a subscription token
+- **Likely cause**: `oauth` mode creates the sandbox without a provider and records the mode only in the sandbox identity file (`~/.config/agentic-ci/openshell-sandbox.json`, or `AGENTIC_CI_OPENSHELL_STATE`). The file is cleared before each sandbox create and saved only when setup succeeds, so a failed `setup` or `run --keep` leaves a sandbox that cannot be identified. A file written by another mode, or edited by hand, gives the "no identifiable provider" error.
+- **Where to look**: `OpenShellBackend.setup()`, `provider.requires_provider()`, the sandbox identity file; run `agentic-ci stop --backend openshell` to reset
 
 ### Codex exits before local or Podman execution with "credentials not found"
 - **Likely cause**: None of `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, or `OPENAI_API_KEY` is available. Local runs may instead use `$CODEX_HOME/auth.json`; Podman runs require a forwarded environment credential.

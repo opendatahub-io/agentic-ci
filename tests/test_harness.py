@@ -57,6 +57,25 @@ class TestAuthMode:
         assert ClaudeCodeHarness().auth_mode_for_env(env) == "api-key"
         assert OpenCodeHarness().auth_mode_for_env(env) == "api-key"
 
+    def test_oauth_when_claude_code_oauth_token_set(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+        assert ClaudeCodeHarness().auth_mode == "oauth"
+
+    def test_api_key_wins_over_oauth_token(self):
+        env = {"ANTHROPIC_API_KEY": "sk-test", "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        assert ClaudeCodeHarness().auth_mode_for_env(env) == "api-key"
+
+    def test_vertex_when_oauth_token_empty(self):
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": ""}
+        assert ClaudeCodeHarness().auth_mode_for_env(env) == "vertex"
+
+    def test_opencode_ignores_oauth_token(self):
+        # OpenCode does not read CLAUDE_CODE_OAUTH_TOKEN, so it keeps its
+        # existing API key / Vertex selection.
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        assert OpenCodeHarness().auth_mode_for_env(env) == "vertex"
+
 
 class TestClaudeCodeHarness:
     def test_name(self):
@@ -100,6 +119,15 @@ class TestClaudeCodeHarness:
         assert "ANTHROPIC_API_KEY=sk-test-key" not in args
         assert "DISABLE_AUTOUPDATER=1" in args
         assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+
+    def test_build_env_args_oauth_token(self):
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        args = ClaudeCodeHarness().build_env_args(env)
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in args
+        assert "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test" not in args
+        assert "DISABLE_AUTOUPDATER=1" in args
+        assert "CLAUDE_CODE_USE_VERTEX=1" not in args
+        assert "ANTHROPIC_API_KEY" not in args
 
     def test_build_env_args_gcp_project_id_fallback(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -145,6 +173,14 @@ class TestClaudeCodeHarness:
         assert env["ANTHROPIC_API_KEY"] == "sk-test-key"
         assert "CLAUDE_CODE_USE_VERTEX" not in env
 
+    def test_build_local_env_oauth_token(self):
+        env = ClaudeCodeHarness().build_local_env(
+            env={"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        )
+        assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-test"
+        assert "CLAUDE_CODE_USE_VERTEX" not in env
+        assert "ANTHROPIC_API_KEY" not in env
+
     def test_build_local_env_gcp_project_id_fallback(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
@@ -184,6 +220,15 @@ class TestClaudeCodeHarness:
         assert any("CLAUDE_CODE_PLUGIN_SEED_DIR=/sandbox/.claude-seed" in line for line in lines)
         assert not any("CLAUDE_CODE_USE_VERTEX" in line for line in lines)
         assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
+
+    def test_build_env_script_lines_oauth_token(self):
+        lines = ClaudeCodeHarness().build_env_script_lines(
+            env={"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-test"}
+        )
+        assert "export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test" in lines
+        assert any("DISABLE_AUTOUPDATER=1" in line for line in lines)
+        assert not any("CLAUDE_CODE_USE_VERTEX" in line for line in lines)
+        assert not any("ANTHROPIC_API_KEY" in line for line in lines)
 
     def test_build_env_script_lines_forwards_enabled_plugins(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")

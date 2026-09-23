@@ -142,11 +142,15 @@ Pick the row that matches the harness and model provider you want:
 |---|---|---|
 | Claude Code or OpenCode | Vertex AI | `gcloud auth application-default login`, then `export ANTHROPIC_VERTEX_PROJECT_ID=<gcp-project>` |
 | Claude Code or OpenCode | Anthropic API | `export ANTHROPIC_API_KEY=<key>` |
+| Claude Code | Claude Pro/Max subscription | `claude setup-token`, then `export CLAUDE_CODE_OAUTH_TOKEN=<token>` |
 | Codex | OpenAI API | `export OPENAI_API_KEY=<key>` |
 
 A few details worth knowing:
 
-- `ANTHROPIC_API_KEY` wins when it is set. Unset it to use Vertex AI.
+- `ANTHROPIC_API_KEY` wins when it is set, then `CLAUDE_CODE_OAUTH_TOKEN`
+  (Claude Code only). Unset both to use Vertex AI.
+- The subscription token has no OpenShell provider. agentic-ci creates the
+  sandbox without one and passes the token through the env script.
 - Vertex AI defaults to the `global` region. Set `CLOUD_ML_REGION` to
   use another one.
 - The credential provider reads `GOOGLE_CLOUD_PROJECT` before
@@ -157,8 +161,8 @@ A few details worth knowing:
   403.
 - Codex on OpenShell requires `OPENAI_API_KEY`. A `codex login` session
   stored in `~/.codex` is not used here.
-- With API-key auth, the real key can be read from inside the sandbox.
-  See
+- With API-key or subscription token auth, the real credential can be
+  read from inside the sandbox. See
   [L4 API-key exposure](../backends/openshell.md#api-key-direct-anthropic-api).
 
 ## Step 3: Run your first agent
@@ -275,8 +279,8 @@ agentic-ci stop --backend openshell
 A run without `--keep` also tears everything down when it finishes.
 `stop` needs `--backend openshell` too, otherwise it targets the default
 Podman backend. Changing `--harness`, `--image`, or the auth mode (for
-example exporting `ANTHROPIC_API_KEY`) recreates the sandbox
-automatically.
+example exporting `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`)
+recreates the sandbox automatically.
 
 Run every command from a shell that has sourced
 `~/.config/agentic-ci/openshell.env`. If the supervisor or sandbox runtime
@@ -386,9 +390,9 @@ podman rm -f openshell-dev
 
 Both images use the `latest` tag here, which CI builds from the same
 `main` commit, so they match each other. To pin a release instead, use
-the same version tag on both. For API-key auth, pass
-`-e ANTHROPIC_API_KEY` or `-e OPENAI_API_KEY` instead of the gcloud mount
-and Vertex variables. Inside the sandbox the repository lives in
+the same version tag on both. For API-key or subscription token auth,
+pass `-e ANTHROPIC_API_KEY`, `-e CLAUDE_CODE_OAUTH_TOKEN`, or
+`-e OPENAI_API_KEY` instead of the gcloud mount and Vertex variables. Inside the sandbox the repository lives in
 `/sandbox/workspace`, and the agent's changes land back in `/workspace`,
 which is your repository on the host. Sandbox images are pulled inside
 the container, so they are downloaded again each time you recreate it.

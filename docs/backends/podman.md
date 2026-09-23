@@ -77,6 +77,10 @@ The backend auto-detects the auth mode from the environment:
 - **API key**: If `ANTHROPIC_API_KEY` is set, it is passed directly via
   `--env ANTHROPIC_API_KEY`. No credential files are mounted.
 
+- **OAuth token** (Claude Code only): If `ANTHROPIC_API_KEY` is not set
+  and `CLAUDE_CODE_OAUTH_TOKEN` is, the token is passed via
+  `--env CLAUDE_CODE_OAUTH_TOKEN`. No credential files are mounted.
+
 - **Vertex AI**: GCP credentials are staged to a temp directory and
   bind-mounted read-only into the container.
 
@@ -130,6 +134,13 @@ API key auth:
 | Variable | Value |
 |----------|-------|
 | `ANTHROPIC_API_KEY` | From env (passed by reference, not value) |
+| `DISABLE_AUTOUPDATER` | `1` |
+
+OAuth token auth (Claude Code):
+
+| Variable | Value |
+|----------|-------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | From env (passed by reference, not value) |
 | `DISABLE_AUTOUPDATER` | `1` |
 
 ### Passed at exec time (`podman exec --env`)

@@ -8,7 +8,7 @@
 #
 # Requires: python3, podman, agentic-ci
 # Credentials: GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS,
-#              or ANTHROPIC_API_KEY
+#              ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN
 #
 # Usage:
 #   ./tests/e2e/e2e-claude-runner.sh
@@ -74,13 +74,14 @@ IMAGE="${CLAUDE_CONTAINER_IMAGE:-localhost/claude-runner:latest}"
 _has_creds() {
     [[ -n "${GCP_SERVICE_ACCOUNT_KEY:-}" ]] || \
     [[ -n "${GCLOUD_CREDENTIALS:-}" ]] || \
-    [[ -n "${ANTHROPIC_API_KEY:-}" ]]
+    [[ -n "${ANTHROPIC_API_KEY:-}" ]] || \
+    [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]
 }
 
 if ! _has_creds; then
     echo ""
     print_warning "Skipping e2e tests (no credentials set)"
-    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, or ANTHROPIC_API_KEY"
+    print_warning "Set GCP_SERVICE_ACCOUNT_KEY, GCLOUD_CREDENTIALS, ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN"
     exit 0
 fi
 

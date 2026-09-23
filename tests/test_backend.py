@@ -378,6 +378,191 @@ def test_openshell_uses_extra_env_for_claude_auth_mode(monkeypatch, tmp_path):
     assert create_sandbox.call_args.kwargs["auth_mode"] == "api-key"
 
 
+def _write_identity(monkeypatch, tmp_path, auth_mode):
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(
+        json.dumps({"auth_mode": auth_mode, "harness": "Claude Code", "image": None})
+    )
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+
+def test_openshell_reuses_oauth_sandbox_without_provider(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    _write_identity(monkeypatch, tmp_path, "oauth")
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+    ):
+        backend.setup()
+
+    delete_provider.assert_not_called()
+    delete_sandbox.assert_not_called()
+    setup_provider.assert_not_called()
+    create_sandbox.assert_not_called()
+
+
+def test_openshell_rejects_providerless_sandbox_without_identity(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(tmp_path / "missing.json"))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        pytest.raises(RuntimeError, match="sandbox identity"),
+    ):
+        backend.setup()
+
+    create_sandbox.assert_not_called()
+
+
+def test_openshell_rejects_providerless_sandbox_with_corrupt_auth_mode(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    _write_identity(monkeypatch, tmp_path, ["oauth"])
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        pytest.raises(RuntimeError, match="no identifiable provider"),
+    ):
+        backend.setup()
+
+
+def test_openshell_oauth_deletes_leftover_provider_without_sandbox(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(tmp_path / "state.json"))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.auth_mode", return_value="vertex"),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.provider.setup"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_provider.assert_called_once_with()
+    assert create_sandbox.call_args.kwargs["auth_mode"] == "oauth"
+
+
+def test_openshell_clears_stale_identity_before_creating_sandbox(monkeypatch, tmp_path):
+    # A failed setup after create must not leave an identity describing an
+    # earlier sandbox: for provider-less modes it is the only auth record.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    _write_identity(monkeypatch, tmp_path, "api-key")
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.setup"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
+        mock.patch.object(backend, "_run_setup_steps", side_effect=RuntimeError("setup failed")),
+        pytest.raises(RuntimeError, match="setup failed"),
+    ):
+        backend.setup()
+
+    assert _load_sandbox_identity() is None
+
+
+def test_openshell_rejects_providerless_sandbox_for_provider_auth_mode(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    _write_identity(monkeypatch, tmp_path, "api-key")
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        pytest.raises(RuntimeError, match="no identifiable provider"),
+    ):
+        backend.setup()
+
+
+def test_openshell_switches_from_api_key_to_oauth(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-test")
+    _write_identity(monkeypatch, tmp_path, "api-key")
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.auth_mode", return_value="api-key"),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_called_once_with()
+    setup_provider.assert_called_once_with(auth_mode="oauth", env=mock.ANY)
+    assert create_sandbox.call_args.kwargs["auth_mode"] == "oauth"
+    assert _load_sandbox_identity()["auth_mode"] == "oauth"
+
+
+def test_openshell_switches_from_oauth_to_api_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    _write_identity(monkeypatch, tmp_path, "oauth")
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_not_called()
+    setup_provider.assert_called_once_with(auth_mode="api-key", env=mock.ANY)
+    assert create_sandbox.call_args.kwargs["auth_mode"] == "api-key"
+
+
 class TestOpenShellEnvScript:
     """Tests for OpenShellBackend._write_env_script()."""
 
@@ -408,6 +593,18 @@ class TestOpenShellEnvScript:
 
         assert len(captured) == 1
         return captured[0]
+
+    def test_env_script_exports_oauth_token(self, monkeypatch, tmp_path):
+        script = self._capture_script(
+            monkeypatch,
+            tmp_path,
+            ANTHROPIC_API_KEY=None,
+            CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-test",
+        )
+        assert "export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test" in script
+        assert "ANTHROPIC_API_KEY" not in script
+        assert "CLAUDE_CODE_USE_VERTEX" not in script
+        assert "CLAUDE_CODE_MAX_RETRIES" not in script
 
     def test_env_script_calls_enable_plugins(self, monkeypatch, tmp_path):
         script = self._capture_script(monkeypatch, tmp_path)

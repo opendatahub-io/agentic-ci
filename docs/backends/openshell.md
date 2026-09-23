@@ -16,7 +16,8 @@ a **provider** (credentials), and a **sandbox** (isolated execution
 environment). On each `agentic-ci run --backend openshell`, it:
 
 1. Starts the OpenShell gateway with TLS and mTLS auth
-2. Creates a GCP, Anthropic, or OpenAI credential provider
+2. Creates a GCP, Anthropic, or OpenAI credential provider (none for a
+   Claude subscription OAuth token)
 3. Creates a sandbox container from the specified image
 4. Applies a network policy and waits for it to activate
 5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
@@ -143,11 +144,22 @@ openshell provider create \
   --credential OPENAI_API_KEY
 ```
 
+#### OAuth Token (Claude subscription)
+
+When the Claude Code harness runs with `CLAUDE_CODE_OAUTH_TOKEN` and no
+`ANTHROPIC_API_KEY`, agentic-ci creates no provider. OpenShell's Anthropic
+provider profiles only carry `ANTHROPIC_API_KEY` as an `x-api-key` header,
+and no profile covers a subscription bearer token. The sandbox is created
+without `--provider`, the token is exported by the sandbox env script, and
+the `oauth` auth mode is recorded only in the sandbox identity file
+(`~/.config/agentic-ci/openshell-sandbox.json`).
+
 <!-- markdownlint-disable MD046 -->
 !!! warning "L4 API-key exposure"
 
     L4 CONNECT policy cannot replace credentials at the HTTP layer, so the
-    real API key is available inside the sandbox. This preserves the backend's
+    real API key, or the Claude subscription OAuth token, is available
+    inside the sandbox. This preserves the backend's
     existing behavior but does not provide OpenShell's L7 credential-isolation
     benefit. API-key providers should be migrated together to profile-backed
     L7 inspection in a follow-up rather than changing only Codex here.
@@ -194,7 +206,7 @@ Two failure modes worth recognizing, because neither says what it is:
 ```bash
 openshell sandbox get ci                         # check if exists
 
-# Create sandbox with the provider attached.
+# Create sandbox with the provider attached (omitted for OAuth token auth).
 # --memory / --cpu / --gpu are only passed when the caller sets them.
 openshell sandbox create \
   --name ci \
@@ -287,14 +299,15 @@ The default endpoints cover:
 | `aiplatform.googleapis.com:443` | read-write | Vertex AI (global endpoint) |
 | `*.aiplatform.googleapis.com:443` | read-write | Vertex AI (regional endpoints) |
 | `oauth2.googleapis.com:443` | read-write | GCP token exchange |
-| `api.anthropic.com:443` | read-write | Anthropic API (API key auth) |
+| `api.anthropic.com:443` | read-write | Anthropic API (API key or OAuth token auth) |
 | `api.openai.com:443` | read-write | OpenAI API (Codex, API key auth) |
 | `chatgpt.com:443` | read-write | Codex ChatGPT backend API |
 
 Hosts that the attached provider profile marks as credentialed
 (`api.anthropic.com`, `api.openai.com`) carry the
 `allow-uninspected-credentials` endpoint option. OpenShell v0.0.116 and later
-reject L4-only rules for credentialed hosts without it.
+reject L4-only rules for credentialed hosts without it. OAuth token auth
+attaches no provider, so its `api.anthropic.com` rule is plain L4.
 
 ### Project-specific endpoints
 

@@ -403,6 +403,7 @@ def main():
     log.detail("Harness", harness.name)
     auth_label = {
         "api-key": "Anthropic API key",
+        "oauth": "Claude subscription (OAuth token)",
         "openai": "OpenAI",
         "vertex": "Vertex AI",
     }.get(harness.auth_mode, harness.auth_mode)

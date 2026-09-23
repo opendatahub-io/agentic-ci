@@ -22,6 +22,16 @@ _PROVIDER_AUTH_MODES = {
     "codex": "openai",
 }
 
+# Auth modes whose credential reaches the sandbox only through the env
+# script. OpenShell has no provider profile for a Claude subscription OAuth
+# token, so no provider is created or attached for these modes.
+_PROVIDERLESS_AUTH_MODES = frozenset({"oauth"})
+
+
+def requires_provider(auth_mode: str | None) -> bool:
+    """Return whether *auth_mode* is backed by the CI provider."""
+    return auth_mode not in _PROVIDERLESS_AUTH_MODES
+
 
 def _run(args, **kwargs):
     """Run an openshell command with logging. Redacts secret values."""
@@ -49,7 +59,13 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
     the service account's email and private key.
 
     For Anthropic or OpenAI API key auth, creates the corresponding provider.
+
+    For a Claude subscription OAuth token, creates nothing: the token is
+    exported by the sandbox env script instead.
     """
+    if not requires_provider(auth_mode):
+        print(f"  No provider needed for {auth_mode} auth", flush=True)
+        return
     credential_env = env if env is not None else os.environ
     if provider_exists():
         # NOTE: switching auth modes (e.g. Vertex → API key) between runs

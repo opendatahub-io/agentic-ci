@@ -166,18 +166,23 @@ class OpenShellBackend(Backend):
                 )
 
         if sandbox_exists:
-            if not existing_provider:
-                raise RuntimeError(
-                    "The existing OpenShell sandbox has no identifiable provider; "
-                    "run agentic-ci stop before switching harnesses"
-                )
             identity = _load_sandbox_identity()
-            expected_identity = _sandbox_identity(self.harness.name, self.image, auth_mode)
             if identity is None:
                 raise RuntimeError(
                     "Could not determine the existing OpenShell sandbox identity; "
                     "run agentic-ci stop before switching harnesses"
                 )
+            if not existing_provider:
+                # Provider-less auth modes are only recorded in the sandbox identity.
+                existing_auth_mode = identity.get("auth_mode")
+                if not isinstance(existing_auth_mode, str) or provider.requires_provider(
+                    existing_auth_mode
+                ):
+                    raise RuntimeError(
+                        "The existing OpenShell sandbox has no identifiable provider; "
+                        "run agentic-ci stop before switching harnesses"
+                    )
+            expected_identity = _sandbox_identity(self.harness.name, self.image, auth_mode)
             if existing_auth_mode == auth_mode and identity == expected_identity:
                 log.section("Sandbox already exists")
                 self._warn_unapplied_resources()
@@ -188,7 +193,6 @@ class OpenShellBackend(Backend):
             else:
                 log.section("Sandbox identity changed; recreating OpenShell sandbox")
             sandbox.delete()
-            _clear_sandbox_identity()
 
         if existing_provider and existing_auth_mode != auth_mode:
             provider.delete()
@@ -199,6 +203,10 @@ class OpenShellBackend(Backend):
         image_info = f", image: {self.image}" if self.image else ""
         log.section(f"Creating sandbox ({image_info.lstrip(', ') or 'default image'})")
 
+        # Drop any identity left by an earlier sandbox before creating a new one.
+        # It is only saved once setup succeeds, and for provider-less auth modes
+        # it is the only record of the sandbox's auth mode.
+        _clear_sandbox_identity()
         sandbox.create(
             image=self.image,
             policy_path=self.policy_path,

@@ -84,6 +84,18 @@ class TestBackendPassesResourcesThrough:
         assert (backend.memory, backend.cpu, backend.gpu) == (None, None, None)
 
 
+def test_create_attaches_no_provider_for_oauth():
+    with (
+        mock.patch.object(sandbox, "_run") as run,
+        mock.patch.object(sandbox, "_apply_policy"),
+    ):
+        sandbox.create(auth_mode="oauth")
+
+    create_args = run.call_args_list[0].args[0]
+    assert "--no-auto-providers" in create_args
+    assert "--provider" not in create_args
+
+
 def test_create_uses_detached_persistent_main_process():
     with (
         mock.patch.object(sandbox, "_run") as run,
@@ -111,6 +123,24 @@ def test_apply_policy_allows_hummingbird_binary_aliases():
         if argument == "--binary"
     ]
     assert binary_paths == list(sandbox.AGENT_BINARY_PATHS)
+
+
+@pytest.mark.parametrize(
+    ("auth_mode", "binds"),
+    [(None, True), ("vertex", True), ("oauth", False)],
+)
+def test_apply_policy_binds_credentials_only_with_a_provider(auth_mode, binds):
+    """A provider-less sandbox has no provider for GCP hosts to bind to."""
+    with (
+        mock.patch.object(
+            sandbox, "resolve_endpoints", return_value=["oauth2.googleapis.com:443:read-write"]
+        ),
+        mock.patch.object(sandbox, "_apply_credential_bindings") as apply_bindings,
+        mock.patch.object(sandbox, "_run"),
+    ):
+        sandbox._apply_policy(policy_path=None, auth_mode=auth_mode)
+
+    assert apply_bindings.called is binds
 
 
 class TestExistingSandboxKeepsItsAllocation:

@@ -271,6 +271,19 @@ class ClaudeCodeHarness(Harness):
     def name(self) -> str:
         return "Claude Code"
 
+    def auth_mode_for_env(self, env: Mapping[str, str] | None = None) -> str:
+        """Return 'oauth' when CLAUDE_CODE_OAUTH_TOKEN is set and ANTHROPIC_API_KEY is not.
+
+        ANTHROPIC_API_KEY still wins, matching Claude Code's own authentication
+        precedence. Only this harness selects 'oauth': a subscription token is a
+        Claude Code credential, and OpenCode and Codex have no path to use it.
+        """
+        credential_env = env if env is not None else os.environ
+        mode = super().auth_mode_for_env(credential_env)
+        if mode == "vertex" and credential_env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            return "oauth"
+        return mode
+
     def build_args(
         self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
     ):
@@ -304,10 +317,17 @@ class ClaudeCodeHarness(Harness):
         enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.extend(["--env", f"AGENT_ENABLED_PLUGINS={enabled_plugins}"])
-        if self.auth_mode_for_env(credential_env) == "api-key":
+        auth_mode = self.auth_mode_for_env(credential_env)
+        if auth_mode == "api-key":
             return [
                 "--env",
                 "ANTHROPIC_API_KEY",
+                *common,
+            ]
+        if auth_mode == "oauth":
+            return [
+                "--env",
+                "CLAUDE_CODE_OAUTH_TOKEN",
                 *common,
             ]
         vertex_project = credential_env.get(
@@ -337,9 +357,16 @@ class ClaudeCodeHarness(Harness):
         enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             common.append(f"export AGENT_ENABLED_PLUGINS={shlex.quote(enabled_plugins)}")
-        if self.auth_mode_for_env(credential_env) == "api-key":
+        auth_mode = self.auth_mode_for_env(credential_env)
+        if auth_mode == "api-key":
             lines = [
                 f"export ANTHROPIC_API_KEY={shlex.quote(credential_env['ANTHROPIC_API_KEY'])}",
+                *common,
+            ]
+        elif auth_mode == "oauth":
+            oauth_token = credential_env["CLAUDE_CODE_OAUTH_TOKEN"]
+            lines = [
+                f"export CLAUDE_CODE_OAUTH_TOKEN={shlex.quote(oauth_token)}",
                 *common,
             ]
         else:
@@ -418,8 +445,11 @@ class ClaudeCodeHarness(Harness):
         enabled_plugins = credential_env.get("AGENT_ENABLED_PLUGINS")
         if enabled_plugins:
             env["AGENT_ENABLED_PLUGINS"] = enabled_plugins
-        if self.auth_mode_for_env(credential_env) == "api-key":
+        auth_mode = self.auth_mode_for_env(credential_env)
+        if auth_mode == "api-key":
             env["ANTHROPIC_API_KEY"] = credential_env["ANTHROPIC_API_KEY"]
+        elif auth_mode == "oauth":
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = credential_env["CLAUDE_CODE_OAUTH_TOKEN"]
         else:
             env["CLAUDE_CODE_USE_VERTEX"] = "1"
             env["CLOUD_ML_REGION"] = credential_env.get("CLOUD_ML_REGION", "global")
