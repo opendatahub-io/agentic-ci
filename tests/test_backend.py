@@ -17,13 +17,6 @@ from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
 
 
-@pytest.fixture(autouse=True)
-def gateway_config_current():
-    """Treat the on-disk gateway config as matching the environment by default."""
-    with mock.patch("agentic_ci.backends.openshell.gateway.config_is_current", return_value=True):
-        yield
-
-
 @pytest.fixture()
 def harness():
     return create_harness("claude-code")
@@ -217,61 +210,6 @@ def test_openshell_reuses_sandbox_when_auth_mode_matches(monkeypatch, tmp_path):
 
     setup_provider.assert_not_called()
     create_sandbox.assert_not_called()
-
-
-def test_openshell_restarts_gateway_when_config_changed(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    state_path = tmp_path / "openshell-state.json"
-    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
-
-    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
-
-    with (
-        mock.patch("agentic_ci.backends.openshell.gateway.config_is_current", return_value=False),
-        mock.patch(
-            "agentic_ci.backends.openshell.gateway.is_running", side_effect=[True, True, False]
-        ),
-        mock.patch("agentic_ci.backends.openshell.gateway.stop") as stop_gateway,
-        mock.patch("agentic_ci.backends.openshell.gateway.start") as start_gateway,
-        mock.patch("agentic_ci.backends.openshell.sandbox.exists", side_effect=[True, False]),
-        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
-        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
-        mock.patch("agentic_ci.backends.openshell.provider.setup"),
-        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
-        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
-        mock.patch.object(backend, "_run_setup_steps"),
-        mock.patch.object(backend, "_upload_sandbox_config"),
-    ):
-        backend.setup()
-
-    delete_sandbox.assert_called_once()
-    stop_gateway.assert_called_once()
-    start_gateway.assert_called_once()
-
-
-def test_openshell_reuses_gateway_when_config_current(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    state_path = tmp_path / "openshell-state.json"
-    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
-
-    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
-
-    with (
-        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
-        mock.patch("agentic_ci.backends.openshell.gateway.stop") as stop_gateway,
-        mock.patch("agentic_ci.backends.openshell.gateway.start") as start_gateway,
-        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
-        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
-        mock.patch("agentic_ci.backends.openshell.provider.setup"),
-        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
-        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
-        mock.patch.object(backend, "_run_setup_steps"),
-        mock.patch.object(backend, "_upload_sandbox_config"),
-    ):
-        backend.setup()
-
-    stop_gateway.assert_not_called()
-    start_gateway.assert_not_called()
 
 
 def test_openshell_recreates_sandbox_when_auth_mode_changes(monkeypatch, tmp_path):

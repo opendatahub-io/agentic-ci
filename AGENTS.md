@@ -37,7 +37,6 @@ src/agentic_ci/
     telemetry.py        # Generic event transport for the OTLP trace pipeline
     routing.py          # Difficulty classifier + model tier routing (run_routed_skill)
     models.py           # Model registry: default model, routing tiers, effort levels per harness
-    vertex_token_stub.py # Loopback GCP token-exchange stub for OpenCode in OpenShell
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -102,19 +101,12 @@ scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
 
-OpenShell is consumed from four UBI9 artifacts sharing one tag
-(`OPENSHELL_IMAGE_TAG`): the CLI binary copied from
+OpenShell is consumed from UBI9 artifacts: the CLI binary copied from
 `quay.io/opendatahub/odh-openshell-cli`, the gateway binary copied from
-`quay.io/opendatahub/odh-openshell-gateway`, the supervisor pulled at
-runtime from `quay.io/opendatahub/odh-openshell-supervisor`, and the sandbox
-runtime pulled at runtime from `quay.io/opendatahub/odh-openshell-sandbox`.
-Since v0.0.116-rhaiv.8 the supervisor runs in its own container and the
-sandbox runtime image supplies the `openshell-sandbox` binary mounted into
-each workload; both are selected through `OPENSHELL_SUPERVISOR_IMAGE` and
-`OPENSHELL_SANDBOX_RUNTIME_IMAGE`, rendered into `gateway.toml` by
-`backends/openshell/gateway.py`. The OpenShell CI image is UBI9, the
-OpenShell sandbox images are Hummingbird, and the podman-path images stay
-on UBI10.
+`quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
+runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The OpenShell CI
+image is UBI9, the OpenShell sandbox images are Hummingbird,
+and the podman-path images stay on UBI10.
 
 All three sandbox images build directly on their respective hardened
 Hummingbird agentic images (`quay.io/aipcc/base-images/agentic/claude-code`,

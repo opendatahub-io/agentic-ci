@@ -11,7 +11,6 @@ from agentic_ci.harness import (
     CodexHarness,
     OpenCodeHarness,
     create_harness,
-    vertex_base_url,
 )
 from agentic_ci.routing import ModelTier
 from agentic_ci.stream import CodexStreamProcessor
@@ -175,37 +174,6 @@ class TestClaudeCodeHarness:
         lines = harness.build_env_script_lines()
         assert any("CLAUDE_CODE_USE_VERTEX=1" in line for line in lines)
         assert any("DISABLE_AUTOUPDATER=1" in line for line in lines)
-        # OpenShell placeholder-token auth: no ADC or metadata server in the sandbox.
-        assert "export CLAUDE_CODE_SKIP_VERTEX_AUTH=1" in lines
-        assert (
-            'export ANTHROPIC_AUTH_TOKEN="${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:-'
-            '${GOOGLE_VERTEX_AI_TOKEN:-}}"'
-        ) in lines
-        assert (
-            "export ANTHROPIC_VERTEX_BASE_URL=https://us-west1-aiplatform.googleapis.com/v1"
-            in lines
-        )
-
-    @pytest.mark.parametrize(
-        ("region", "url"),
-        [
-            ("global", "https://aiplatform.googleapis.com/v1"),
-            ("us", "https://aiplatform.us.rep.googleapis.com/v1"),
-            ("eu", "https://aiplatform.eu.rep.googleapis.com/v1"),
-            ("us-east5", "https://us-east5-aiplatform.googleapis.com/v1"),
-        ],
-    )
-    def test_vertex_base_url_matches_claude_code_host_selection(self, region, url):
-        assert vertex_base_url(region) == url
-
-    def test_build_env_args_does_not_skip_vertex_auth(self, monkeypatch):
-        # The podman backend mounts real ADC; only the OpenShell env script
-        # switches Claude Code to placeholder bearer auth.
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
-        args = ClaudeCodeHarness().build_env_args()
-        assert not any("SKIP_VERTEX_AUTH" in a for a in args)
-        assert not any("ANTHROPIC_AUTH_TOKEN" in a for a in args)
 
     def test_build_env_script_lines_api_key(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
@@ -390,33 +358,6 @@ class TestOpenCodeHarness:
         harness = OpenCodeHarness()
         lines = harness.build_env_script_lines()
         assert any("GOOGLE_CLOUD_PROJECT=gcp-proj" in line for line in lines)
-
-    def test_build_env_script_lines_vertex_uses_token_stub_adc(self, monkeypatch):
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
-        lines = OpenCodeHarness().build_env_script_lines()
-        joined = "\n".join(lines)
-        assert (
-            'export AGENTIC_CI_VERTEX_TOKEN="${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:-'
-            '${GOOGLE_VERTEX_AI_TOKEN:-}}"'
-        ) in lines
-        assert "export GOOGLE_APPLICATION_CREDENTIALS=/tmp/.agentic-ci-vertex-adc.json" in lines
-        assert "export METADATA_SERVER_DETECTION=none" in lines
-        assert "agentic-ci vertex-token-stub --port 8175" in joined
-        assert '"token_url":"http://127.0.0.1:8175/token"' in joined
-        assert '"type":"external_account"' in joined
-        # The stub must be running before GOOGLE_APPLICATION_CREDENTIALS points at it.
-        stub_index = next(i for i, line in enumerate(lines) if "vertex-token-stub" in line)
-        adc_index = lines.index(
-            "export GOOGLE_APPLICATION_CREDENTIALS=/tmp/.agentic-ci-vertex-adc.json"
-        )
-        assert stub_index < adc_index
-
-    def test_build_env_script_lines_api_key_has_no_token_stub(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-        lines = OpenCodeHarness().build_env_script_lines()
-        assert not any("vertex-token-stub" in line for line in lines)
-        assert not any("GOOGLE_APPLICATION_CREDENTIALS" in line for line in lines)
 
     def test_build_otel_exec_env(self):
         env = OpenCodeHarness().build_otel_exec_env(otel_port=4318)

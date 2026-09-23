@@ -26,61 +26,6 @@ EFFORT_NONE = "none"
 """Effort override value meaning "pass no effort flag"."""
 
 
-# Shell lines, sourced inside the OpenShell sandbox, that let google-auth-library
-# "mint" a token without ADC or a metadata server. OpenShell v0.0.116-rhaiv.8+
-# injects the Vertex credential as a placeholder env var that the supervisor
-# proxy resolves on aiplatform requests. OpenCode's @ai-sdk/google-vertex
-# always calls google-auth-library first, so hand it an external_account ADC
-# whose token_url is a loopback stub (agentic-ci vertex-token-stub) that
-# returns the placeholder. See vertex_token_stub.py.
-_OPENSHELL_VERTEX_ADC_PATH = "/tmp/.agentic-ci-vertex-adc.json"
-_OPENSHELL_VERTEX_SUBJECT_PATH = "/tmp/.agentic-ci-vertex-subject"
-_OPENSHELL_VERTEX_STUB_PORT = 8175
-_OPENSHELL_VERTEX_ADC_JSON = json.dumps(
-    {
-        "type": "external_account",
-        "audience": (
-            "//iam.googleapis.com/projects/0/locations/global/"
-            "workloadIdentityPools/openshell/providers/openshell"
-        ),
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-        "token_url": f"http://127.0.0.1:{_OPENSHELL_VERTEX_STUB_PORT}/token",
-        "credential_source": {"file": _OPENSHELL_VERTEX_SUBJECT_PATH},
-    },
-    separators=(",", ":"),
-)
-_OPENSHELL_VERTEX_ADC_STUB_LINES = [
-    'export AGENTIC_CI_VERTEX_TOKEN="${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:-'
-    '${GOOGLE_VERTEX_AI_TOKEN:-}}"',
-    f"printf '%s\\n' placeholder > {_OPENSHELL_VERTEX_SUBJECT_PATH}",
-    f"printf '%s\\n' '{_OPENSHELL_VERTEX_ADC_JSON}' > {_OPENSHELL_VERTEX_ADC_PATH}",
-    f"(nohup agentic-ci vertex-token-stub --port {_OPENSHELL_VERTEX_STUB_PORT} "
-    ">/tmp/.agentic-ci-vertex-stub.log 2>&1 &)",
-    # Wait until the stub accepts connections so the first request never races it.
-    f"for _ in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/{_OPENSHELL_VERTEX_STUB_PORT}) "
-    "2>/dev/null && break; sleep 0.1; done",
-    f"export GOOGLE_APPLICATION_CREDENTIALS={_OPENSHELL_VERTEX_ADC_PATH}",
-    "export METADATA_SERVER_DETECTION=none",
-]
-
-
-def vertex_base_url(region: str) -> str:
-    """Return the Vertex AI base URL Claude Code would pick for *region*.
-
-    Mirrors Claude Code's own hostname selection so the OpenShell
-    provider profile's endpoint list (aiplatform, *-aiplatform, and the
-    us/eu rep hosts) covers the request. The ``/v1`` suffix is part of the
-    base URL: the Anthropic Vertex client appends ``/projects/...`` to it,
-    and without ``/v1`` Google answers 404, which Claude Code surfaces as
-    "model is not available on your vertex deployment".
-    """
-    if region == "global":
-        return "https://aiplatform.googleapis.com/v1"
-    if region in ("us", "eu"):
-        return f"https://aiplatform.{region}.rep.googleapis.com/v1"
-    return f"https://{region}-aiplatform.googleapis.com/v1"
-
-
 class Harness(ABC):
     """Base class for agent CLI harnesses."""
 
@@ -397,19 +342,6 @@ class ClaudeCodeHarness(Harness):
                 "export CLAUDE_CODE_USE_VERTEX=1",
                 f"export CLOUD_ML_REGION={shlex.quote(cloud_region)}",
                 f"export ANTHROPIC_VERTEX_PROJECT_ID={shlex.quote(vertex_project)}",
-                # The OpenShell gateway injects a placeholder access token
-                # (GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN for a service
-                # account, GOOGLE_VERTEX_AI_TOKEN for gcloud ADC) and the
-                # supervisor proxy swaps it for the real token on the
-                # aiplatform endpoints. Send it as the bearer token in
-                # gateway mode instead of letting Claude Code look for
-                # ADC or a metadata server, neither of which exists in
-                # the sandbox. The value is expanded by the sandbox shell
-                # when this script is sourced.
-                "export CLAUDE_CODE_SKIP_VERTEX_AUTH=1",
-                'export ANTHROPIC_AUTH_TOKEN="${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:-'
-                '${GOOGLE_VERTEX_AI_TOKEN:-}}"',
-                f"export ANTHROPIC_VERTEX_BASE_URL={vertex_base_url(cloud_region)}",
                 *common,
             ]
         if otel_port:
@@ -629,7 +561,6 @@ class OpenCodeHarness(Harness):
             lines = [
                 f"export GOOGLE_CLOUD_PROJECT={shlex.quote(project)}",
                 f"export VERTEX_LOCATION={shlex.quote(location)}",
-                *_OPENSHELL_VERTEX_ADC_STUB_LINES,
                 *common,
             ]
         if otel_port:

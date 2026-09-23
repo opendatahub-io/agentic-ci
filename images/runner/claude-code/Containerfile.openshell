@@ -112,13 +112,6 @@ RUN uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
 # Sandbox home directories for agentic-ci and Claude Code.
-# OpenShell v0.0.116-rhaiv.8+ runs the workload with network=none and a
-# policy DNS relay inside the workload on 127.0.0.53:53. Podman does not
-# write /etc/resolv.conf for network=none, and the Hummingbird base ships
-# an empty one, so bake the relay address in (COPY, not RUN: buildah
-# bind-mounts resolv.conf during RUN and the write would not persist).
-COPY images/runner/shared/resolv.conf /etc/resolv.conf
-
 USER sandbox
 RUN mkdir -p /sandbox/.local/bin /sandbox/.claude /sandbox/.agents
 COPY --chown=sandbox:sandbox images/runner/shared/AGENTS.openshell.md /sandbox/AGENTS.md
