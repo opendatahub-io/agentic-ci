@@ -121,7 +121,7 @@ agentic-ci {setup,run,stop} [options]
 | `--image IMAGE` | — | Container or sandbox base image |
 | `--model MODEL` | harness-dependent | Agent model (`run` only). Defaults to `claude-opus-4-6` for Claude Code, `google-vertex/claude-opus-4-6@default` for OpenCode, and `gpt-6-sol` for Codex |
 | `--effort EFFORT` | `high` | Reasoning effort (`run` only): `claude --effort`, `opencode --variant`, or `codex -c model_reasoning_effort=`. `none` passes no effort flag. Invalid values fail before the agent starts |
-| `--keep` | off | Keep the sandbox running after the run completes (`run` only) |
+| `--keep` | off | Keep the sandbox after the run completes (`run` only). The Podman container is kept stopped |
 | `--no-streaming` | off | Disable parsed stream output; agent output is printed raw (`run` only) |
 | `--no-otel` | off | Disable OTEL telemetry collection (`run` only) |
 | `--pre-gates GATES` | — | Comma-separated pre-agent gates (`run` only) |

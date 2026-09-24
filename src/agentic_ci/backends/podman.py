@@ -27,7 +27,12 @@ class PodmanBackend(Backend):
     setup() creates a long-running detached container. run() execs
     the agent inside it. stop() tears it down. The work directory is
     mounted into the container and gcloud credentials are mounted
-    read-only.
+    read-only. The host's git control files (``.git/config``, hooks,
+    ``info/``) are recorded each time the container starts. After each run
+    the container is stopped, which kills every process the agent left
+    behind, and the host copy is restored and released; the next run records
+    the host copy again (keeping host edits made between runs) and starts the
+    container again.
     """
 
     def __init__(
@@ -44,6 +49,8 @@ class PodmanBackend(Backend):
         self._container_name = f"agentic-ci-{uuid4().hex}"
         self._config_dir = None
         self._extra_env = extra_env or {}
+        # True while the container is stopped between runs; see _park().
+        self._parked = False
 
     def setup(self, otel_port=None):
         env = {**os.environ, **self._extra_env}
@@ -56,6 +63,7 @@ class PodmanBackend(Backend):
         self._run_setup_steps()
 
         if self.is_running():
+            # No snapshot here: an agent may already have written .git.
             log.section("Podman container already running")
             return
 
@@ -69,6 +77,11 @@ class PodmanBackend(Backend):
             )
         else:
             log.detail("Container user", "rootless (userns keep-id)")
+
+        # The bind mount lets the agent write the host's .git; record the host
+        # copy (with the ownership set above) before the container starts.
+        # run() and stop() restore it.
+        self._snapshot_host_git()
 
         env_args = self._build_env_args(env)
         vol_args = self._build_vol_args()
@@ -127,7 +140,9 @@ class PodmanBackend(Backend):
         traceparent=None,
         effort=None,
     ):
-        if not self.is_running():
+        if self._parked:
+            self._unpark()
+        elif not self.is_running():
             self.setup(otel_port=otel_port)
 
         log.section(f"Executing {self.harness.name} in container")
@@ -136,27 +151,85 @@ class PodmanBackend(Backend):
         otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
         agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
-        proc = subprocess.Popen(
-            [
-                "podman",
-                "exec",
-                "--env",
-                f"AGENT_MODEL={model}",
-                *effort_env,
-                *otel_env,
-                self._container_name,
-                *agent_args,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        try:
+            proc = subprocess.Popen(
+                [
+                    "podman",
+                    "exec",
+                    "--env",
+                    f"AGENT_MODEL={model}",
+                    *effort_env,
+                    *otel_env,
+                    self._container_name,
+                    *agent_args,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
-        rc, stream_complete = self._process_stream(proc, streaming)
-        rc = self._resolve_exit_code(rc, stream_complete)
-        self._wait_for_otel_flush(otel_port)
+            rc, stream_complete = self._process_stream(proc, streaming)
+            rc = self._resolve_exit_code(rc, stream_complete)
+            self._wait_for_otel_flush(otel_port)
+        finally:
+            # A process the agent left running in the container could keep
+            # writing .git through the bind mount while host git runs (post
+            # gates, commit amend, push), so stop the container before
+            # restoring. Once stopped the agent cannot write .git, so the
+            # snapshot is released and the next run records a fresh one.
+            self._halt_then_restore(self._park, release=True)
         return rc
 
+    def _halt_then_restore(self, halt, *, release=False):
+        """Run *halt* to end every agent process, then restore the host's git files.
+
+        If *halt* fails the container may still be running, and a process in
+        it could plant config again after a restore, so ``.git`` is moved
+        aside instead and the error propagates.
+        """
+        try:
+            halt()
+        except Exception:
+            self._discard_host_git()
+            raise
+        self._restore_host_git(release=release)
+
+    def _park(self):
+        """Stop the container so no process the agent started survives the run.
+
+        ``podman stop`` kills the container's PID 1 from the host, and the
+        kernel then kills every other process in its PID namespace, including
+        any the agent daemonized, before podman reports the container stopped.
+        The container is kept, so the next :meth:`run` starts it again with
+        its filesystem intact. If it cannot be stopped it is removed instead.
+        """
+        result = subprocess.run(
+            ["podman", "stop", "--time", "0", self._container_name],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            self._parked = True
+            log.section("Podman container stopped until the next run")
+            return
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        log.info(f"podman stop failed ({stderr}); removing the container")
+        self._parked = False
+        self._remove_container()
+
+    def _unpark(self):
+        # The container is stopped, so only the host can write the workdir:
+        # record its current git files before the agent can write them again.
+        self._snapshot_host_git()
+        subprocess.run(["podman", "start", self._container_name], check=True, capture_output=True)
+        self._parked = False
+        log.section("Podman container restarted")
+
     def stop(self):
+        self._parked = False
+        # Also covers a container that setup() started but run() never
+        # stopped, for example when run() was not reached.
+        self._halt_then_restore(self._remove_container, release=True)
+
+    def _remove_container(self):
         result = subprocess.run(
             ["podman", "rm", "-f", self._container_name],
             capture_output=True,

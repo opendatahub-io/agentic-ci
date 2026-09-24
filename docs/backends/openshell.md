@@ -24,7 +24,9 @@ environment). On each `agentic-ci run --backend openshell`, it:
 6. Uploads the workdir (including setup step outputs) into the sandbox
 7. Uploads an env script with agent configuration
 8. Executes the agent inside the sandbox
-9. Tears everything down on completion
+9. Downloads the workdir back to the host and restores the host's git
+   control files (see [Host git after the run](#host-git-after-the-run))
+10. Tears everything down on completion
 
 ## OpenShell Commands
 
@@ -259,6 +261,46 @@ openshell sandbox delete ci
 openshell gateway remove ci                      # deregister from CLI
 # Gateway and podman service processes are killed by PID
 ```
+
+## Host git after the run
+
+The workdir download copies the sandbox's `.git` over the host repository,
+and the agent can write that `.git`. Host-side git that runs afterwards
+(`git rm --cached`, `git commit --amend`, `git push`) would otherwise honor
+whatever the agent configured: `core.hooksPath`, `core.fsmonitor`,
+`core.sshCommand`, credential helpers, filter and diff drivers, aliases,
+`include.path`, `url.*.insteadOf` rewrites, hook scripts, and so on, with
+every secret the host job holds.
+
+`run()` therefore records the host's git control files before the agent
+starts and puts them back once the download finishes, even if it fails
+(`snapshot_git_control()` and `restore_git_control()` in
+`agentic_ci/git.py`). The restored paths under `.git` are `config`,
+`config.worktree`, `commondir` (which redirects git to another config and
+hooks directory), `hooks/`, and `info/` (which holds `attributes`). Objects,
+refs and the index come back from the sandbox unchanged, so the agent's
+commits are kept. Any hardening applied before the run, such as
+`harden_git_config()`, is part of the restored config.
+
+Restoring first renames each path into a quarantine directory inside
+`.git`, which git never reads, and then rewrites it from the recorded copy,
+so a symlink the agent planted is never written through. Nothing the agent
+wrote is read or walked before that rename, so a deeply nested tree or a
+huge file cannot make the restore fail while the agent's config is still
+live. The quarantine is compared with the recorded copy only for the log
+line below and is then deleted. If the host copy cannot be written back,
+`.git` is moved aside and deleted and the run raises
+`GitControlTamperError`, so host git finds no repository rather than the
+agent's config. If the agent replaced
+`.git` itself with a file or symlink, the run raises
+`GitControlTamperError` and removes that entry. A `.git` the agent created
+in a workdir that had none is removed, since host git run from the workdir
+would otherwise use it even when the workdir sits inside another
+repository. When the restore runs as root, the recorded owner of each path
+is put back as well. Changes the agent made are
+logged as `Agent changed git control files in ...; restored host copy of:
+...`. Git config the agent sets for its own use does not persist to the
+host.
 
 ## Setup Steps
 

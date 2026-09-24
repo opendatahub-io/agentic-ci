@@ -11,10 +11,13 @@ import logging
 import math
 import os
 import re
+import stat
 import subprocess
 import time
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NoReturn
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote as urlquote
 from urllib.parse import urlparse
@@ -581,6 +584,342 @@ def harden_git_config(repo_dir: Path) -> None:
             capture_output=True,
             text=True,
         )
+
+
+# -- Host git control files ---------------------------------------------------
+
+# Paths inside ``.git`` that decide what host-side git executes: ``config`` and
+# ``config.worktree`` hold every command-running key (hooksPath, fsmonitor,
+# sshCommand, pager, credential helpers, filter and diff drivers, aliases,
+# include paths, insteadOf rewrites), ``commondir`` makes git read its config
+# and hooks from another directory, ``hooks/`` holds hook scripts, and ``info/``
+# holds ``attributes``, which binds files to filter and diff drivers. Objects,
+# refs and the index are data and are kept, so the agent's commits survive.
+GIT_CONTROL_PATHS = ("config", "config.worktree", "commondir", "hooks", "info")
+
+
+class GitControlTamperError(RuntimeError):
+    """The agent replaced ``.git`` itself, so the host copy cannot be restored."""
+
+
+@dataclass(frozen=True)
+class _ControlEntry:
+    kind: str  # "file", "dir" or "symlink"
+    mode: int = 0
+    data: bytes = b""
+    # Ownership is put back when restoring as root (the Podman backend chowns
+    # the workdir to the container user) but is not a change the agent made.
+    uid: int = field(default=-1, compare=False)
+    gid: int = field(default=-1, compare=False)
+
+
+@dataclass(frozen=True)
+class GitControlSnapshot:
+    """Host copy of the ``.git`` files that decide what host-side git executes.
+
+    Taken by :func:`snapshot_git_control` before an agent can write the
+    repository and put back by :func:`restore_git_control` afterwards.
+    """
+
+    repo_dir: Path
+    dot_git: _ControlEntry | None
+    entries: dict[str, _ControlEntry]
+
+
+def _read_entry(path: Path) -> _ControlEntry | None:
+    """Describe *path* without following symlinks; ``None`` if absent or special."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    uid, gid = st.st_uid, st.st_gid
+    if stat.S_ISLNK(st.st_mode):
+        return _ControlEntry("symlink", data=os.fsencode(os.readlink(path)), uid=uid, gid=gid)
+    if stat.S_ISDIR(st.st_mode):
+        return _ControlEntry("dir", mode=stat.S_IMODE(st.st_mode), uid=uid, gid=gid)
+    if not stat.S_ISREG(st.st_mode):
+        return None
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as fh:
+        data = fh.read()
+    return _ControlEntry("file", mode=stat.S_IMODE(st.st_mode), data=data, uid=uid, gid=gid)
+
+
+def _read_tree(root: Path, rel: str, entries: dict[str, _ControlEntry]) -> None:
+    entry = _read_entry(root / rel)
+    if entry is None:
+        return
+    entries[rel] = entry
+    if entry.kind == "dir":
+        for child in sorted(os.listdir(root / rel)):
+            _read_tree(root, f"{rel}/{child}", entries)
+
+
+def _read_control(git_dir: Path) -> dict[str, _ControlEntry]:
+    entries: dict[str, _ControlEntry] = {}
+    for rel in GIT_CONTROL_PATHS:
+        _read_tree(git_dir, rel, entries)
+    return entries
+
+
+def _remove(path: Path) -> None:
+    """Delete *path*; a symlink is unlinked, never followed.
+
+    Directories are walked with an explicit stack rather than recursion, so an
+    agent-built tree of any depth cannot exhaust the interpreter stack, and
+    each one is made owner-writable first, so an agent ``chmod`` cannot block
+    the removal.
+    """
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(st.st_mode):
+        os.unlink(path)
+        return
+    stack = [str(path)]
+    while stack:
+        top = stack[-1]
+        os.chmod(top, 0o700)
+        subdirs = []
+        with os.scandir(top) as it:
+            for child in it:
+                if child.is_dir(follow_symlinks=False):
+                    subdirs.append(child.path)
+                else:
+                    os.unlink(child.path)
+        if subdirs:
+            stack.extend(subdirs)
+        else:
+            os.rmdir(top)
+            stack.pop()
+
+
+def _discard(path: Path) -> None:
+    """Move *path* out of git's reach at once, then delete it.
+
+    The rename is a single operation whatever the tree holds, so once it
+    returns no git command sees *path*. A failed delete afterwards is only
+    logged: git never reads the renamed copy.
+    """
+    aside = path.with_name(f"{path.name}.agentic-ci-untrusted-{uuid.uuid4().hex}")
+    os.rename(path, aside)
+    try:
+        _remove(aside)
+    except OSError as exc:
+        log.warning("Could not delete %s: %s", aside, exc)
+
+
+def _fail_closed(dot_git: Path, reason: str) -> NoReturn:
+    """Take *dot_git* away from host git and raise :class:`GitControlTamperError`."""
+    try:
+        _discard(dot_git)
+    except OSError as exc:
+        raise GitControlTamperError(
+            f"{reason}; {dot_git} could not be moved aside ({exc}) and still holds the "
+            "agent's git config, so host git must not use this repository"
+        ) from exc
+    raise GitControlTamperError(
+        f"{reason}; moved {dot_git} aside so host git cannot use the agent's git config"
+    )
+
+
+def _differs(path: Path, rel: str, expected: dict[str, _ControlEntry]) -> bool:
+    """Best effort: whether the tree at *path* differs from the snapshot of *rel*.
+
+    *path* holds agent-written content, so this never raises, never recurses,
+    visits no more entries than the snapshot holds and reads no file larger
+    than its snapshot copy. Anything it cannot check counts as changed.
+    """
+    wanted = {k: v for k, v in expected.items() if k == rel or k.startswith(f"{rel}/")}
+    seen = 0
+    stack = [(str(path), rel)]
+    try:
+        while stack:
+            current, name = stack.pop()
+            want = wanted.get(name)
+            try:
+                st = os.lstat(current)
+            except FileNotFoundError:
+                if want is not None:
+                    return True
+                continue
+            seen += 1
+            if want is None or seen > len(wanted):
+                return True
+            if stat.S_ISLNK(st.st_mode):
+                if want.kind != "symlink" or os.fsencode(os.readlink(current)) != want.data:
+                    return True
+                continue
+            if stat.S_IMODE(st.st_mode) != want.mode:
+                return True
+            if stat.S_ISDIR(st.st_mode):
+                if want.kind != "dir":
+                    return True
+                with os.scandir(current) as it:
+                    for child in it:
+                        if len(stack) >= len(wanted):
+                            return True
+                        stack.append((child.path, f"{name}/{child.name}"))
+            elif stat.S_ISREG(st.st_mode):
+                if want.kind != "file" or st.st_size != len(want.data):
+                    return True
+                fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, "rb") as fh:
+                    if fh.read(len(want.data) + 1) != want.data:
+                        return True
+            else:
+                return True
+        return seen != len(wanted)
+    except OSError:
+        return True
+
+
+def _write_entry(path: Path, entry: _ControlEntry) -> None:
+    """Create *path* from *entry*; fails if something reappeared in its place."""
+    if entry.kind == "dir":
+        os.mkdir(path)
+        os.chmod(path, entry.mode)
+    elif entry.kind == "symlink":
+        os.symlink(os.fsdecode(entry.data), path)
+    else:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, entry.mode)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(entry.data)
+            os.fchmod(fh.fileno(), entry.mode)
+    if os.geteuid() == 0 and entry.uid >= 0:
+        os.lchown(path, entry.uid, entry.gid)
+
+
+def snapshot_git_control(repo_dir: Path) -> GitControlSnapshot:
+    """Record the git control files of the repository at *repo_dir*.
+
+    Call this on the host before an agent can write *repo_dir* (for example
+    before a sandbox upload or a container bind mount), after any hardening
+    such as :func:`harden_git_config`. Pass the result to
+    :func:`restore_git_control` once the agent can no longer write the
+    repository.
+    """
+    repo_dir = Path(repo_dir)
+    dot_git = repo_dir / ".git"
+    top = _read_entry(dot_git)
+    entries = _read_control(dot_git) if top is not None and top.kind == "dir" else {}
+    return GitControlSnapshot(repo_dir=repo_dir, dot_git=top, entries=entries)
+
+
+def restore_git_control(snapshot: GitControlSnapshot) -> list[str]:
+    """Put the host's git control files back after an agent had write access.
+
+    Everything under :data:`GIT_CONTROL_PATHS` is moved out of git's reach and
+    rewritten from *snapshot*, so config keys, hooks, attributes and
+    ``commondir`` redirects added by the agent are gone before any host git
+    command runs, while its commits, refs and index are kept. Nothing the
+    agent wrote is read or walked before that, so no tree it built can make
+    the restore fail early, and symlinks it planted are never written through.
+
+    A ``.git`` the agent created in a workdir that had none is removed.
+
+    Returns the control paths the agent had changed (best effort, for the
+    log). Raises :class:`GitControlTamperError` when ``.git`` was a directory
+    and is now missing, a symlink or a file (that entry is deleted first), or
+    when the host copy cannot be put back; ``.git`` is then moved aside so
+    host git cannot use the agent's config.
+    """
+    dot_git = snapshot.repo_dir / ".git"
+    try:
+        current = os.lstat(dot_git)
+    except FileNotFoundError:
+        current = None
+    if snapshot.dot_git is None:
+        if current is None:
+            return []
+        # Host git run from the workdir would use this .git and its config,
+        # even when the workdir sits inside another repository.
+        try:
+            _discard(dot_git)
+        except OSError as exc:
+            raise GitControlTamperError(
+                f"The agent created {dot_git} and it could not be removed ({exc}); "
+                "host git must not run in this workdir"
+            ) from exc
+        log.warning("Removed the .git the agent created in %s", snapshot.repo_dir)
+        return [".git"]
+    if snapshot.dot_git.kind != "dir":
+        # A gitfile or symlink pointing at a git dir outside the workdir,
+        # which the agent cannot reach. Put the pointer itself back.
+        if not _differs(dot_git, ".git", {".git": snapshot.dot_git}):
+            return []
+        try:
+            if current is not None:
+                _discard(dot_git)
+            _write_entry(dot_git, snapshot.dot_git)
+        except OSError as exc:
+            raise GitControlTamperError(
+                f"Could not restore {dot_git} ({exc}); host git must not use this repository"
+            ) from exc
+        return [".git"]
+    if current is None or not stat.S_ISDIR(current.st_mode):
+        what = "deleted"
+        if current is not None:
+            kind = "symlink" if stat.S_ISLNK(current.st_mode) else "file"
+            what = f"replaced by a {kind}"
+            _remove(dot_git)
+        raise GitControlTamperError(
+            f"{dot_git} was {what} during the agent run; host git must not use this repository"
+        )
+
+    # Nothing the agent wrote is read before it is out of git's reach: each
+    # control path is renamed into a quarantine directory, which git never
+    # reads, and only then compared with the snapshot for the log.
+    quarantine = dot_git / f"agentic-ci-untrusted-{uuid.uuid4().hex}"
+    try:
+        os.chmod(dot_git, snapshot.dot_git.mode)
+        os.mkdir(quarantine, 0o700)
+        for rel in GIT_CONTROL_PATHS:
+            try:
+                os.rename(dot_git / rel, quarantine / rel)
+            except FileNotFoundError:
+                pass
+        # Sorted keys create each directory before its children.
+        for rel in sorted(snapshot.entries):
+            _write_entry(dot_git / rel, snapshot.entries[rel])
+    except OSError as exc:
+        _fail_closed(dot_git, f"Could not restore the git control files in {dot_git} ({exc})")
+
+    changed = [
+        rel for rel in GIT_CONTROL_PATHS if _differs(quarantine / rel, rel, snapshot.entries)
+    ]
+    try:
+        _remove(quarantine)
+    except OSError as exc:
+        log.warning("Could not delete %s: %s", quarantine, exc)
+    if changed:
+        log.warning(
+            "Agent changed git control files in %s; restored host copy of: %s",
+            dot_git,
+            ", ".join(changed),
+        )
+    return changed
+
+
+def discard_git_dir(repo_dir: Path) -> None:
+    """Move ``repo_dir/.git`` aside and delete it.
+
+    For when the host copy cannot be restored safely, for example because an
+    agent process may still be running and able to write ``.git``. Host git
+    then finds no repository in *repo_dir* instead of the agent's config. The
+    agent's commits are lost with it. Failures are logged, not raised, so the
+    caller's own error is what propagates.
+    """
+    dot_git = Path(repo_dir) / ".git"
+    if not os.path.lexists(dot_git):
+        return
+    try:
+        _discard(dot_git)
+    except OSError as exc:
+        log.error("Could not move %s aside (%s); host git must not use it", dot_git, exc)
+        return
+    log.warning("Moved %s aside: the agent could still write it", dot_git)
 
 
 def get_commit_info(repo_dir: Path) -> dict:

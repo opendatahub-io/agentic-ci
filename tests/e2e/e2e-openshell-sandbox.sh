@@ -362,6 +362,37 @@ else
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
+    # --- Host git control restore via OpenShell ---
+    # The workdir download copies the sandbox's .git over the host repo; the
+    # backend must put the host copy of .git/config back afterwards.
+    print_header "=== agentic-ci run: agent git config stays in the sandbox (OpenShell) ==="
+
+    WORKDIR="$TMPDIR_E2E/claude-git-restore"
+    git init -q "$WORKDIR"
+
+    print_step "Running Claude Code that sets repo git config (openshell backend)..."
+    RC=0
+    agentic-ci run \
+        "Run this shell command and then reply with only the word done: git config agentic-ci.e2e-probe agent; git config agentic-ci.e2e-probe > probe.txt" \
+        --backend openshell \
+        --image "$CLAUDE_SANDBOX" \
+        --harness claude-code \
+        --workdir "$WORKDIR" \
+        --no-otel \
+        --no-streaming || RC=$?
+
+    assert_ok "git restore run exited successfully" test "$RC" -eq 0
+    assert_contains "agent set the git config inside the sandbox" \
+        "$(cat "$WORKDIR/probe.txt" 2>/dev/null)" "^agent$"
+    # Exit status 1 means the key is absent; any other failure (a .git
+    # moved aside) must not pass as a clean restore.
+    PROBE_RC=0
+    git -C "$WORKDIR" config --get agentic-ci.e2e-probe >/dev/null 2>&1 || PROBE_RC=$?
+    assert_ok "agent git config did not reach the host repo" test "$PROBE_RC" -eq 1
+    dump_gateway_log
+
+    agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
+
     # --- OpenCode via OpenShell ---
     print_header "=== agentic-ci run: OpenCode via OpenShell ==="
 

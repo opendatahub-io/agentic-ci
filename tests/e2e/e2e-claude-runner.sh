@@ -224,6 +224,35 @@ assert_contains "agent environment carries the effective effort" \
 
 agentic-ci stop --harness claude-code 2>/dev/null || true
 
+# -- Host git control restore test --------------------------------------------
+# The bind mount lets the agent write the host repo's .git; the backend must
+# put the host copy of .git/config back after the run.
+print_header "=== agentic-ci run: agent git config stays in the container (podman) ==="
+
+WORKDIR="$TMPDIR_E2E/git-restore"
+git init -q "$WORKDIR"
+
+print_step "Running Claude Code that sets repo git config (podman)..."
+RC=0
+agentic-ci run \
+    "Run this shell command and then reply with only the word done: git config agentic-ci.e2e-probe agent; git config agentic-ci.e2e-probe > probe.txt" \
+    --image "$IMAGE" \
+    --harness claude-code \
+    --workdir "$WORKDIR" \
+    --no-otel \
+    > "$TMPDIR_E2E/git-restore-out.txt" 2>&1 || RC=$?
+
+assert_ok "git restore run exited successfully" test "$RC" -eq 0
+assert_contains "agent set the git config inside the container" \
+    "$(cat "$WORKDIR/probe.txt" 2>/dev/null)" "^agent$"
+# Exit status 1 means the key is absent; any other failure (dubious
+# ownership, a .git moved aside) must not pass as a clean restore.
+PROBE_RC=0
+git -C "$WORKDIR" config --get agentic-ci.e2e-probe >/dev/null 2>&1 || PROBE_RC=$?
+assert_ok "agent git config did not reach the host repo" test "$PROBE_RC" -eq 1
+
+agentic-ci stop --harness claude-code 2>/dev/null || true
+
 # -- AGENTIC_CI_SKIP_SETUP test -----------------------------------------------
 print_header "=== agentic-ci run: AGENTIC_CI_SKIP_SETUP (podman) ==="
 
