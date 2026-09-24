@@ -299,6 +299,20 @@ from that immutable revision. Set `AGENTIC_CI_LITELLM_COST_MAP` to a
 LiteLLM-format JSON price map to override the bundled data; unknown models still
 report token usage but do not produce a dollar estimate.
 
+agentic-ci passes the model, reasoning efforts, and OTLP overrides as `-m` and
+`-c` flags, which only reach the Codex process it starts. On the OpenShell
+backend, agentic-ci also writes the same model, update check,
+reasoning efforts, and OTLP exporters into `$CODEX_HOME/config.toml` inside the
+sandbox before each run, so a `codex exec` that a skill starts without those
+flags (for example the implement and review agents of `autofix-resolve`) uses
+them too. The settings sit in a block marked `# BEGIN agentic-ci run settings`
+at the top of the file, which is replaced on every run. The rest of the file,
+such as plugin and marketplace entries, is kept, and `auth.json` is never
+touched. A key the file already sets outside that block (for example a `model`
+or `[otel]` table baked into a custom image) is left alone and reported on
+stderr. The local and Podman backends leave `config.toml` unchanged, since on
+the local backend it is the operator's own Codex configuration.
+
 ## Environment Variables
 
 | Variable | Default | Description |

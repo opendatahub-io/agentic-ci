@@ -86,6 +86,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Codex was launched with `--ignore-user-config`, which suppresses plugin state and user-level OTel configuration, or the per-run `otel.*` exporter overrides were not passed.
 - **Where to look**: `harness.py` Codex arguments, `plugins.py`, backend `otel_endpoint` argument wiring
 
+### Nested `codex exec` runs use the wrong model or effort, or their tokens are missing from OTel
+- **Symptom**: The top-level command carries `-m <model>` and `-c model_reasoning_effort=high`, but `agent_output.txt` shows nested runs (for example the `autofix-resolve` implement and review agents) headed with another model and `reasoning effort: none`, and `claude-otel.jsonl` has no spans or token counts for them (RHAI-2624).
+- **Likely cause**: Nested runs do not see the top-level `-m`/`-c` flags; they only read `$CODEX_HOME/config.toml`. On OpenShell, `CodexHarness.build_args()` writes a `# BEGIN agentic-ci run settings` block there before every run. It is missing when the run was not on OpenShell (local and Podman leave `config.toml` alone), when the file already set the key outside the block (the wrapper then prints `agentic-ci: config.toml already sets <key>; nested codex runs keep it` on stderr), or when the nested call passes its own `-m`/`-c` flags. If the wrapper exits with `agentic-ci: could not write .../config.toml`, `CODEX_HOME` is not writable in the sandbox.
+- **Where to look**: `harness.py` `CodexHarness.run_settings_toml()`, `_write_settings_script()` and `_CODEX_SETTINGS_AWK`; `cat $CODEX_HOME/config.toml` in the sandbox; the nested command lines in the agent output.
+
 ### Codex OpenShell setup creates an Anthropic provider
 - **Likely cause**: Codex was classified as generic `api-key` auth and OpenShell selected its Anthropic provider. Codex must use the `openai` auth mode and the OpenAI network endpoints.
 - **Where to look**: `harness.py` auth mode, `backends/openshell/provider.py`, `backends/openshell/policy.py`

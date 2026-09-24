@@ -15,6 +15,13 @@ from agentic_ci.harness import (
 from agentic_ci.routing import ModelTier
 from agentic_ci.stream import CodexStreamProcessor
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 has no TOML parser in the standard library.
+    tomllib = None
+
+requires_tomllib = pytest.mark.skipif(tomllib is None, reason="tomllib needs Python 3.11+")
+
 
 def test_create_claude_code_harness():
     harness = create_harness("claude-code")
@@ -749,6 +756,308 @@ class TestCodexHarness:
         assert completed.stderr == ""
         assert secret not in completed.stdout
         assert secret not in completed.stderr
+
+    @requires_tomllib
+    def test_run_settings_toml_mirrors_model_effort_and_otel(self):
+        harness = CodexHarness()
+        settings = harness.run_settings_toml(
+            "gpt-6-sol",
+            extra_args=harness.build_effort_args("high", "medium"),
+            otel_endpoint="http://host.openshell.internal:4318/",
+        )
+
+        def exporter(signal):
+            url = f"http://host.openshell.internal:4318/v1/{signal}"
+            return {"otlp-http": {"endpoint": url, "protocol": "json"}}
+
+        assert tomllib.loads(settings) == {
+            "model": "gpt-6-sol",
+            "check_for_update_on_startup": False,
+            "model_reasoning_effort": "high",
+            "agents": {"default_subagent_reasoning_effort": "medium"},
+            "otel": {
+                "exporter": exporter("logs"),
+                "metrics_exporter": exporter("metrics"),
+                "trace_exporter": exporter("traces"),
+            },
+        }
+
+    def test_run_settings_toml_matches_command_line_otel_overrides(self):
+        harness = CodexHarness()
+        endpoint = "http://127.0.0.1:4318"
+        args = harness.build_args("prompt", "model", otel_endpoint=endpoint)
+        overrides = [
+            args[index + 1].replace("=", " = ", 1)
+            for index, arg in enumerate(args)
+            if arg == "-c" and args[index + 1].startswith("otel.")
+        ]
+
+        settings = harness.run_settings_toml("model", otel_endpoint=endpoint).splitlines()
+
+        assert len(overrides) == 3
+        assert [line for line in settings if line.startswith("otel.")] == overrides
+
+    @requires_tomllib
+    def test_run_settings_toml_without_effort_or_otel(self):
+        settings = CodexHarness().run_settings_toml("gpt-6-sol", extra_args=["resume", "--last"])
+
+        assert tomllib.loads(settings) == {
+            "model": "gpt-6-sol",
+            "check_for_update_on_startup": False,
+        }
+
+    @requires_tomllib
+    def test_run_settings_toml_last_effort_override_wins(self):
+        settings = CodexHarness().run_settings_toml(
+            "model",
+            extra_args=[
+                *CodexHarness().build_effort_args("high"),
+                "--config",
+                'model_reasoning_effort="low"',
+                "--config=agents.default_subagent_reasoning_effort=minimal",
+            ],
+        )
+
+        parsed = tomllib.loads(settings)
+        assert parsed["model_reasoning_effort"] == "low"
+        assert parsed["agents"] == {"default_subagent_reasoning_effort": "minimal"}
+
+    def test_run_settings_toml_skips_effort_that_is_not_a_plain_value(self):
+        settings = CodexHarness().run_settings_toml(
+            "model", extra_args=["-c", 'model_reasoning_effort=high"\nsandbox_mode = "x']
+        )
+
+        assert "model_reasoning_effort" not in settings
+        assert "sandbox_mode" not in settings
+
+    @requires_tomllib
+    def test_run_settings_toml_escapes_model(self):
+        model = 'gpt "quoted" \\ back\nnew\x7fline'
+
+        settings = CodexHarness().run_settings_toml(model)
+
+        assert len(settings.splitlines()) == 2
+        assert tomllib.loads(settings)["model"] == model
+
+    def test_run_settings_toml_rejects_lone_surrogate(self):
+        with pytest.raises(ValueError, match="TOML string"):
+            CodexHarness().run_settings_toml("gpt-\udc80")
+
+    @staticmethod
+    def _run_wrapper(tmp_path, args, codex_home, **extra_env):
+        """Run build_args' wrapper with a fake codex that reads config.toml like a nested run.
+
+        The fake codex prints the config.toml under the inherited CODEX_HOME
+        and ignores its own arguments, as a nested ``codex exec`` started by
+        the agent without ``-m``/``-c`` flags would.
+        """
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        fake_codex = bin_dir / "codex"
+        fake_codex.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = login ]; then cat >/dev/null; exit 0; fi\n'
+            'cat "$CODEX_HOME/config.toml"\n'
+        )
+        fake_codex.chmod(0o755)
+        env = {key: value for key, value in os.environ.items() if key != "OPENAI_API_KEY"}
+        env.update(
+            PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            CODEX_HOME=str(codex_home),
+            **extra_env,
+        )
+        return subprocess.run(args, capture_output=True, text=True, env=env, check=True)
+
+    @requires_tomllib
+    def test_externally_sandboxed_run_writes_settings_nested_codex_inherits(self, tmp_path):
+        harness = CodexHarness()
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        existing = (
+            '[marketplaces.opendatahub-skills]\nsource_type = "local"\n'
+            'source = "/sandbox/.codex/marketplaces/skills-registry"\n\n'
+            '[plugins."autofix-skills@opendatahub-skills"]\nenabled = true\n'
+        )
+        (codex_home / "config.toml").write_text(existing)
+        (codex_home / "auth.json").write_text('{"auth_mode": "apikey"}')
+        secret = "sk-test-secret"
+        args = harness.build_args(
+            "prompt",
+            "gpt-6-sol",
+            harness.build_effort_args("high", "high"),
+            otel_endpoint="http://host.openshell.internal:4318",
+            externally_sandboxed=True,
+        )
+
+        completed = self._run_wrapper(tmp_path, args, codex_home, OPENAI_API_KEY=secret)
+
+        config = (codex_home / "config.toml").read_text()
+        assert completed.stdout == config
+        assert config.endswith(existing)
+        parsed = tomllib.loads(config)
+        assert parsed["model"] == "gpt-6-sol"
+        assert parsed["model_reasoning_effort"] == "high"
+        assert parsed["agents"] == {"default_subagent_reasoning_effort": "high"}
+        assert parsed["otel"]["trace_exporter"]["otlp-http"]["endpoint"] == (
+            "http://host.openshell.internal:4318/v1/traces"
+        )
+        assert parsed["plugins"] == {"autofix-skills@opendatahub-skills": {"enabled": True}}
+        assert (codex_home / "auth.json").read_text() == '{"auth_mode": "apikey"}'
+        assert secret not in config
+        assert secret not in " ".join(args)
+        assert completed.stderr == ""
+        assert sorted(path.name for path in codex_home.iterdir()) == ["auth.json", "config.toml"]
+
+    @requires_tomllib
+    def test_externally_sandboxed_rerun_replaces_previous_settings(self, tmp_path):
+        harness = CodexHarness()
+        codex_home = tmp_path / "codex-home"
+        first = harness.build_args(
+            "prompt",
+            "gpt-first",
+            harness.build_effort_args("high"),
+            otel_endpoint="http://host.openshell.internal:4318",
+            externally_sandboxed=True,
+        )
+        second = harness.build_args("prompt", "gpt-second", externally_sandboxed=True)
+
+        self._run_wrapper(tmp_path, first, codex_home)
+        self._run_wrapper(tmp_path, second, codex_home)
+
+        config = (codex_home / "config.toml").read_text()
+        assert config.count("# BEGIN agentic-ci run settings") == 1
+        assert tomllib.loads(config) == {
+            "model": "gpt-second",
+            "check_for_update_on_startup": False,
+        }
+
+    _PLUGIN_TABLES = (
+        '[marketplaces.opendatahub-skills]\nsource_type = "local"\n'
+        'source = "/sandbox/.codex/marketplaces/skills-registry"\n\n'
+        '[plugins."autofix-skills@opendatahub-skills"]\nenabled = true\n'
+    )
+
+    def _run_settings_wrapper(self, tmp_path, existing):
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        (codex_home / "config.toml").write_text(existing)
+        harness = CodexHarness()
+        args = harness.build_args(
+            "prompt",
+            "gpt-new",
+            harness.build_effort_args("high"),
+            externally_sandboxed=True,
+        )
+        completed = self._run_wrapper(tmp_path, args, codex_home)
+        return completed, (codex_home / "config.toml").read_text()
+
+    @requires_tomllib
+    def test_externally_sandboxed_run_keeps_content_after_unterminated_block(self, tmp_path):
+        # `codex plugin marketplace add` can drop the END marker and keep BEGIN.
+        existing = (
+            "# BEGIN agentic-ci run settings (rewritten on every run)\n"
+            'model = "gpt-old"\n'
+            "check_for_update_on_startup = false\n"
+            'model_reasoning_effort = "low"\n'
+            'otel.exporter = { "otlp-http" = { endpoint = "http://old/v1/logs" } }\n'
+            'approval_policy = "never"\n\n' + self._PLUGIN_TABLES
+        )
+
+        completed, config = self._run_settings_wrapper(tmp_path, existing)
+
+        assert completed.stderr == ""
+        assert config.count("# BEGIN agentic-ci run settings") == 1
+        assert config.count("# END agentic-ci run settings") == 1
+        assert config.endswith('approval_policy = "never"\n\n' + self._PLUGIN_TABLES)
+        assert "gpt-old" not in config
+        parsed = tomllib.loads(config)
+        assert parsed["model"] == "gpt-new"
+        assert parsed["model_reasoning_effort"] == "high"
+        assert "otel" not in parsed
+        assert parsed["approval_policy"] == "never"
+        assert parsed["plugins"] == {"autofix-skills@opendatahub-skills": {"enabled": True}}
+        assert parsed["marketplaces"]["opendatahub-skills"]["source_type"] == "local"
+
+    @requires_tomllib
+    def test_externally_sandboxed_run_replaces_terminated_block(self, tmp_path):
+        existing = (
+            "# BEGIN agentic-ci run settings (rewritten on every run)\n"
+            'model = "gpt-old"\n'
+            'approval_policy = "never"\n'
+            "# END agentic-ci run settings\n" + self._PLUGIN_TABLES
+        )
+
+        completed, config = self._run_settings_wrapper(tmp_path, existing)
+
+        assert completed.stderr == ""
+        assert config == (
+            "# BEGIN agentic-ci run settings (rewritten on every run)\n"
+            'model = "gpt-new"\n'
+            "check_for_update_on_startup = false\n"
+            'model_reasoning_effort = "high"\n'
+            "# END agentic-ci run settings\n" + self._PLUGIN_TABLES
+        )
+
+    def test_externally_sandboxed_run_prepends_block_to_config_without_markers(self, tmp_path):
+        completed, config = self._run_settings_wrapper(tmp_path, self._PLUGIN_TABLES)
+
+        assert completed.stderr == ""
+        assert config == (
+            "# BEGIN agentic-ci run settings (rewritten on every run)\n"
+            'model = "gpt-new"\n'
+            "check_for_update_on_startup = false\n"
+            'model_reasoning_effort = "high"\n'
+            "# END agentic-ci run settings\n" + self._PLUGIN_TABLES
+        )
+
+    def test_managed_settings_keys_cover_every_run_setting(self):
+        harness = CodexHarness()
+        settings = harness.run_settings_toml(
+            "model",
+            extra_args=harness.build_effort_args("high", "medium"),
+            otel_endpoint="http://127.0.0.1:4318",
+        )
+
+        keys = [line.split(" = ", 1)[0] for line in settings.splitlines()]
+        assert sorted(keys) == sorted(harness._managed_settings_keys())
+
+    @requires_tomllib
+    def test_externally_sandboxed_run_keeps_keys_the_config_already_sets(self, tmp_path):
+        harness = CodexHarness()
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        (codex_home / "config.toml").write_text(
+            'model = "image-model"\n\n[otel]\nenvironment = "dev"\n'
+        )
+        args = harness.build_args(
+            "prompt",
+            "gpt-6-sol",
+            harness.build_effort_args("high"),
+            otel_endpoint="http://host.openshell.internal:4318",
+            externally_sandboxed=True,
+        )
+
+        completed = self._run_wrapper(tmp_path, args, codex_home)
+
+        parsed = tomllib.loads((codex_home / "config.toml").read_text())
+        assert parsed["model"] == "image-model"
+        assert parsed["otel"] == {"environment": "dev"}
+        assert parsed["model_reasoning_effort"] == "high"
+        assert "already sets model" in completed.stderr
+        assert completed.stderr.count("already sets otel") == 1
+
+    def test_run_outside_openshell_leaves_codex_config_alone(self, tmp_path):
+        codex_home = tmp_path / "codex-home"
+        codex_home.mkdir()
+        (codex_home / "config.toml").write_text('model = "personal"\n')
+        args = CodexHarness().build_args(
+            "prompt", "gpt-6-sol", otel_endpoint="http://127.0.0.1:4318"
+        )
+
+        self._run_wrapper(tmp_path, args, codex_home)
+
+        assert (codex_home / "config.toml").read_text() == 'model = "personal"\n'
+        assert "config.toml" not in args[2]
 
     def test_build_env_args(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
