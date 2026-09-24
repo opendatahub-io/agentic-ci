@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agentic_ci.forge.cli import register_subcommands
+from agentic_ci.forge.github import GitHubForge
 
 
 def _run_forge_cli(argv: list[str]) -> None:
@@ -46,6 +47,95 @@ class TestMrCommentsCommand:
             _run_forge_cli(["mr-comments", "https://gitlab.com/o/r/-/merge_requests/1"])
 
         mock_forge.review_comments.assert_called_once()
+
+
+class TestCommentTrustFieldsInOutput:
+    """The JSON output carries per-comment trust fields next to the old keys."""
+
+    def _github_forge(self, session):
+        with patch("agentic_ci.forge.github.build_session", return_value=session):
+            return GitHubForge(token="tok")
+
+    def test_mr_comments_includes_thread_comments(self, capsys):
+        session = MagicMock()
+        session.post.return_value.status_code = 200
+        session.post.return_value.json.return_value = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "id": "t1",
+                                    "isResolved": False,
+                                    "comments": {
+                                        "nodes": [
+                                            {
+                                                "body": "fix",
+                                                "path": "a.py",
+                                                "line": 3,
+                                                "createdAt": "2026-09-01T00:00:00Z",
+                                                "authorAssociation": "MEMBER",
+                                                "author": {"login": "m"},
+                                            },
+                                            {
+                                                "body": "evil",
+                                                "path": "a.py",
+                                                "line": 3,
+                                                "createdAt": "2026-09-02T00:00:00Z",
+                                                "authorAssociation": "NONE",
+                                                "author": {"login": "o"},
+                                            },
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        forge = self._github_forge(session)
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=forge):
+            _run_forge_cli(["mr-comments", "https://github.com/o/r/pull/1"])
+
+        result = json.loads(capsys.readouterr().out)
+        thread = result[0]
+        assert thread["thread_id"] == "t1"
+        assert thread["file"] == "a.py"
+        assert thread["line"] == 3
+        assert thread["body"] == "m: fix\no: evil"
+        assert thread["author"] == "m"
+        assert thread["author_association"] == "MEMBER"
+        assert [(c["author"], c["author_association"]) for c in thread["comments"]] == [
+            ("m", "MEMBER"),
+            ("o", "NONE"),
+        ]
+
+    def test_mr_general_comments_includes_association(self, capsys):
+        session = MagicMock()
+        session.get.return_value.status_code = 200
+        session.get.return_value.json.return_value = [
+            {
+                "body": "hi",
+                "user": {"login": "c"},
+                "author_association": "CONTRIBUTOR",
+                "created_at": "2026-09-01T00:00:00Z",
+            }
+        ]
+        forge = self._github_forge(session)
+        with patch("agentic_ci.forge.cli.Forge.detect", return_value=forge):
+            _run_forge_cli(["mr-general-comments", "https://github.com/o/r/pull/1"])
+
+        result = json.loads(capsys.readouterr().out)
+        assert result == [
+            {
+                "author": "c",
+                "author_association": "CONTRIBUTOR",
+                "body": "hi",
+                "created_at": "2026-09-01T00:00:00Z",
+            }
+        ]
 
 
 class TestMrGeneralCommentsCommand:
