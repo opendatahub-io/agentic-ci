@@ -91,6 +91,9 @@ class GitLabForge(Forge):
 
     def __init__(self, *, adapter: GitLabHTTPAdapter | None = None) -> None:
         self._session = build_session(gitlab_adapter=adapter)
+        # (project_id, user_id) -> access level, so each distinct comment
+        # author costs at most one members API call per client.
+        self._access_levels: dict[tuple[int, int], int | None] = {}
 
     @property
     def session(self):
@@ -109,6 +112,62 @@ class GitLabForge(Forge):
                 f"HTTP {resp.status_code} looking up project {project_path}: {resp.text}"
             )
         return resp.json()["id"]
+
+    def member_access_level(self, pid: int, user_id: int) -> int | None:
+        """Return a user's effective access level on a project.
+
+        Uses ``members/all`` so levels inherited from parent groups count.
+        Returns ``0`` when the user is not a member or the membership is not
+        ``active`` (for example ``awaiting`` seat approval or ``blocked``),
+        and ``None`` when the level could not be resolved (for example HTTP
+        403). Results are cached per client, so repeated calls cost one
+        request per ``(pid, user_id)``.
+        """
+        key = (pid, user_id)
+        if key in self._access_levels:
+            return self._access_levels[key]
+        resp = self._session.get(
+            f"https://gitlab.com/api/v4/projects/{pid}/members/all/{user_id}",
+        )
+        level: int | None
+        if resp.status_code == 200:
+            member = resp.json()
+            raw = member.get("access_level")
+            state = member.get("state")
+            if state is not None and state != "active":
+                level = 0
+            elif isinstance(raw, int) and not isinstance(raw, bool):
+                level = raw
+            else:
+                level = None
+        elif resp.status_code == 404:
+            level = 0
+        else:
+            log.warning(
+                "HTTP %d resolving access level of user %s on project %s: %s",
+                resp.status_code,
+                user_id,
+                pid,
+                _sanitize_resp_text(resp.text),
+            )
+            level = None
+        self._access_levels[key] = level
+        return level
+
+    def _note_comment(self, pid: int, note: dict) -> dict:
+        """Build a comment dict with author trust fields from a GitLab note."""
+        author = note.get("author") or {}
+        user_id = author.get("id")
+        level = None
+        if isinstance(user_id, int) and not isinstance(user_id, bool):
+            level = self.member_access_level(pid, user_id)
+        return {
+            "author": author.get("name", "Unknown"),
+            "author_username": author.get("username", ""),
+            "author_access_level": level,
+            "body": note.get("body", ""),
+            "created_at": note.get("created_at", ""),
+        }
 
     def create_merge_request(
         self,
@@ -293,17 +352,19 @@ class GitLabForge(Forge):
             new_line = position.get("new_line")
             old_line = position.get("old_line")
             line = new_line or old_line or 0
-            body_parts = []
-            for note in notes:
-                author = note.get("author", {}).get("name", "Unknown")
-                body_parts.append(f"{author}: {note.get('body', '')}")
+            thread_comments = [self._note_comment(pid, note) for note in notes]
+            body_parts = [f"{c['author']}: {c['body']}" for c in thread_comments]
+            first = thread_comments[0]
             threads.append(
                 {
                     "thread_id": disc["id"],
                     "file": file_path,
                     "line": line,
                     "body": "\n".join(body_parts),
-                    "author": first_note.get("author", {}).get("name", "Unknown"),
+                    "author": first["author"],
+                    "author_username": first["author_username"],
+                    "author_access_level": first["author_access_level"],
+                    "comments": thread_comments,
                 }
             )
         return threads
@@ -338,13 +399,7 @@ class GitLabForge(Forge):
                 since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
                 if created_dt < since_dt:
                     continue
-            comments.append(
-                {
-                    "author": note.get("author", {}).get("name", "Unknown"),
-                    "body": body,
-                    "created_at": created,
-                }
-            )
+            comments.append(self._note_comment(pid, note))
         return comments
 
     def reply(self, mr_url: str, thread_id: str, message: str) -> None:
