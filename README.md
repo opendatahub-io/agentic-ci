@@ -398,7 +398,12 @@ pipelines:
 - **`agentic_ci.jira`** — Jira REST API client with `acli` delegation,
   ADF (Atlassian Document Format) conversion, and rate limiting.
 - **`agentic_ci.forge`** — GitHub/GitLab MR/PR helpers (status, comments,
-  labels: exists / create / attach) plus `agentic-ci forge` CLI.
+  labels: exists / create / attach) plus `agentic-ci forge` CLI. Comments
+  carry the author's trust (GitHub `author_association`, GitLab
+  `author_access_level`), and `filter_trusted_threads()` /
+  `filter_trusted_comments()` keep only owners, members and collaborators
+  (GitHub) or Developer and above (GitLab), including per reply inside a
+  review thread.
 - **`agentic_ci.git`** — Git operations (clone, branch, push, diff,
   commit info extraction) with security hardening.
 - **`agentic_ci.pipeline`** — GitLab child pipeline YAML generation

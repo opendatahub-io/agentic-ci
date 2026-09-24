@@ -58,6 +58,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Check runs vs commit statuses weren't both queried. Fixed to check both GitHub status APIs.
 - **Where to look**: `forge.py` CI status detection methods
 
+### Trusted MR/PR feedback dropped, or outsider feedback kept
+- **Symptom**: A consumer that filters with `filter_trusted_threads()` / `filter_trusted_comments()` ignores a maintainer's review comment, or keeps a comment from someone the consumer did not expect to trust. GitHub trust is based on `author_association` (OWNER, MEMBER, COLLABORATOR), not repository permission, so an organization member or collaborator with only Read or Triage access is still trusted; a consumer that needs write-level trust must check permissions itself.
+- **Likely cause**: Trust comes from per-comment fields (RHAI-2629). GitHub uses `author_association`; only `OWNER`, `MEMBER` and `COLLABORATOR` are trusted, and GitHub reports a private org member as `CONTRIBUTOR` or `NONE` when the token cannot see private membership (GitHub App without the Members read permission). GitLab uses `author_access_level` from `members/all/:user_id`, trusted at Developer (30) or above; `0` means not a member (404) or a membership whose `state` is not `active` (for example `awaiting` or `blocked`) and `None` means the lookup failed (a `HTTP ... resolving access level` warning) or the note had no author id. Both count as untrusted, by design. Levels are cached per `GitLabForge` instance, so a role change is seen only by a new client. Threads keep trusted replies even when the starter is untrusted, and are dropped only when no trusted comment remains.
+- **Where to look**: `forge/__init__.py` `is_trusted_comment()` / `TRUSTED_GITHUB_ASSOCIATIONS` / `MIN_TRUSTED_GITLAB_ACCESS_LEVEL`, `forge/github.py` `review_comments()` / `general_comments()`, `forge/gitlab.py` `member_access_level()` / `_note_comment()`; `agentic-ci forge mr-comments <URL>` shows the per-comment fields
+
 ### Artifact files left in commits
 - **Likely cause**: `strip_committed_files()` didn't exist. Added to remove skill artifacts from git commits before push.
 - **Where to look**: `gates.py:strip_committed_files()`, post-gate execution in `skill.py`
