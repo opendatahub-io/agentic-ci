@@ -25,6 +25,7 @@ import os
 import random
 import re
 import tempfile
+from collections.abc import Iterator, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,29 @@ log = logging.getLogger(__name__)
 
 API_VERSION = "3"
 MAX_RETRY_AFTER = 60
+
+# Fields requested by ``JiraClient.search`` when the caller passes none.
+_SEARCH_DEFAULT_FIELDS = (
+    "summary",
+    "description",
+    "created",
+    "issuetype",
+    "labels",
+    "comment",
+    "status",
+)
+_SEARCH_DEFAULT_PAGE_SIZE = 50
+# Jira Cloud's enhanced search (``search/jql``) returns at most 5000 issues
+# per page, and only when the request asks for ``id`` or ``key`` alone.
+_SEARCH_KEY_FIELDS = ("key",)
+_SEARCH_KEYS_PAGE_SIZE = 5000
+
+
+def _search_page_size(fields: list[str]) -> int:
+    """Return the page size for a ``search/jql`` request of ``fields``."""
+    if set(fields) <= {"id", "key"}:
+        return _SEARCH_KEYS_PAGE_SIZE
+    return _SEARCH_DEFAULT_PAGE_SIZE
 
 
 def _is_rate_limit_error(exc: BaseException) -> bool:
@@ -305,25 +329,23 @@ class JiraClient:
             )
         return comments
 
-    def search(self, jql: str, *, max_results: int = 500) -> list[dict]:
-        """Search issues by JQL. Returns normalised dicts with ``created`` timestamps."""
-        results: list[dict] = []
+    def _search_issues(
+        self, jql: str, *, fields: list[str], page_size: int, max_results: int
+    ) -> Iterator[dict]:
+        """Yield raw issues from ``search/jql``, following ``nextPageToken``.
+
+        Stops after ``max_results`` issues, on the last page, or when Jira
+        returns no issues or no continuation token.
+        """
         next_page_token: str | None = None
         search_url = self._api_url("search/jql")
+        count = 0
 
         while True:
             payload: dict = {
                 "jql": jql,
-                "fields": [
-                    "summary",
-                    "description",
-                    "created",
-                    "issuetype",
-                    "labels",
-                    "comment",
-                    "status",
-                ],
-                "maxResults": min(50, max_results - len(results)),
+                "fields": fields,
+                "maxResults": min(page_size, max_results - count),
             }
             if next_page_token:
                 payload["nextPageToken"] = next_page_token
@@ -338,47 +360,12 @@ class JiraClient:
 
             data = resp.json()
             for issue in data.get("issues", []):
-                fields = issue.get("fields", {})
-                desc_field = fields.get("description")
-                if isinstance(desc_field, dict):
-                    description = adf_to_text(desc_field)
-                else:
-                    description = desc_field or ""
-                created = fields.get("created")
-                if not isinstance(created, str):
-                    created = ""
+                if count >= max_results:
+                    break
+                count += 1
+                yield issue
 
-                comments_data = fields.get("comment", {})
-                comments = []
-                for c in comments_data.get("comments", []):
-                    body_field = c.get("body", "")
-                    body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
-                    comments.append(
-                        {
-                            "id": c.get("id", ""),
-                            "author": c.get("author", {}).get("displayName", "Unknown"),
-                            "author_email": c.get("author", {}).get("emailAddress", ""),
-                            "body": body,
-                            "created": c.get("created", ""),
-                            "updated": c.get("updated", ""),
-                            "visibility": c.get("visibility"),
-                        }
-                    )
-
-                results.append(
-                    {
-                        "key": issue.get("key", ""),
-                        "summary": fields.get("summary", ""),
-                        "description": description,
-                        "created": created,
-                        "issue_type": fields.get("issuetype", {}).get("name", ""),
-                        "labels": fields.get("labels", []),
-                        "status": fields.get("status", {}).get("name", ""),
-                        "comments": comments,
-                    }
-                )
-
-            if len(results) >= max_results:
+            if count >= max_results:
                 break
             if data.get("isLast", True) or not data.get("issues"):
                 break
@@ -386,7 +373,95 @@ class JiraClient:
             if not next_page_token:
                 break
 
-        return results
+    def search(
+        self, jql: str, *, max_results: int = 500, fields: Sequence[str] | None = None
+    ) -> list[dict]:
+        """Search issues by JQL. Returns normalised dicts with ``created`` timestamps.
+
+        ``fields`` overrides the Jira fields requested for each issue. By
+        default the fields needed for every normalised key are requested
+        (summary, description, created, issuetype, labels, comment, status).
+        The normalised dict has the same keys either way; values for fields
+        that were not requested, or that Jira omitted, fall back to empty
+        defaults. When ``fields`` only names ``key`` and/or ``id``, pages of
+        up to 5000 issues are requested (the enhanced search maximum for
+        key-only listings); otherwise pages hold 50 issues. A single field
+        name may be passed as a string. Use :meth:`search_keys` to list keys
+        only.
+        """
+        if fields is None:
+            request_fields = list(_SEARCH_DEFAULT_FIELDS)
+            page_size = _SEARCH_DEFAULT_PAGE_SIZE
+        else:
+            request_fields = [fields] if isinstance(fields, str) else list(fields)
+            page_size = _search_page_size(request_fields)
+
+        return [
+            self._normalise_search_issue(issue)
+            for issue in self._search_issues(
+                jql, fields=request_fields, page_size=page_size, max_results=max_results
+            )
+        ]
+
+    def search_keys(self, jql: str, *, max_results: int = 5000) -> list[str]:
+        """Return the keys of issues matching ``jql``, in Jira's order.
+
+        Requests only the issue key (Jira always adds the id), so each
+        request can return up to 5000 issues, the enhanced search maximum.
+        Follows ``nextPageToken`` until ``max_results`` keys or the last
+        page. Issues without a key are skipped.
+        """
+        keys: list[str] = []
+        for issue in self._search_issues(
+            jql,
+            fields=list(_SEARCH_KEY_FIELDS),
+            page_size=_SEARCH_KEYS_PAGE_SIZE,
+            max_results=max_results,
+        ):
+            key = issue.get("key")
+            if isinstance(key, str) and key:
+                keys.append(key)
+        return keys
+
+    @staticmethod
+    def _normalise_search_issue(issue: dict) -> dict:
+        fields = issue.get("fields") or {}
+        desc_field = fields.get("description")
+        if isinstance(desc_field, dict):
+            description = adf_to_text(desc_field)
+        else:
+            description = desc_field or ""
+        created = fields.get("created")
+        if not isinstance(created, str):
+            created = ""
+
+        comments_data = fields.get("comment") or {}
+        comments = []
+        for c in comments_data.get("comments", []):
+            body_field = c.get("body", "")
+            body = adf_to_text(body_field) if isinstance(body_field, dict) else body_field
+            comments.append(
+                {
+                    "id": c.get("id", ""),
+                    "author": c.get("author", {}).get("displayName", "Unknown"),
+                    "author_email": c.get("author", {}).get("emailAddress", ""),
+                    "body": body,
+                    "created": c.get("created", ""),
+                    "updated": c.get("updated", ""),
+                    "visibility": c.get("visibility"),
+                }
+            )
+
+        return {
+            "key": issue.get("key", ""),
+            "summary": fields.get("summary", ""),
+            "description": description,
+            "created": created,
+            "issue_type": (fields.get("issuetype") or {}).get("name", ""),
+            "labels": fields.get("labels", []),
+            "status": (fields.get("status") or {}).get("name", ""),
+            "comments": comments,
+        }
 
     @staticmethod
     def _parse_iso8601(value: str | None) -> str | None:
