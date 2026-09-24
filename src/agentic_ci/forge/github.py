@@ -198,6 +198,8 @@ class GitHubForge(Forge):
                       body
                       path
                       line
+                      createdAt
+                      authorAssociation
                       author { login }
                     }
                   }
@@ -222,17 +224,25 @@ class GitHubForge(Forge):
             if not comments:
                 continue
             first = comments[0]
-            body_parts = []
-            for c in comments:
-                author = c.get("author", {}).get("login", "Unknown")
-                body_parts.append(f"{author}: {c.get('body', '')}")
+            thread_comments = [
+                {
+                    "author": _login(c),
+                    "author_association": c.get("authorAssociation") or "NONE",
+                    "body": c.get("body", ""),
+                    "created_at": c.get("createdAt", ""),
+                }
+                for c in comments
+            ]
+            body_parts = [f"{c['author']}: {c['body']}" for c in thread_comments]
             threads.append(
                 {
                     "thread_id": thread["id"],
                     "file": first.get("path", ""),
                     "line": first.get("line") or 0,
                     "body": "\n".join(body_parts),
-                    "author": first.get("author", {}).get("login", "Unknown"),
+                    "author": thread_comments[0]["author"],
+                    "author_association": thread_comments[0]["author_association"],
+                    "comments": thread_comments,
                 }
             )
         return threads
@@ -284,6 +294,7 @@ class GitHubForge(Forge):
                 comments.append(
                     {
                         "author": c.get("user", {}).get("login", "Unknown"),
+                        "author_association": c.get("author_association") or "NONE",
                         "body": body,
                         "created_at": c.get("created_at", ""),
                     }
@@ -477,6 +488,15 @@ class GitHubForge(Forge):
             if ctx not in seen:
                 seen[ctx] = s
         return [s for s in seen.values() if not _is_merge_management_status(s.get("context", ""))]
+
+
+def _login(node: dict) -> str:
+    """Return a GraphQL comment author's login, or ``"Unknown"``.
+
+    GraphQL returns ``author: null`` for deleted accounts.
+    """
+    author = node.get("author") or {}
+    return author.get("login") or "Unknown"
 
 
 _FAILED_CONCLUSIONS = frozenset(

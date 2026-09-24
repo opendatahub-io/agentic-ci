@@ -17,6 +17,18 @@ Label helpers (callers choose names and create-vs-attach policy)::
     if not forge.label_exists(repo_url, "autofix"):
         forge.create_label(repo_url, "autofix")
     forge.add_mr_labels(mr_url, ["autofix"])
+
+Comment author trust (keep feedback only from repository owners, organization
+members and collaborators on GitHub, or Developers and above on GitLab; the
+GitHub check uses author_association, not repository permissions)::
+
+    forge = Forge.detect(mr_url, github_token=token)
+    threads = filter_trusted_threads(forge.review_comments(mr_url))
+    comments = filter_trusted_comments(forge.general_comments(mr_url))
+
+GitHub comments carry ``author_association`` and GitLab comments carry
+``author_access_level``. Only ``TRUSTED_GITHUB_ASSOCIATIONS`` and levels
+at or above ``MIN_TRUSTED_GITLAB_ACCESS_LEVEL`` (Developer) are trusted.
 """
 
 from __future__ import annotations
@@ -97,7 +109,15 @@ class Forge(ABC):
         """Get unresolved review comment threads with diff positions.
 
         Returns a list of dicts with keys:
-        ``thread_id``, ``file``, ``line``, ``body``, ``author``.
+        ``thread_id``, ``file``, ``line``, ``body``, ``author``, ``comments``.
+
+        ``body`` joins every comment as ``"<author>: <body>"`` lines and
+        ``author`` is the thread starter. ``comments`` lists each comment
+        of the thread as a dict with ``author``, ``body``, ``created_at``
+        and the author's trust field: ``author_association`` on GitHub, or
+        ``author_username`` and ``author_access_level`` on GitLab. The
+        thread dict also carries the starter's trust field. Use
+        :func:`filter_trusted_threads` to drop untrusted comments.
         """
 
     @abstractmethod
@@ -109,7 +129,10 @@ class Forge(ABC):
     ) -> list[dict]:
         """Get general (non-diff-positioned) MR/PR comments.
 
-        Returns a list of dicts with keys: ``author``, ``body``, ``created_at``.
+        Returns a list of dicts with keys: ``author``, ``body``, ``created_at``,
+        plus the author's trust field: ``author_association`` on GitHub, or
+        ``author_username`` and ``author_access_level`` on GitLab. Use
+        :func:`filter_trusted_comments` to drop untrusted comments.
         Comments created before ``since`` (ISO 8601) are excluded.
         Comments containing any string in ``skip_patterns`` are excluded.
         If ``skip_patterns`` is None, a default list is used.
@@ -205,6 +228,69 @@ DEFAULT_SKIP_PATTERNS: list[str] = [
     "<!-- ai-review",
     "Addressed in the latest revision",
 ]
+
+
+# GitHub ``author_association`` values trusted as MR/PR feedback: the
+# repository owner, organization members and invited collaborators.
+# CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, MANNEQUIN and NONE are
+# untrusted, since any GitHub account can reach them on a public repository.
+TRUSTED_GITHUB_ASSOCIATIONS: frozenset[str] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+# GitLab project access level of the Developer role.
+GITLAB_DEVELOPER_ACCESS_LEVEL = 30
+
+# Minimum GitLab project access level trusted as MR feedback (Developer).
+# Guest (10), Planner (15), Reporter (20), non-members (0) and authors
+# whose level could not be resolved (None) are untrusted.
+MIN_TRUSTED_GITLAB_ACCESS_LEVEL = GITLAB_DEVELOPER_ACCESS_LEVEL
+
+
+def is_trusted_comment(comment: dict) -> bool:
+    """Return whether a forge comment was written by a trusted author.
+
+    A GitHub comment (one with an ``author_association`` key) is trusted
+    when the association is in ``TRUSTED_GITHUB_ASSOCIATIONS``. Any other
+    comment is trusted only when its ``author_access_level`` is an integer
+    at or above ``MIN_TRUSTED_GITLAB_ACCESS_LEVEL``. Comments carrying
+    neither field are untrusted, so the check fails closed.
+    """
+    if "author_association" in comment:
+        return comment["author_association"] in TRUSTED_GITHUB_ASSOCIATIONS
+    level = comment.get("author_access_level")
+    if isinstance(level, bool) or not isinstance(level, int):
+        return False
+    return level >= MIN_TRUSTED_GITLAB_ACCESS_LEVEL
+
+
+def filter_trusted_comments(comments: list[dict]) -> list[dict]:
+    """Return only the comments written by trusted authors.
+
+    Takes the output of :meth:`Forge.general_comments` (or any list of
+    comment dicts) and keeps those for which :func:`is_trusted_comment`
+    holds.
+    """
+    return [c for c in comments if is_trusted_comment(c)]
+
+
+def filter_trusted_threads(threads: list[dict]) -> list[dict]:
+    """Return review threads reduced to their trusted comments.
+
+    Takes the output of :meth:`Forge.review_comments`. Each thread's
+    ``comments`` keeps only trusted comments and ``body`` is rebuilt from
+    them, so an untrusted reply inside a trusted author's thread is
+    dropped. A thread with no trusted comment left, or without a
+    ``comments`` list, is dropped. The thread's position, ``author`` and
+    trust fields still describe the thread starter. Input dicts are not
+    modified.
+    """
+    result: list[dict] = []
+    for thread in threads:
+        trusted = filter_trusted_comments(thread.get("comments") or [])
+        if not trusted:
+            continue
+        body = "\n".join(f"{c.get('author', 'Unknown')}: {c.get('body', '')}" for c in trusted)
+        result.append({**thread, "comments": trusted, "body": body})
+    return result
 
 
 def parse_gitlab_mr_url(url: str) -> tuple[str, int]:
