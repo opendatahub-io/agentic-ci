@@ -289,7 +289,7 @@ def main():
     p_run.add_argument(
         "--keep",
         action="store_true",
-        help="Keep the sandbox environment running after the run completes",
+        help="Keep the sandbox environment after the run completes (Podman keeps it stopped)",
     )
     p_run.add_argument(
         "--model",

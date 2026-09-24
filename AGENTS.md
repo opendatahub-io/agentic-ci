@@ -42,7 +42,7 @@ src/agentic_ci/
 
 - **`cli.py`**: Argparse entry point with `setup`, `run`, and `stop` subcommands plus `--backend` and `--harness` flags. Creates harness and backend, handles OTEL lifecycle.
 
-- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees decoded stdout lines to disk until the stream processor reports completion.
+- **`backend.py`**: Abstract `Backend` class with `setup()` and `run()` methods. Shared `_process_stream()` helper reads output from a subprocess through the harness's stream processor. When `output_file` is set on the backend, `_process_stream()` tees decoded stdout lines to disk until the stream processor reports completion. `_snapshot_host_git()` / `_restore_host_git()` record the workdir's git control files (`.git/config`, `config.worktree`, `commondir`, `hooks/`, `info/`) before a sandboxed agent can write them and put them back afterwards, so host-side git never runs agent-configured hooks, fsmonitor or drivers. Every backend that lets the agent write the host workdir (Podman, OpenShell) must call both.
 
 - **`harness.py`**: Abstract `Harness` class encapsulating agent-specific CLI args, env vars, credential paths, and stream parsing. Implementations: `ClaudeCodeHarness`, `OpenCodeHarness`, `CodexHarness`. Model ids and effort levels are not defined here; each harness reads them from `models.py` via its `registry_key`.
 

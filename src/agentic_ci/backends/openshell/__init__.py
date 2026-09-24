@@ -113,7 +113,9 @@ class OpenShellBackend(Backend):
     visible immediately on the host, OpenShellBackend copies the workdir
     into the sandbox on setup() and copies it back after run() completes.
     Only changes inside the workdir are reflected back to the host; files
-    written elsewhere in the sandbox (e.g. /tmp) are not retrieved.
+    written elsewhere in the sandbox (e.g. /tmp) are not retrieved. The
+    host's git control files (``.git/config``, hooks, ``info/``) are restored
+    after the download, so the agent's git config never runs on the host.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -330,6 +332,11 @@ class OpenShellBackend(Backend):
         sandbox_workdir = f"/sandbox/{workdir_name}"
         cmd = self._agent_command(sandbox_workdir, agent_args)
 
+        # The download below copies the sandbox's .git over the host repo, and
+        # the agent can write that .git. Only the host can write the workdir
+        # until then, so snapshot it here and restore it after the download.
+        self._snapshot_host_git()
+
         stop_keepalive = threading.Event()
         keepalive: threading.Thread | None = None
 
@@ -357,6 +364,7 @@ class OpenShellBackend(Backend):
             stop_keepalive.set()
             if keepalive:
                 keepalive.join(timeout=5)
+            self._restore_host_git(release=True)
 
     def _write_env_script(
         self,

@@ -21,6 +21,10 @@ class LocalBackend(Backend):
     and accessible on PATH. Useful when agentic-ci is running inside an
     existing CI container (e.g. Prow) where an extra isolation layer is
     unnecessary.
+
+    The agent runs as the host user with the host environment, so there is
+    no sandbox boundary to protect and the workdir's ``.git`` is not
+    restored after the run, unlike the Podman and OpenShell backends.
     """
 
     def __init__(self, workdir=".", extra_env=None, *, harness: Harness):

@@ -402,6 +402,10 @@ def test_run_passes_otel_port_to_implicit_setup(tmp_path, claude_harness):
         mock.patch.object(backend, "_process_stream", return_value=(0, True)),
         mock.patch.object(backend, "_wait_for_otel_flush"),
         mock.patch("agentic_ci.backends.podman.subprocess.Popen"),
+        mock.patch(
+            "agentic_ci.backends.podman.subprocess.run",
+            return_value=_subprocess.CompletedProcess([], 0),
+        ),
     ):
         assert backend.run("test", "test-model", otel_port=4318) == 0
 
@@ -421,6 +425,10 @@ def test_run_exports_model_and_effort(tmp_path, claude_harness, effort):
         mock.patch.object(backend, "_process_stream", return_value=(0, True)),
         mock.patch.object(backend, "_wait_for_otel_flush"),
         mock.patch("agentic_ci.backends.podman.subprocess.Popen") as popen,
+        mock.patch(
+            "agentic_ci.backends.podman.subprocess.run",
+            return_value=_subprocess.CompletedProcess([], 0),
+        ),
     ):
         backend.run("test", "test-model", effort=effort)
 

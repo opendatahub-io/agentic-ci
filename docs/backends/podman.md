@@ -14,7 +14,33 @@ into the container. On completion, the container is removed.
 2. Stage GCP credentials to a temp directory (Vertex AI auth only)
 3. Start a detached container with `sleep <timeout>`
 4. Exec the agent CLI inside the container
-5. Remove the container on completion
+5. Stop the container and restore the host's git control files
+6. Remove the container on completion
+
+The bind mount gives the agent write access to the host repository's
+`.git`. The backend records the host's git control files (`.git/config`,
+`config.worktree`, `commondir`, `hooks/`, `info/`) before the container
+starts. When the agent exits, `run()` stops the container with
+`podman stop --time 0`, which kills every process the agent left running
+(the kernel tears down the container's whole PID namespace), and only then
+restores the host copy. Host-side git after the run, including
+`--post-gates`, therefore never honors hooks, fsmonitor, filter or diff
+drivers or other config the agent set, while the agent's commits are kept.
+The next `run()` in the same process records the host's git control files
+again, so host-side config changes made between runs are kept, and then
+starts the stopped container, so its filesystem carries over between runs,
+but no process does. If the
+container cannot be stopped it is removed. If it can be neither stopped nor
+removed, an agent process may still be running, so instead of restoring,
+the backend moves `.git` aside and deletes it (the agent's commits are lost)
+and the podman error propagates. `stop()` restores the host copy once more
+after removing the container, with the same fallback if removal fails. See
+[Host git after the run](openshell.md#host-git-after-the-run) for details.
+
+With `run --keep`, the container is left in place but stopped. The
+container name is unique to each `agentic-ci` process, so a separate
+`agentic-ci stop` process neither finds that container nor restores
+anything; remove it with `podman rm`.
 
 ## Podman Commands
 

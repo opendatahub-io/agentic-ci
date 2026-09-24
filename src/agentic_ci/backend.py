@@ -13,6 +13,12 @@ from typing import TYPE_CHECKING
 
 from agentic_ci import log
 from agentic_ci.config import load_config
+from agentic_ci.git import (
+    GitControlSnapshot,
+    discard_git_dir,
+    restore_git_control,
+    snapshot_git_control,
+)
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -33,6 +39,7 @@ class Backend(ABC):
         self.harness = harness
         self.verdict_path: Path | None = None
         self.output_file: Path | None = None
+        self._host_git: GitControlSnapshot | None = None
 
     @abstractmethod
     def setup(self, otel_port: int | None = None):
@@ -202,6 +209,47 @@ class Backend(ABC):
         for step in config.setup:
             log.info(f"  {step.name}: {step.run}")
             subprocess.run(step.run, shell=True, cwd=self.workdir, check=True, timeout=600)
+
+    def _snapshot_host_git(self):
+        """Record the workdir's git control files before the agent can write them.
+
+        Sandboxed backends call this while only the host can write the
+        workdir, and :meth:`_restore_host_git` once the agent's changes have
+        landed on the host. Host-side git (``git commit --amend``,
+        ``git push``) then runs with the host's own ``.git/config``, hooks and
+        attributes instead of whatever the agent configured, while the
+        agent's commits are kept. A snapshot that already exists is kept, so a
+        snapshot is never taken while the agent can still write the workdir.
+        """
+        if self._host_git is None:
+            self._host_git = snapshot_git_control(Path(self.workdir))
+
+    def _restore_host_git(self, *, release=False):
+        """Put back the git control files recorded by :meth:`_snapshot_host_git`.
+
+        With *release*, the snapshot is dropped afterwards; pass it once the
+        agent can no longer write the workdir, so the next run snapshots the
+        host state again.
+        """
+        snapshot = self._host_git
+        if snapshot is None:
+            return
+        try:
+            restore_git_control(snapshot)
+        finally:
+            if release:
+                self._host_git = None
+
+    def _discard_host_git(self):
+        """Take the workdir's ``.git`` away from host git instead of restoring it.
+
+        For when the agent may still be able to write the workdir, so a
+        restore could be undone behind the host's back. Drops the snapshot.
+        """
+        if self._host_git is None:
+            return
+        self._host_git = None
+        discard_git_dir(Path(self.workdir))
 
     def _wait_for_otel_flush(self, otel_port):
         """Wait for OTEL metrics to flush after the agent stream ends.
