@@ -7,12 +7,14 @@ import pytest
 
 from agentic_ci.harness import create_harness
 from agentic_ci.routing import ModelTier, RouteDecision, route_path
+from agentic_ci.sandbox_profile import Resources, SandboxProfile
 from agentic_ci.skill import (
     RoutedSkillResult,
     SkillConfig,
     _AgentSession,
     _default_run_container,
     run_routed_skill,
+    run_skill,
 )
 
 TRACE_ID = "0123456789abcdef0123456789abcdef"
@@ -450,3 +452,83 @@ class TestAgentSession:
 
         stop_collector.assert_called_once_with(fake_proc)
         assert backend.calls == [("stop",)]
+
+
+PROFILE = SandboxProfile(resources=Resources(memory="8Gi"), env={"CGO_ENABLED": "0"})
+
+
+class TestSandboxProfilePlumbing:
+    """SkillConfig.sandbox_profile reaches create_backend, and only when set."""
+
+    def _session_create_backend_kwargs(self, tmp_path, **session_kwargs):
+        harness = create_harness("claude-code")
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=RecordingBackend()) as cb,
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+        ):
+            _AgentSession(tmp_path, container_env={"FOO": "bar"}, **session_kwargs)
+        return cb.call_args, harness
+
+    def test_session_without_profile_calls_create_backend_as_today(self, tmp_path):
+        call, harness = self._session_create_backend_kwargs(tmp_path)
+        assert call.args == ("podman",)
+        assert call.kwargs == {
+            "harness": harness,
+            "workdir": str(tmp_path),
+            "image": None,
+            "extra_env": {"FOO": "bar"},
+        }
+
+    def test_session_passes_profile_to_create_backend(self, tmp_path):
+        call, _ = self._session_create_backend_kwargs(tmp_path, sandbox_profile=PROFILE)
+        assert call.kwargs["sandbox_profile"] is PROFILE
+        # The profile is never folded into the container env.
+        assert call.kwargs["extra_env"] == {"FOO": "bar"}
+
+    def test_default_runner_passes_profile_to_session(self, tmp_path):
+        _default_run_container(tmp_path, "p", tmp_path / "out.txt", sandbox_profile=PROFILE)
+        assert FakeSession.instances[0].kwargs["sandbox_profile"] is PROFILE
+
+    def test_default_runner_without_profile_omits_it(self, tmp_path):
+        _default_run_container(tmp_path, "p", tmp_path / "out.txt")
+        assert "sandbox_profile" not in FakeSession.instances[0].kwargs
+
+    def test_run_skill_default_runner_carries_profile(self, tmp_path):
+        run_skill(
+            _config(sandbox_profile=PROFILE),
+            ticket_key="TEST-1",
+            work_dir=tmp_path,
+            config_dir=tmp_path,
+        )
+        assert FakeSession.instances[0].kwargs["sandbox_profile"] is PROFILE
+
+    def test_routed_skill_carries_profile(self, tmp_path):
+        _run(_config(sandbox_profile=PROFILE, backend_name="openshell"), tmp_path)
+        session = FakeSession.instances[0]
+        assert session.kwargs["sandbox_profile"] is PROFILE
+        assert session.kwargs["backend_name"] == "openshell"
+
+    def test_routed_skill_without_profile_omits_it(self, tmp_path):
+        _run(_config(), tmp_path)
+        assert "sandbox_profile" not in FakeSession.instances[0].kwargs
+
+    def test_custom_runner_gets_profile_only_when_set(self, tmp_path):
+        seen = []
+
+        def runner(work_dir, prompt, output_file, **kwargs):
+            seen.append(kwargs)
+            (work_dir / "verdict.json").write_text('{"verdict": "committed"}')
+            return 0
+
+        for profile in (None, PROFILE):
+            run_skill(
+                _config(container_runner=runner, sandbox_profile=profile),
+                ticket_key="TEST-1",
+                work_dir=tmp_path,
+                config_dir=tmp_path,
+            )
+        assert seen[0] == {"image": None}
+        assert seen[1] == {"image": None, "sandbox_profile": PROFILE}
+
+    def test_skill_config_defaults_to_no_profile(self):
+        assert SkillConfig(skill_name="s").sandbox_profile is None

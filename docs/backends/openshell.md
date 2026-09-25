@@ -186,7 +186,9 @@ backend = create_backend(
 ```
 
 All three default to `None`, which passes no flag and leaves current behavior
-unchanged.
+unchanged. A [sandbox profile](../sandbox-profiles.md) with `resources` fills
+in any of the three the caller did not pass (`sandbox_profile=` on
+`create_backend`, or `SkillConfig.sandbox_profile`); explicit values win.
 
 Resource limits are fixed when the sandbox is created. `setup()` reuses an
 existing sandbox rather than recreating it, so these values do not apply to one
