@@ -117,6 +117,10 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: `adf_to_text()` was stripping markdown formatting. Fixed to preserve it during conversion.
 - **Where to look**: `jira.py:adf_to_text()`
 
+### `JiraClient.search()` results have empty summary, description, labels or comments
+- **Likely cause**: The caller passed `fields=` without those Jira fields. `search()` keeps the same normalised keys but fills fields that were not requested (or that Jira omitted or returned as null) with empty defaults. Callers that only need keys should use `search_keys()`, which asks for `key` alone and pages up to 5000 issues per request with `nextPageToken`.
+- **Where to look**: `jira/client.py:JiraClient.search()`, `search_keys()`, `_normalise_search_issue()`
+
 ## Gates
 
 ### Sensitive-files gate blocks files in directories named `secrets/`
