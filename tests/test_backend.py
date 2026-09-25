@@ -1,6 +1,8 @@
 """Tests for backend factory."""
 
+import hashlib
 import json
+import subprocess
 import threading
 from unittest import mock
 
@@ -235,10 +237,19 @@ def test_openshell_codex_requires_api_key(monkeypatch, tmp_path):
     is_running.assert_not_called()
 
 
+def _codex_identity(key="test-key", image=None):
+    return {
+        "auth_mode": "openai",
+        "credential": hashlib.sha256(key.encode()).hexdigest()[:16],
+        "harness": "Codex",
+        "image": image,
+    }
+
+
 def test_openshell_reuses_sandbox_when_auth_mode_matches(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     state_path = tmp_path / "openshell-state.json"
-    state_path.write_text(json.dumps({"auth_mode": "openai", "harness": "Codex", "image": None}))
+    state_path.write_text(json.dumps(_codex_identity()))
     monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
 
     backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
@@ -255,6 +266,50 @@ def test_openshell_reuses_sandbox_when_auth_mode_matches(monkeypatch, tmp_path):
 
     setup_provider.assert_not_called()
     create_sandbox.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        _codex_identity(key="old-key"),
+        # Written by a release that did not record the key fingerprint.
+        {"auth_mode": "openai", "harness": "Codex", "image": None},
+    ],
+)
+def test_openshell_recreates_codex_sandbox_when_openai_key_changes(monkeypatch, tmp_path, stored):
+    # Codex gets the key only through the provider placeholder. Reusing the
+    # sandbox after a key rotation would keep injecting the old key, so the
+    # sandbox is recreated and the reused provider is refreshed.
+    monkeypatch.setenv("OPENAI_API_KEY", "new-key")
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(json.dumps(stored))
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.auth_mode", return_value="openai"),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_not_called()
+    setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
+    assert setup_provider.call_args.kwargs["env"]["OPENAI_API_KEY"] == "new-key"
+    create_sandbox.assert_called_once()
+    saved = state_path.read_text()
+    assert json.loads(saved) == _codex_identity(key="new-key")
+    assert "new-key" not in saved
 
 
 def test_openshell_recreates_sandbox_when_auth_mode_changes(monkeypatch, tmp_path):
@@ -289,12 +344,44 @@ def test_openshell_recreates_sandbox_when_auth_mode_changes(monkeypatch, tmp_pat
     assert create_sandbox.call_args.kwargs["auth_mode"] == "openai"
 
 
+def test_openshell_recreates_legacy_builtin_openai_provider(monkeypatch, tmp_path):
+    # A provider an earlier release created from OpenShell's builtin "openai"
+    # profile binds api.openai.com to curl; setup must not reuse it.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(json.dumps({"auth_mode": "openai", "harness": "Codex", "image": None}))
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+    listing = subprocess.CompletedProcess(
+        ["openshell"], 0, stdout='{"providers": [{"name": "ci-gcp", "type": "openai"}]}'
+    )
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider._run", return_value=listing),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_called_once_with()
+    setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
+    create_sandbox.assert_called_once()
+
+
 def test_openshell_recreates_sandbox_when_identity_changes(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     state_path = tmp_path / "openshell-state.json"
-    state_path.write_text(
-        json.dumps({"auth_mode": "openai", "harness": "Codex", "image": "old-image"})
-    )
+    state_path.write_text(json.dumps(_codex_identity(image="old-image")))
     monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
 
     backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness(), image="new-image")
@@ -688,7 +775,10 @@ class TestOpenShellEnvScript:
         assert "export ANTHROPIC_API_KEY=TEST_MARKER" in captured[0]
         assert "CLAUDE_CODE_USE_VERTEX" not in captured[0]
 
-    def test_codex_env_script_contains_openai_key_for_l4_auth(self, monkeypatch, tmp_path):
+    def test_codex_env_script_leaves_openai_key_to_provider(self, monkeypatch, tmp_path):
+        # The provider sets OPENAI_API_KEY in the sandbox to an OpenShell
+        # placeholder that the proxy resolves only for api.openai.com, so the
+        # real key must not reach the sandbox through the env script.
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "super-secret")
 
@@ -706,7 +796,9 @@ class TestOpenShellEnvScript:
             backend._write_env_script("gpt-5.6-sol")
 
         assert len(captured) == 1
-        assert "export OPENAI_API_KEY=super-secret" in captured[0]
+        assert "super-secret" not in captured[0]
+        assert "OPENAI_API_KEY" not in captured[0]
+        assert "export AGENT_TOOL=codex" in captured[0]
 
     @pytest.mark.parametrize(
         ("effort", "expected"),

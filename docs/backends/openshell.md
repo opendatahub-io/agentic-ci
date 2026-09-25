@@ -127,24 +127,47 @@ instead of waiting for the 60-second background sweep.
 #### API Key (direct Anthropic API)
 
 ```bash
+openshell provider profile export agentic-ci-anthropic   # import if missing
+openshell provider profile import \
+  -f src/agentic_ci/backends/openshell/profiles/agentic-ci-anthropic.yaml
 openshell provider get ci-gcp                    # check if exists
 openshell provider create \
   --name ci-gcp \
-  --type anthropic \
+  --type agentic-ci-anthropic \
   --credential ANTHROPIC_API_KEY
 ```
 
-For Codex, agentic-ci creates an OpenAI provider and uses `OPENAI_API_KEY`.
-The current backend follows the same L4 pattern as its existing API-key path:
-the sandbox environment script contains the real key, and Codex's
-`login --with-api-key` command writes its login state before execution.
+For Codex, agentic-ci creates an OpenAI provider from its
+`agentic-ci-openai` profile and uses `OPENAI_API_KEY`. The sandbox env
+script does not carry the key: the provider sets `OPENAI_API_KEY` in the
+sandbox to an OpenShell placeholder, Codex's `login --with-api-key` stores
+that placeholder, and the proxy swaps it for the real key only on requests
+to `api.openai.com`.
 
 ```bash
 openshell provider create \
   --name ci-gcp \
-  --type openai \
+  --type agentic-ci-openai \
   --credential OPENAI_API_KEY
 ```
+
+agentic-ci ships its own provider profiles
+(`src/agentic_ci/backends/openshell/profiles/`) because OpenShell's builtin
+`openai` and `anthropic` profiles add a rule that lets `/usr/bin/curl` and
+`/usr/local/bin/curl` reach the API host with the key injected, and a
+sandbox policy cannot remove that rule. agentic-ci's profiles drop that curl
+rule, and for Codex the raw OpenAI key no longer enters the sandbox. The key
+can still be spent through an agent binary, for example
+`codex sandbox -- curl`, because agentic-ci's own policy lets the agent
+binaries reach the API host and the proxy injects the key for any of them.
+The profiles live in the gateway database, so agentic-ci imports them
+before it creates the provider, and it replaces a provider created from a
+builtin profile by an earlier release. The sandbox identity file records a
+short SHA-256 fingerprint of `OPENAI_API_KEY` (never the key), so after a key
+rotation agentic-ci recreates the sandbox and stores the new key in the
+existing provider. Updating the provider alone would not be enough: a running
+sandbox picks the update up only after about ten seconds, and a placeholder
+issued before the update keeps resolving to the old key.
 
 #### OAuth Token (Claude subscription)
 
@@ -157,14 +180,12 @@ the `oauth` auth mode is recorded only in the sandbox identity file
 (`~/.config/agentic-ci/openshell-sandbox.json`).
 
 <!-- markdownlint-disable MD046 -->
-!!! warning "L4 API-key exposure"
+!!! warning "API-key exposure"
 
-    L4 CONNECT policy cannot replace credentials at the HTTP layer, so the
-    real API key, or the Claude subscription OAuth token, is available
-    inside the sandbox. This preserves the backend's
-    existing behavior but does not provide OpenShell's L7 credential-isolation
-    benefit. API-key providers should be migrated together to profile-backed
-    L7 inspection in a follow-up rather than changing only Codex here.
+    With the Anthropic API key, or the Claude subscription OAuth token, the
+    sandbox env script still exports the real credential, so the agent and
+    its child processes can read it. Only Codex's OpenAI key is kept out of
+    the sandbox so far.
 <!-- markdownlint-enable MD046 -->
 
 ### Sandbox Resources

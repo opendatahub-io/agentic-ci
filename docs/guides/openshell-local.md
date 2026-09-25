@@ -161,9 +161,9 @@ A few details worth knowing:
   403.
 - Codex on OpenShell requires `OPENAI_API_KEY`. A `codex login` session
   stored in `~/.codex` is not used here.
-- With API-key or subscription token auth, the real credential can be
-  read from inside the sandbox. See
-  [L4 API-key exposure](../backends/openshell.md#api-key-direct-anthropic-api).
+- With the Anthropic API key or subscription token auth, the real
+  credential can be read from inside the sandbox. See
+  [API-key exposure](../backends/openshell.md#api-key-direct-anthropic-api).
 
 ## Step 3: Run your first agent
 

@@ -1,0 +1,34 @@
+# OpenShell provider profile for agentic-ci's OpenAI API key provider.
+#
+# Same credential as OpenShell's builtin "openai" profile, but the network
+# rule OpenShell composes from this profile binds api.openai.com to the Codex
+# binary instead of curl. The builtin profile's curl rule lets any process in
+# the sandbox spend the key, and sandbox policy cannot remove it. This does
+# not make the key Codex-only: agentic-ci's own api.openai.com rule
+# (policy.AUTH_ENDPOINTS) binds every agent binary, and the proxy injects the
+# key for any caller a matching rule admits, so an agent binary wrapper such
+# as `codex sandbox -- curl` can still spend it (RHAI-2619).
+#
+# The endpoint has no protocol (L4) and allows uninspected credentials to
+# match the api.openai.com rule agentic-ci adds for the agent binaries
+# (policy.AUTH_ENDPOINTS). OpenShell refuses a CONNECT when any credentialed
+# rule that matches the caller lacks that opt-in, so an L7 rule here would
+# block Codex. The proxy still terminates TLS on the tunnel and replaces the
+# provider placeholder in request headers for this host.
+id: agentic-ci-openai
+display_name: agentic-ci OpenAI
+description: OpenAI API key for agentic-ci, with no curl rule
+category: inference
+credentials:
+  - name: api_key
+    description: OpenAI API key
+    env_vars: [OPENAI_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: api.openai.com
+    port: 443
+    access: read-write
+    allow_uninspected_credentials: true
+binaries: [/usr/local/bin/codex, /usr/local/sbin/codex]

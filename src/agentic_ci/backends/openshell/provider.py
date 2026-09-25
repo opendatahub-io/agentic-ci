@@ -1,9 +1,14 @@
 """OpenShell credential provider setup."""
 
+import hashlib
 import json
 import os
 import subprocess
+import tempfile
 from collections.abc import Mapping
+from importlib.resources import as_file, files
+
+import yaml
 
 from agentic_ci import log
 from agentic_ci.gcp import adc_path as _adc_path
@@ -12,20 +17,44 @@ from agentic_ci.gcp import read_credential_type as _adc_credential_type
 
 PROVIDER_NAME = "ci-gcp"
 
+# Provider profiles agentic-ci registers with the gateway before creating an
+# API key provider. OpenShell's builtin "openai" and "anthropic" profiles bind
+# the API host to curl, so any sandbox process could spend the key; these
+# profiles bind it to agent binaries instead. An agent binary wrapper can
+# still spend the key; see the YAML files for details.
+OPENAI_PROFILE_ID = "agentic-ci-openai"
+ANTHROPIC_PROFILE_ID = "agentic-ci-anthropic"
+_PROFILE_PACKAGE = "agentic_ci.backends.openshell"
+_PROFILE_DIR = "profiles"
+
 _SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "OPENAI_API_KEY=")
 _PROVIDER_AUTH_MODES = {
     "google-cloud": "vertex",
     "google-vertex-ai": "vertex",
-    "anthropic": "api-key",
+    ANTHROPIC_PROFILE_ID: "api-key",
     "claude": "api-key",
-    "openai": "openai",
+    OPENAI_PROFILE_ID: "openai",
     "codex": "openai",
+    # Providers that earlier agentic-ci releases created from the builtin
+    # profiles. Reporting a different auth mode makes OpenShellBackend.setup()
+    # delete and recreate the sandbox and provider from agentic-ci's profile
+    # instead of reusing one whose key curl can spend.
+    "anthropic": "api-key-builtin-profile",
+    "openai": "openai-builtin-profile",
 }
 
 # Auth modes whose credential reaches the sandbox only through the env
 # script. OpenShell has no provider profile for a Claude subscription OAuth
 # token, so no provider is created or attached for these modes.
 _PROVIDERLESS_AUTH_MODES = frozenset({"oauth"})
+
+# Credentials that reach the agent only through the provider, keyed by auth
+# mode. A provider kept from an earlier run still holds the value captured
+# when it was created, so these are stored again whenever an existing
+# provider is reused, and their fingerprint is part of the sandbox identity
+# so a rotated key recreates the sandbox. The Anthropic key is not listed:
+# the sandbox env script still exports it on every run.
+_PROVIDER_ONLY_CREDENTIALS = {"openai": "OPENAI_API_KEY"}
 
 
 def requires_provider(auth_mode: str | None) -> bool:
@@ -72,12 +101,53 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
         # is not supported. The existing provider is reused regardless of
         # its type. To switch, tear down the environment and start fresh.
         print(f"  Provider '{PROVIDER_NAME}' already exists", flush=True)
+        refresh_credentials(auth_mode, credential_env)
     elif auth_mode == "api-key":
         _create_anthropic_provider(credential_env)
     elif auth_mode == "openai":
         _create_openai_provider(credential_env)
     else:
         _create_gcp_provider(credential_env)
+
+
+def credential_fingerprint(auth_mode, env: Mapping[str, str] | None = None):
+    """Return a short digest of the provider-only credential for *auth_mode*.
+
+    Returns None for auth modes whose credential also reaches the sandbox
+    through the env script. The digest is stored in the local sandbox
+    identity file, so it is truncated and never the key itself.
+    """
+    credential_key = _PROVIDER_ONLY_CREDENTIALS.get(auth_mode)
+    if credential_key is None:
+        return None
+    credential_env = env if env is not None else os.environ
+    value = credential_env.get(credential_key, "")
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def refresh_credentials(auth_mode, env: Mapping[str, str] | None = None):
+    """Store the current credential in the existing provider for *auth_mode*.
+
+    Only auth modes whose credential the agent gets solely through the
+    provider placeholder are refreshed; the others return without a call.
+    Without this, a provider kept across runs on a running gateway keeps
+    sending the key it was created with after the caller rotates it. A
+    sandbox that already exists picks the update up only after a delay, so
+    the caller recreates the sandbox when the key changed (see
+    credential_fingerprint).
+    """
+    credential_key = _PROVIDER_ONLY_CREDENTIALS.get(auth_mode)
+    if credential_key is None:
+        return
+    credential_env = env if env is not None else os.environ
+    if not credential_env.get(credential_key):
+        raise RuntimeError(f"OpenShell {auth_mode} runs require {credential_key}")
+    print(f"  Refreshing {credential_key} in provider '{PROVIDER_NAME}'", flush=True)
+    _run(
+        ["openshell", "provider", "update", PROVIDER_NAME, "--credential", credential_key],
+        check=True,
+        env={**os.environ, **credential_env},
+    )
 
 
 def validate_credentials(auth_mode, env: Mapping[str, str] | None = None):
@@ -135,7 +205,73 @@ def delete():
     _run(["openshell", "provider", "delete", PROVIDER_NAME], check=True)
 
 
+def _profile_matches(wanted, current):
+    """Return whether every field of *wanted* has the same value in *current*.
+
+    ``openshell provider profile export`` adds server-side fields
+    (``resource_version``, ``source``, ``scope``) and defaults, so only the
+    fields agentic-ci sets are compared.
+    """
+    if isinstance(wanted, dict):
+        return isinstance(current, dict) and all(
+            _profile_matches(value, current.get(key)) for key, value in wanted.items()
+        )
+    if isinstance(wanted, list):
+        return (
+            isinstance(current, list)
+            and len(wanted) == len(current)
+            and all(_profile_matches(w, c) for w, c in zip(wanted, current))
+        )
+    return wanted == current
+
+
+def ensure_profile(profile_id):
+    """Register agentic-ci's provider profile *profile_id* with the gateway.
+
+    Profiles live in the gateway database, which ``gateway.start()`` creates
+    fresh, so this runs before every provider creation. ``profile import``
+    refuses an id that already exists, so an existing profile is exported
+    first: left alone when it matches the packaged file, otherwise updated
+    in place with the resource version the gateway expects.
+    """
+    resource = files(_PROFILE_PACKAGE).joinpath(_PROFILE_DIR, f"{profile_id}.yaml")
+    wanted = yaml.safe_load(resource.read_text(encoding="utf-8"))
+
+    current = _run(
+        ["openshell", "provider", "profile", "export", profile_id, "-o", "yaml"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if current.returncode != 0:
+        print(f"  Importing provider profile {profile_id}", flush=True)
+        with as_file(resource) as profile_path:
+            _run(
+                ["openshell", "provider", "profile", "import", "-f", str(profile_path)],
+                check=True,
+            )
+        return
+
+    exported = yaml.safe_load(current.stdout)
+    if _profile_matches(wanted, exported):
+        return
+
+    print(f"  Updating provider profile {profile_id}", flush=True)
+    updated = {**wanted, "resource_version": exported["resource_version"]}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.safe_dump(updated, f, sort_keys=False)
+        profile_file = f.name
+    try:
+        _run(
+            ["openshell", "provider", "profile", "update", profile_id, "-f", profile_file],
+            check=True,
+        )
+    finally:
+        os.unlink(profile_file)
+
+
 def _create_anthropic_provider(env: Mapping[str, str] | None = None):
+    ensure_profile(ANTHROPIC_PROFILE_ID)
     print("  Creating Anthropic API key provider", flush=True)
     kwargs: dict[str, object] = {"check": True}
     if env is not None:
@@ -148,7 +284,7 @@ def _create_anthropic_provider(env: Mapping[str, str] | None = None):
             "--name",
             PROVIDER_NAME,
             "--type",
-            "anthropic",
+            ANTHROPIC_PROFILE_ID,
             "--credential",
             "ANTHROPIC_API_KEY",
         ],
@@ -162,6 +298,7 @@ def _create_openai_provider(env: Mapping[str, str] | None = None):
     if not api_key:
         raise RuntimeError("OpenShell Codex runs require OPENAI_API_KEY")
 
+    ensure_profile(OPENAI_PROFILE_ID)
     print("  Creating OpenAI API key provider", flush=True)
     process_env = {**os.environ, **credential_env}
     _run(
@@ -172,7 +309,7 @@ def _create_openai_provider(env: Mapping[str, str] | None = None):
             "--name",
             PROVIDER_NAME,
             "--type",
-            "openai",
+            OPENAI_PROFILE_ID,
             "--credential",
             "OPENAI_API_KEY",
         ],
