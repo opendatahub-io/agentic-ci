@@ -15,6 +15,7 @@ from agentic_ci.backends.openshell import (
 )
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
+from agentic_ci.sandbox_profile import Resources, SandboxProfile
 
 
 @pytest.fixture()
@@ -824,3 +825,59 @@ def test_openshell_agent_command_removes_env_script_after_sourcing():
     )
     assert script.endswith('exec "$@"')
     assert cmd[3:] == ["--", "codex", "exec", "hi"]
+
+
+PROFILE = SandboxProfile(resources=Resources(memory="8Gi"), env={"CGO_ENABLED": "0"})
+
+
+class TestCreateBackendSandboxProfile:
+    """``sandbox_profile`` reaches only the OpenShell backend, and only when set."""
+
+    def test_openshell_without_profile_gets_todays_arguments(self, harness):
+        with mock.patch("agentic_ci.backends.OpenShellBackend") as cls:
+            create_backend("openshell", harness=harness, workdir="/w", image="img")
+        cls.assert_called_once_with(
+            workdir="/w",
+            image="img",
+            policy=None,
+            extra_env=None,
+            approval_mode=None,
+            memory=None,
+            cpu=None,
+            gpu=None,
+            harness=harness,
+        )
+
+    def test_openshell_explicit_none_profile_gets_todays_arguments(self, harness):
+        with mock.patch("agentic_ci.backends.OpenShellBackend") as cls:
+            create_backend("openshell", harness=harness, sandbox_profile=None)
+        assert "sandbox_profile" not in cls.call_args.kwargs
+
+    def test_openshell_receives_the_profile(self, harness):
+        backend = create_backend("openshell", harness=harness, sandbox_profile=PROFILE)
+        assert backend.sandbox_profile is PROFILE
+
+    def test_profile_env_never_reaches_extra_env(self, harness):
+        backend = create_backend(
+            "openshell", harness=harness, extra_env={"FOO": "bar"}, sandbox_profile=PROFILE
+        )
+        assert backend._extra_env == {"FOO": "bar"}
+
+    @pytest.mark.parametrize(
+        ("name", "cls_name"), [("podman", "PodmanBackend"), ("local", "LocalBackend")]
+    )
+    def test_other_backends_warn_and_ignore(self, harness, name, cls_name):
+        with (
+            mock.patch(f"agentic_ci.backends.{cls_name}") as cls,
+            mock.patch("agentic_ci.backends.log.info") as logged,
+        ):
+            create_backend(name, harness=harness, sandbox_profile=PROFILE)
+        assert "sandbox_profile" not in cls.call_args.kwargs
+        logged.assert_called_once()
+        assert "only apply to the OpenShell backend" in logged.call_args.args[0]
+
+    @pytest.mark.parametrize("name", ["podman", "local", "openshell"])
+    def test_no_warning_without_profile(self, harness, name):
+        with mock.patch("agentic_ci.backends.log.info") as logged:
+            create_backend(name, harness=harness)
+        logged.assert_not_called()
