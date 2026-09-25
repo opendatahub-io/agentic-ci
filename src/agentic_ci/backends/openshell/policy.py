@@ -85,41 +85,116 @@ class EgressPreset:
     phases: frozenset[str] = _ALL_PHASES
 
 
+# Presets are enforced read-only at L7. ``rest`` makes the OpenShell proxy
+# terminate TLS and inspect each HTTP request, and ``read-only`` then allows
+# only GET, HEAD and OPTIONS. ``enforce`` is required: without it OpenShell
+# defaults to ``audit``, which logs a denied request and forwards it anyway.
+# Without a protocol an endpoint is L4 only (a CONNECT tunnel), where
+# ``read-only`` blocks nothing, so a PUT to a registry or a bucket upload
+# would pass.
+_READ_ONLY_L7 = ":443:read-only:rest:enforce"
+
 # Keep the names in step with sandbox_profile.KNOWN_EGRESS_PRESETS, which
 # stays backend-neutral and does not import this module.
 EGRESS_PRESETS: Mapping[str, EgressPreset] = MappingProxyType(
     {
         "pypi": EgressPreset(
             endpoints=(
-                "pypi.org:443:read-only",
-                "files.pythonhosted.org:443:read-only",
+                "pypi.org" + _READ_ONLY_L7,
+                "files.pythonhosted.org" + _READ_ONLY_L7,
             ),
         ),
-        "npm": EgressPreset(endpoints=("registry.npmjs.org:443:read-only",)),
+        "npm": EgressPreset(endpoints=("registry.npmjs.org" + _READ_ONLY_L7,)),
         "goproxy": EgressPreset(
             endpoints=(
-                "proxy.golang.org:443:read-only",
-                "sum.golang.org:443:read-only",
-                "storage.googleapis.com:443:read-only",
+                "proxy.golang.org" + _READ_ONLY_L7,
+                "sum.golang.org" + _READ_ONLY_L7,
+                "storage.googleapis.com" + _READ_ONLY_L7,
             ),
         ),
         "github-release-assets": EgressPreset(
             endpoints=(
-                "release-assets.githubusercontent.com:443:read-only",
-                "objects.githubusercontent.com:443:read-only",
-                "raw.githubusercontent.com:443:read-only",
+                "release-assets.githubusercontent.com" + _READ_ONLY_L7,
+                "objects.githubusercontent.com" + _READ_ONLY_L7,
+                "raw.githubusercontent.com" + _READ_ONLY_L7,
             ),
         ),
     }
 )
 
 
-def _profile_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
-    """Endpoints *profile* opens in *phase*: its presets open then, then its raw egress.
+def _port_number(port: str) -> int | None:
+    """Return the port number OpenShell reads from the *port* segment, or None.
 
-    Raw egress only comes from central, reviewed configuration and applies to
-    every phase. Preset names this module does not know (possible only for a
-    profile built without ``parse_profile``) are skipped with a warning.
+    Mirrors ``openshell policy update --add-endpoint``: the segment is trimmed
+    and read as a base-10 integer, so ``0443`` and ``+443`` both mean 443.
+    """
+    digits = port.strip().removeprefix("+")
+    if not digits.isascii() or not digits.isdigit():
+        return None
+    return int(digits)
+
+
+def _covers_preset_host(endpoint: str, preset_host: str) -> bool:
+    """Whether *endpoint* is on port 443 and its host (or wildcard) overlaps *preset_host*.
+
+    The overlap is checked in both directions, so ``*.googleapis.com`` covers
+    ``storage.googleapis.com``. Host and port are read the way OpenShell reads
+    them (trimmed, host case-insensitive, port as a number), so ``0443`` is
+    port 443 too.
+    """
+    host, _, rest = endpoint.partition(":")
+    host = host.strip().lower()
+    return _port_number(rest.split(":", 1)[0]) == 443 and (
+        fnmatchcase(host, preset_host) or fnmatchcase(preset_host, host)
+    )
+
+
+def _merge_endpoints(endpoints: list[str], presets: list[str]) -> list[str]:
+    """De-duplicate *endpoints*, keeping order; *presets* win over other endpoints for their hosts.
+
+    *presets* are the preset endpoints open in the phase. Any other endpoint
+    on port 443 whose host (or wildcard) overlaps a preset host is replaced
+    in its place by the preset endpoint(s) it overlaps, so each preset host
+    has exactly one endpoint, the preset's read-only L7 one, in every phase.
+    Without this the phases would disagree: ``openshell policy update``
+    (agent phase) folds an endpoint for the same host into the preset's rule
+    and keeps the preset's access, while a phase policy (one rule per
+    endpoint) would keep a second rule that OpenShell ORs with the preset's,
+    so a ``full`` or ``audit`` twin would reopen writes to the shim. A
+    wildcard is replaced too, since it would reopen writes to the preset
+    host the same way. Replacing a built-in default (the L4 PyPI endpoints)
+    is expected; any other replaced endpoint is counted in a warning.
+    """
+    preset_set = set(presets)
+    preset_hosts = {ep.split(":", 1)[0].lower(): ep for ep in presets}
+    merged: list[str] = []
+    replaced = 0
+    for endpoint in endpoints:
+        covering = (
+            []
+            if endpoint in preset_set
+            else [ep for h, ep in preset_hosts.items() if _covers_preset_host(endpoint, h)]
+        )
+        if not covering:
+            merged.append(endpoint)
+            continue
+        merged.extend(covering)
+        if endpoint not in DEFAULT_ENDPOINTS:
+            replaced += 1
+    if replaced:
+        log.info(
+            f"WARNING: {replaced} egress endpoint(s) for an egress preset host replaced by "
+            "the preset's read-only L7 endpoint"
+        )
+    return list(dict.fromkeys(merged))
+
+
+def _preset_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
+    """Endpoints of the presets *profile* opens in *phase*, in profile order.
+
+    Preset names this module does not know (possible only for a profile built
+    without ``parse_profile``) are skipped with a warning.
     """
     endpoints: list[str] = []
     unknown = 0
@@ -132,8 +207,18 @@ def _profile_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
             endpoints.extend(preset.endpoints)
     if unknown:
         log.info(f"WARNING: {unknown} unknown egress preset(s) in the sandbox profile ignored")
-    endpoints.extend(profile.raw_egress)
     return list(dict.fromkeys(endpoints))
+
+
+def _profile_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
+    """Endpoints *profile* opens in *phase*: its presets open then, then its raw egress.
+
+    Raw egress only comes from central, reviewed configuration and applies to
+    every phase, except that a raw endpoint for a preset host gives way to
+    the preset (see :func:`_merge_endpoints`).
+    """
+    presets = _preset_endpoints(profile, phase)
+    return _merge_endpoints([*presets, *profile.raw_egress], presets)
 
 
 # Host the OTel collector rule uses (see sandbox._apply_policy).
@@ -168,11 +253,12 @@ def phase_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
 
     *phase* is ``"setup"`` or ``"validate"``. The result holds the endpoints
     of the profile's presets open in that phase, then the profile's raw
-    egress, de-duplicated. It never includes the built-in defaults, the
-    auth (LLM) endpoints or the OTel collector: those stay bound to the agent
-    binaries only. A raw endpoint whose host overlaps an auth endpoint or the
-    collector, or that carries a credential option, is left out as well;
-    only their count is logged.
+    egress, de-duplicated (a raw endpoint for a preset host gives way to the
+    preset, see :func:`_merge_endpoints`). It never includes the
+    built-in defaults, the auth (LLM) endpoints or the OTel collector: those
+    stay bound to the agent binaries only. A raw endpoint whose host
+    overlaps an auth endpoint or the collector, or that carries a credential
+    option, is left out as well; only their count is logged.
     """
     if phase not in _SHIM_PHASES:
         raise ValueError(f"phase must be one of {', '.join(_SHIM_PHASES)}, not {phase!r}")
@@ -214,6 +300,13 @@ def resolve_endpoints(flag_path=None, workdir=".", auth_mode=None, profile=None)
     added after the defaults and auth endpoints. An explicit ``--policy``
     flag still applies.
 
+    With a profile, the result is de-duplicated and every other endpoint for
+    a preset host gives way to the preset in place (see
+    :func:`_merge_endpoints`): with the ``pypi`` preset, the default
+    ``pypi.org:443:read-only`` becomes the preset's L7 read-only endpoint for
+    the agent too. Without a profile the list is built as before, with no
+    preset handling, even when an extra endpoint repeats a preset's text.
+
     Returns a list of endpoint strings for ``openshell policy update --add-endpoint``.
     """
     extra = []
@@ -238,7 +331,8 @@ def resolve_endpoints(flag_path=None, workdir=".", auth_mode=None, profile=None)
     endpoints = list(DEFAULT_ENDPOINTS)
     endpoints.extend(AUTH_ENDPOINTS.get(auth_mode, []))
     if profile is not None:
-        extra = _profile_endpoints(profile, "agent") + extra
+        presets = _preset_endpoints(profile, "agent")
+        return _merge_endpoints([*endpoints, *presets, *profile.raw_egress, *extra], presets)
     seen = set(endpoints)
     for ep in extra:
         if ep not in seen:

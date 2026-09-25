@@ -187,8 +187,8 @@ reused sandbox is switched to the `agent` phase before anything runs, in case
 an earlier run stopped in `setup` or `validate`. Resources the profile set
 are not reported as "not applied" on reuse, since the hash guarantees them.
 
-| Preset | Endpoints (all `443`, `read-only`) | Phases |
-|--------|------------------------------------|--------|
+| Preset | Endpoints (all `443:read-only:rest:enforce`) | Phases |
+|--------|----------------------------------------------|--------|
 | `pypi` | `pypi.org`, `files.pythonhosted.org` | setup, validate, agent |
 | `npm` | `registry.npmjs.org` | setup, validate, agent |
 | `goproxy` | `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com` | setup, validate, agent |
@@ -196,6 +196,36 @@ are not reported as "not applied" on reuse, since the hash guarantees them.
 
 The endpoint lists live in `agentic_ci.backends.openshell.policy.EGRESS_PRESETS`.
 Raw endpoints apply to all three phases.
+
+Presets are read-only at L7. `rest` makes the OpenShell proxy terminate TLS
+and inspect every HTTP request, and `read-only` then allows only `GET`, `HEAD`
+and `OPTIONS`; any other method gets a `403` from the proxy (a JSON body with
+`"error": "policy_denied"`) and never reaches the registry. `enforce` is
+required, because OpenShell defaults to `audit`, which only logs the denied
+request and forwards it. Without a protocol an endpoint is an L4 `CONNECT`
+tunnel, where `read-only` blocks nothing: `npm publish` or an upload to any
+Cloud Storage bucket would get through. Reads still go out, so data sent in a
+`GET` request (a path or query string) remains an accepted residual risk. The
+proxy's CA is trusted through the variables OpenShell sets in the sandbox
+(`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` and others).
+
+A preset host always has exactly one endpoint, the preset's, in every phase.
+Any other endpoint on port `443` whose host overlaps a preset host the
+profile opens in that phase (the same host, or a wildcard such as
+`*.googleapis.com` that covers it) is replaced in its place by the preset's
+endpoint, whatever its access or protocol. That covers the defaults
+(`pypi.org:443:read-only` and `files.pythonhosted.org:443:read-only`, so with
+the `pypi` preset the agent also reaches PyPI through the L7 read-only rule),
+raw endpoints and `--policy` entries. A replaced raw or `--policy` endpoint is
+counted in a `WARNING: N egress endpoint(s) for an egress preset host
+replaced` line; a replaced wildcard no longer opens its other hosts, so list
+those explicitly. Without this the phases would differ: `openshell policy
+update` folds a second endpoint for a host into the preset's rule and keeps
+the preset's access for the agent, while a shim phase policy has one rule per
+endpoint, so a raw `registry.npmjs.org:443:full` would reopen `PUT` to the
+shim. Endpoints on another port, and every other raw endpoint, keep the
+access and protocol central configuration gives them. Without a profile
+nothing is replaced.
 
 ### Phases and the setup shim
 

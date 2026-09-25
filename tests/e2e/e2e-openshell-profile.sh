@@ -2,11 +2,15 @@
 # e2e-openshell-profile.sh -- End-to-end tests for sandbox-profile egress on OpenShell.
 #
 # Creates a Codex sandbox through OpenShellBackend (tests/e2e/openshell_profile_driver.py)
-# first without and then with a sandbox profile that opens the npm and goproxy
-# presets, switches the setup shim's egress between the setup, agent and
+# first without and then with a sandbox profile that opens the npm, goproxy and
+# pypi presets (plus two raw endpoints for preset hosts, which must give way to
+# the presets in every phase), switches the setup shim's egress between the setup, agent and
 # validate phases, and probes the network from inside the sandbox after each
 # step with python urllib. Never curl: the OpenAI provider binds api.openai.com
-# to curl and would confound the probes (RHAI-2936).
+# to curl and would confound the probes (RHAI-2936). Section 6 checks that the
+# presets are read-only at L7: GETs (and the Go proxy's redirect to Cloud
+# Storage) pass, PUT and POST get the proxy's own 403, and npm and uv work
+# through the shim.
 #
 # No agent runs and no LLM call is made. The OpenAI provider needs a key to be
 # created, so a fake one is used and a real OPENAI_API_KEY is never read.
@@ -35,7 +39,10 @@ FAIL=0
 TMPDIR_E2E="$(mktemp -d)"
 SANDBOX=ci
 SHIM=/usr/local/bin/agentic-ci-sandbox-setup
-PROFILE='{"egress": ["npm", "goproxy"]}'
+# The raw endpoints overlap preset hosts (registry.npmjs.org exactly,
+# storage.googleapis.com through a wildcard) with write access; the presets
+# replace them, so they must not reopen writes in any phase.
+PROFILE='{"egress": ["npm", "goproxy", "pypi", "registry.npmjs.org:443:full", "*.googleapis.com:443:read-write"]}'
 NPM_URL=https://registry.npmjs.org/
 GOPROXY_URL=https://proxy.golang.org/
 
@@ -87,7 +94,8 @@ assert_ok() {
 }
 
 # expect RESULT DESC -- CMD...: run CMD in the sandbox and compare the probe's
-# verdict (ALLOWED, DENIED or ERROR) with RESULT.
+# verdict (ALLOWED, DENIED, L7DENIED or ERROR) with RESULT. L7DENIED is the
+# proxy's own 403 policy_denied answer after it inspected the request.
 expect() {
     local want="$1" desc="$2"; shift 3
     local out
@@ -135,18 +143,39 @@ print_step "openshell: $(openshell --version 2>&1 || echo unknown)"
 WORKDIR="$TMPDIR_E2E/profile-e2e"
 mkdir -p "$WORKDIR"
 cat > "$WORKDIR/probe.py" <<'PROBE'
-"""Fetch a URL through the sandbox proxy and print one PROBE line."""
+"""Send one request through the sandbox proxy and print one PROBE line.
+
+Usage: probe.py URL [METHOD]. A GET asks for the first KiB only; any other
+method sends a small body. The verdict is ALLOWED (the server answered, with
+its status and the host of the final URL after redirects), DENIED (the proxy
+refused the CONNECT), L7DENIED (the proxy answered 403 policy_denied itself
+after inspecting the request) or ERROR.
+"""
 
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
+url = sys.argv[1]
+method = sys.argv[2] if len(sys.argv) > 2 else "GET"
+if method == "GET":
+    request = urllib.request.Request(url, headers={"Range": "bytes=0-1023"})
+else:
+    request = urllib.request.Request(
+        url, data=b"agentic-ci e2e", method=method, headers={"Content-Type": "text/plain"}
+    )
 try:
-    with urllib.request.urlopen(sys.argv[1], timeout=20) as response:
-        print(f"PROBE ALLOWED http={response.status}")
+    with urllib.request.urlopen(request, timeout=30) as response:
+        host = urllib.parse.urlsplit(response.url).hostname
+        print(f"PROBE ALLOWED http={response.status} host={host}")
 except urllib.error.HTTPError as exc:
-    # The server answered, so the connection was allowed.
-    print(f"PROBE ALLOWED http={exc.code}")
+    body = exc.read(4096).decode("utf-8", "replace")
+    if exc.code == 403 and "policy_denied" in body:
+        print("PROBE L7DENIED")
+    else:
+        # The server answered, so the request was allowed.
+        print(f"PROBE ALLOWED http={exc.code} host={urllib.parse.urlsplit(exc.url).hostname}")
 except OSError as exc:
     if "Tunnel connection failed: 403" in str(exc):
         print("PROBE DENIED")
@@ -188,7 +217,7 @@ expect DENIED "no profile: npm from the shim" -- "$SHIM" "${PY_PROBE[@]}" "$NPM_
 expect DENIED "no profile: npm from codex" -- "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" "$NPM_URL"
 
 # ============================================================================
-print_header "=== 2. Profile (npm, goproxy): setup phase ==="
+print_header "=== 2. Profile (npm, goproxy, pypi): setup phase ==="
 PROFILE_LOG="$TMPDIR_E2E/setup-profile.log"
 if driver setup --profile-json "$PROFILE" > "$PROFILE_LOG" 2>&1; then
     pass "sandbox recreated with a profile"
@@ -201,6 +230,8 @@ assert_ok "profile: a new profile recreates the sandbox" \
     grep -q "Sandbox identity changed" "$PROFILE_LOG"
 assert_ok "profile: policy source is the sandbox profile" \
     grep -q "Policy source: sandbox profile" "$PROFILE_LOG"
+assert_ok "profile: the raw endpoints for preset hosts are replaced, with a warning" \
+    grep -q "WARNING: 2 egress endpoint(s) for an egress preset host replaced" "$PROFILE_LOG"
 assert_ok "profile: identity records the profile hash" \
     python3 -c "import json,sys; sys.exit('profile_hash' not in json.load(open(sys.argv[1])))" \
     "$AGENTIC_CI_OPENSHELL_STATE"
@@ -354,6 +385,45 @@ for n in shim_names:
     checks[f"{n}_agent_rules_otherwise_unchanged"] = {
         k: unparked(v) for k, v in agent_rules(n).items()
     } == rules["0-create"]
+    checks[f"{n}_preset_rules_l7_read_only_enforced"] = all(
+        {k: ep.get(k) for k in ("access", "protocol", "enforcement")}
+        == {"access": "read-only", "protocol": "rest", "enforcement": "enforce"}
+        for v in phase_rules(n).values()
+        for ep in v["endpoints"]
+    )
+
+
+# The defaults hold pypi.org and files.pythonhosted.org as L4 endpoints, and
+# the profile's raw endpoints cover registry.npmjs.org and (by wildcard)
+# storage.googleapis.com with write access; each preset host must still be a
+# single L7 read-only endpoint, for the agent and for the shim.
+preset_hosts = (
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "proxy.golang.org",
+    "storage.googleapis.com",
+)
+for name, where in (("0-create", "agent"), ("1-setup", "setup"), ("3-validate", "validate")):
+    for host in preset_hosts:
+        found = [
+            ep
+            for rule_name, v in rules[name].items()
+            if where == "agent" or rule_name.startswith("agentic_ci_phase_")
+            for ep in v["endpoints"]
+            if ep.get("host") == host
+        ]
+        checks[f"{where}_{host}_single_l7_read_only_endpoint"] = len(found) == 1 and all(
+            (ep.get("access"), ep.get("protocol"), ep.get("enforcement"))
+            == ("read-only", "rest", "enforce")
+            for ep in found
+        )
+checks["raw_wildcard_for_a_preset_host_never_applied"] = not any(
+    ep.get("host") == "*.googleapis.com"
+    for n in names
+    for v in rules[n].values()
+    for ep in v["endpoints"]
+)
 for name, ok in checks.items():
     print(f"POLICY_CHECK {name}={'ok' if ok else 'fail'}")
 CHECK
@@ -367,6 +437,83 @@ else
     fail "policy: structure checks did not run"
     echo "  Got: ${POLICY_CHECK:0:400}"
 fi
+
+# ============================================================================
+print_header "=== 6. Presets are read-only at L7 ==="
+# Reads succeed, including the Go proxy's redirect of a module zip to Cloud
+# Storage. Writes to the preset hosts get the proxy's own 403 (L7DENIED), not
+# a CONNECT refusal and not a remote error: the request never leaves the
+# sandbox. The write targets do not exist; without L7 enforcement the remote
+# would answer them (ALLOWED http=404).
+NPM_PKG_URL=https://registry.npmjs.org/is-number
+GO_LIST_URL=https://proxy.golang.org/rsc.io/quote/@v/list
+GO_ZIP_REDIRECT_URL=https://proxy.golang.org/github.com/aws/aws-sdk-go/@v/v1.55.5.zip
+PYPI_SIMPLE_URL=https://pypi.org/simple/six/
+NPM_WRITE_URL=https://registry.npmjs.org/agentic-ci-e2e-l7-probe
+GCS_WRITE_URL=https://storage.googleapis.com/agentic-ci-e2e-l7-probe/probe.txt
+
+# l7_checks LABEL CMD_PREFIX...: run every L7 probe under CMD_PREFIX.
+l7_checks() {
+    local where="$1"; shift
+    expect "ALLOWED http=20[06] host=registry.npmjs.org" "$where: GET npm package" -- \
+        "$@" "${PY_PROBE[@]}" "$NPM_PKG_URL"
+    expect "ALLOWED http=20[06] host=proxy.golang.org" "$where: GET Go module list" -- \
+        "$@" "${PY_PROBE[@]}" "$GO_LIST_URL"
+    expect "ALLOWED http=20[06] host=storage.googleapis.com" \
+        "$where: GET Go module zip through the redirect to Cloud Storage" -- \
+        "$@" "${PY_PROBE[@]}" "$GO_ZIP_REDIRECT_URL"
+    expect "ALLOWED http=20[06] host=pypi.org" "$where: GET PyPI simple index" -- \
+        "$@" "${PY_PROBE[@]}" "$PYPI_SIMPLE_URL"
+    local method
+    for method in PUT POST; do
+        expect L7DENIED "$where: $method to registry.npmjs.org" -- \
+            "$@" "${PY_PROBE[@]}" "$NPM_WRITE_URL" "$method"
+        expect L7DENIED "$where: $method to storage.googleapis.com" -- \
+            "$@" "${PY_PROBE[@]}" "$GCS_WRITE_URL" "$method"
+    done
+}
+
+# expect_output PATTERN DESC -- CMD...: run CMD in the sandbox and look for
+# PATTERN (grep -E) in its output.
+expect_output() {
+    local pattern="$1" desc="$2"; shift 3
+    local out
+    out="$(timeout 180 openshell sandbox exec --name "$SANDBOX" --no-tty -- "$@" 2>&1 || true)"
+    if grep -qE "$pattern" <<<"$out"; then
+        pass "$desc"
+    else
+        fail "$desc"
+        echo "  Got: $(tr '\n' ' ' <<<"$out" | tail -c 400)"
+    fi
+}
+
+# The reused sandbox is in the agent phase: the agent's preset rules apply.
+l7_checks "agent, codex" "${CODEX_EXEC[@]}"
+
+assert_ok "switch to the setup phase for the L7 checks" \
+    driver phase setup --profile-json "$PROFILE"
+l7_checks "setup, shim" "$SHIM"
+
+# Real package managers through the shim. The sandbox image has npm and uv;
+# pip and go are not in it (toolchains arrive with the profile's toolchains).
+expect_output '^7\.0\.0$' "setup: npm view through the shim" -- \
+    "$SHIM" npm view --cache /tmp/agentic-ci-e2e-npm is-number@7.0.0 version
+expect_output 'is-number-7\.0\.0\.tgz' "setup: npm pack through the shim" -- \
+    "$SHIM" bash -c 'cd /tmp && npm pack --cache /tmp/agentic-ci-e2e-npm is-number@7.0.0'
+expect_output '^UV_OK$' "setup: uv pip install from PyPI through the shim" -- \
+    "$SHIM" bash -c 'rm -rf /tmp/agentic-ci-e2e-uv &&
+        uv pip install --quiet --no-cache --python python3 --target /tmp/agentic-ci-e2e-uv \
+            six==1.16.0 && test -f /tmp/agentic-ci-e2e-uv/six.py && echo UV_OK'
+# npm prints the error field of the proxy's JSON 403 body.
+expect_output 'policy_denied' "setup: npm publish through the shim is refused by the proxy" -- \
+    "$SHIM" bash -c 'd=/tmp/agentic-ci-e2e-publish && rm -rf "$d" && mkdir -p "$d" && cd "$d" &&
+        printf "%s\n" "{\"name\": \"agentic-ci-e2e-l7-probe\", \"version\": \"0.0.0\"}" \
+            > package.json &&
+        printf "%s\n" "//registry.npmjs.org/:_authToken=npm_fakeagenticcie2e" > .npmrc &&
+        npm publish --cache /tmp/agentic-ci-e2e-npm --userconfig .npmrc'
+
+assert_ok "switch back to the agent phase after the L7 checks" \
+    driver phase agent --profile-json "$PROFILE"
 
 echo ""
 print_header "=== All test sections complete ==="

@@ -13,7 +13,11 @@ import yaml
 import agentic_ci.backends.openshell as openshell_backend
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import sandbox
-from agentic_ci.backends.openshell.policy import build_credential_binding_patch
+from agentic_ci.backends.openshell.policy import (
+    EGRESS_PRESETS,
+    build_credential_binding_patch,
+    phase_endpoints,
+)
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
 from agentic_ci.sandbox_profile import (
     Resources,
@@ -30,8 +34,9 @@ POLICY_GET_BASE = json.loads(
 )
 SHIM = sandbox.SANDBOX_SETUP_SHIM
 PARKED = sandbox.PARKED_BINARY_PREFIX
-NPM = "registry.npmjs.org:443:read-only"
-GOPROXY = "proxy.golang.org:443:read-only"
+NPM = "registry.npmjs.org:443:read-only:rest:enforce"
+GOPROXY = "proxy.golang.org:443:read-only:rest:enforce"
+_L7_READ_ONLY = {"access": "read-only", "protocol": "rest", "enforcement": "enforce"}
 
 
 @pytest.fixture
@@ -318,15 +323,51 @@ class TestBuildPhasePolicy:
         assert _phase_rules(policy) == {
             "agentic_ci_phase_0": {
                 "name": "agentic_ci_phase_0",
-                "endpoints": [{"host": "registry.npmjs.org", "port": 443, "access": "read-only"}],
+                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_L7_READ_ONLY}],
                 "binaries": [{"path": SHIM}],
             },
             "agentic_ci_phase_1": {
                 "name": "agentic_ci_phase_1",
-                "endpoints": [{"host": "proxy.golang.org", "port": 443, "access": "read-only"}],
+                "endpoints": [{"host": "proxy.golang.org", "port": 443, **_L7_READ_ONLY}],
                 "binaries": [{"path": SHIM}],
             },
         }
+
+    def test_every_preset_endpoint_is_an_enforced_l7_read_only_shim_rule(self):
+        profile = parse_profile({"egress": sorted(EGRESS_PRESETS)}, source="central").profile
+        endpoints = phase_endpoints(profile, "setup")
+        policy = sandbox.build_phase_policy(POLICY_GET_BASE, endpoints, park_agent=True)
+        rules = list(_phase_rules(policy).values())
+        assert len(rules) == len(endpoints) == 9
+        for rule, spec in zip(rules, endpoints, strict=True):
+            assert rule["endpoints"] == [{"host": spec.split(":")[0], "port": 443, **_L7_READ_ONLY}]
+            assert rule["binaries"] == [{"path": SHIM}]
+
+    @pytest.mark.parametrize(
+        "twin", ["registry.npmjs.org:443:full", "registry.npmjs.org:443:read-only:rest:audit"]
+    )
+    def test_a_raw_twin_of_a_preset_host_gets_no_rule_of_its_own(self, twin):
+        # Rules are ORed and an audit rule can shadow the preset's, so a twin
+        # must not reach the phase policy (agentic_ci_phase_10 would also sort
+        # before agentic_ci_phase_4).
+        raw = [f"raw{i}.example.com:443:read-only" for i in range(10)]
+        profile = parse_profile({"egress": ["npm", *raw, twin]}, source="central").profile
+        endpoints = phase_endpoints(profile, "setup")
+        assert endpoints == [NPM, *raw]
+        policy = sandbox.build_phase_policy(POLICY_GET_BASE, endpoints, park_agent=True)
+        npm_rules = [
+            rule
+            for rule in _phase_rules(policy).values()
+            for ep in rule["endpoints"]
+            if ep["host"] == "registry.npmjs.org"
+        ]
+        assert npm_rules == [
+            {
+                "name": "agentic_ci_phase_0",
+                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_L7_READ_ONLY}],
+                "binaries": [{"path": SHIM}],
+            }
+        ]
 
     def test_returns_the_raw_policy_and_leaves_agent_rules_alone(self):
         policy = sandbox.build_phase_policy(POLICY_GET_BASE, [NPM])
@@ -874,6 +915,23 @@ class TestCreatePassesProfileToPolicy:
         binaries = [update[i + 1] for i, a in enumerate(update) if a == "--binary"]
         assert binaries == list(sandbox.AGENT_BINARY_PATHS)
         assert SHIM not in update
+
+    def test_pypi_preset_replaces_the_l4_default_in_policy_update(self, tmp_path):
+        profile = parse_profile({"egress": ["pypi"]}, source="central").profile
+        with (
+            mock.patch.object(sandbox, "_apply_credential_bindings"),
+            mock.patch.object(sandbox, "_run") as run,
+        ):
+            sandbox.create(workdir=str(tmp_path), auth_mode="openai", profile=profile)
+        update = run.call_args_list[-1].args[0]
+        endpoints = [update[i + 1] for i, a in enumerate(update) if a == "--add-endpoint"]
+        pypi = [
+            ep for ep in endpoints if ep.split(":")[0] in {"pypi.org", "files.pythonhosted.org"}
+        ]
+        assert pypi == [
+            "pypi.org:443:read-only:rest:enforce",
+            "files.pythonhosted.org:443:read-only:rest:enforce",
+        ]
 
 
 class TestSetEgressPhase:

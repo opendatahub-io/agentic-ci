@@ -15,13 +15,25 @@ from agentic_ci.backends.openshell.policy import (
 )
 from agentic_ci.sandbox_profile import SandboxProfile, parse_profile
 
-NPM = "registry.npmjs.org:443:read-only"
+NPM = "registry.npmjs.org:443:read-only:rest:enforce"
 GOPROXY = [
-    "proxy.golang.org:443:read-only",
-    "sum.golang.org:443:read-only",
-    "storage.googleapis.com:443:read-only",
+    "proxy.golang.org:443:read-only:rest:enforce",
+    "sum.golang.org:443:read-only:rest:enforce",
+    "storage.googleapis.com:443:read-only:rest:enforce",
 ]
+PYPI = ["pypi.org:443:read-only:rest:enforce", "files.pythonhosted.org:443:read-only:rest:enforce"]
 RAW = "internal.example.com:443:read-only"
+# Other endpoints on 443 that overlap the goproxy preset's storage.googleapis.com.
+PRESET_HOST_TWINS = [
+    "storage.googleapis.com:443:full",
+    "storage.googleapis.com:443:read-write",
+    "storage.googleapis.com:443:read-only",
+    "storage.googleapis.com:443:read-only:rest:audit",
+    "Storage.GoogleAPIs.com:443:full",
+    "*.googleapis.com:443:full",
+    "storage.googleapis.com:0443:full",
+    "storage.googleapis.com:00443:read-write",
+]
 
 
 def _profile(*egress):
@@ -195,23 +207,29 @@ class TestEgressPresets:
         assert set(EGRESS_PRESETS) == sandbox_profile.KNOWN_EGRESS_PRESETS
 
     def test_preset_endpoints(self):
-        assert EGRESS_PRESETS["pypi"].endpoints == (
-            "pypi.org:443:read-only",
-            "files.pythonhosted.org:443:read-only",
-        )
+        assert list(EGRESS_PRESETS["pypi"].endpoints) == PYPI
         assert EGRESS_PRESETS["npm"].endpoints == (NPM,)
         assert list(EGRESS_PRESETS["goproxy"].endpoints) == GOPROXY
         assert EGRESS_PRESETS["github-release-assets"].endpoints == (
-            "release-assets.githubusercontent.com:443:read-only",
-            "objects.githubusercontent.com:443:read-only",
-            "raw.githubusercontent.com:443:read-only",
+            "release-assets.githubusercontent.com:443:read-only:rest:enforce",
+            "objects.githubusercontent.com:443:read-only:rest:enforce",
+            "raw.githubusercontent.com:443:read-only:rest:enforce",
         )
 
-    def test_every_preset_is_read_only_on_443_in_every_phase(self):
+    def test_every_preset_is_enforced_read_only_at_l7_on_443_in_every_phase(self):
+        # Without a protocol read-only blocks nothing (an L4 CONNECT tunnel),
+        # and without enforce OpenShell only audits a denied request.
         for preset in EGRESS_PRESETS.values():
             assert preset.phases == frozenset(EGRESS_PHASES)
             for endpoint in preset.endpoints:
-                assert endpoint.endswith(":443:read-only")
+                host, port, access, protocol, enforcement = endpoint.split(":")
+                assert (port, access, protocol, enforcement) == (
+                    "443",
+                    "read-only",
+                    "rest",
+                    "enforce",
+                )
+                assert sandbox_profile.is_raw_endpoint(endpoint)
 
     def test_presets_cannot_be_changed(self):
         with pytest.raises(TypeError):
@@ -266,9 +284,117 @@ class TestResolveEndpointsWithProfile:
         ]
 
     def test_endpoints_are_deduplicated(self, tmp_path):
-        # pypi is already a default, and the raw endpoint repeats a preset.
-        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("pypi", "npm", NPM))
+        # The raw endpoint repeats a preset.
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("npm", NPM))
         assert result == [*DEFAULT_ENDPOINTS, NPM]
+
+    def test_pypi_preset_replaces_the_l4_defaults_in_place(self, tmp_path, capsys):
+        # The defaults hold the pypi hosts as L4 read-only; the preset's L7
+        # endpoints take their place (before the auth endpoints), so each
+        # host has one L7 endpoint.
+        result = resolve_endpoints(
+            workdir=str(tmp_path), auth_mode="openai", profile=_profile("pypi")
+        )
+        expected = [ep for ep in DEFAULT_ENDPOINTS if not ep.startswith(("pypi.", "files."))]
+        assert result == [*expected, *PYPI, *AUTH_ENDPOINTS["openai"]]
+        # Replacing a built-in default is expected, so it is not warned about.
+        assert "replaced" not in capsys.readouterr().out
+        assert DEFAULT_ENDPOINTS[-2:] == [
+            "pypi.org:443:read-only",
+            "files.pythonhosted.org:443:read-only",
+        ]
+        assert "pypi.org:443:read-only" not in result
+        assert "files.pythonhosted.org:443:read-only" not in result
+
+    def test_no_pypi_preset_keeps_the_l4_defaults(self, tmp_path):
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("npm"))
+        assert result == [*DEFAULT_ENDPOINTS, NPM]
+
+    def test_l4_twin_of_a_preset_from_raw_or_flag_is_replaced(self, tmp_path):
+        flag_file = tmp_path / "flag.yml"
+        flag_file.write_text("endpoints:\n  - 'proxy.golang.org:443:read-only'\n")
+        result = resolve_endpoints(
+            flag_path=str(flag_file),
+            workdir=str(tmp_path),
+            profile=_profile("registry.npmjs.org:443:read-only", "npm", "goproxy"),
+        )
+        assert result == [*DEFAULT_ENDPOINTS, NPM, *GOPROXY]
+
+    @pytest.mark.parametrize("twin", PRESET_HOST_TWINS)
+    def test_any_other_endpoint_for_a_preset_host_gives_way(self, tmp_path, twin, capsys):
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("goproxy", twin, RAW))
+        assert result == [*DEFAULT_ENDPOINTS, *GOPROXY, RAW]
+        out = capsys.readouterr().out
+        assert "WARNING: 1 egress endpoint(s) for an egress preset host replaced" in out
+        assert "googleapis" not in out
+
+    def test_twin_before_its_preset_takes_the_preset_in_its_place(self, tmp_path):
+        flag_file = tmp_path / "flag.yml"
+        flag_file.write_text("endpoints:\n  - 'registry.npmjs.org:443:full'\n")
+        result = resolve_endpoints(
+            flag_path=str(flag_file),
+            workdir=str(tmp_path),
+            profile=_profile("*.npmjs.org:443:read-write", "npm"),
+        )
+        assert result == [*DEFAULT_ENDPOINTS, NPM]
+
+    def test_a_wildcard_takes_every_preset_host_it_covers(self, tmp_path):
+        result = resolve_endpoints(
+            workdir=str(tmp_path),
+            profile=_profile("github-release-assets", "*.githubusercontent.com:443:full"),
+        )
+        assert result == [*DEFAULT_ENDPOINTS, *EGRESS_PRESETS["github-release-assets"].endpoints]
+
+    @pytest.mark.parametrize(
+        "twin",
+        [
+            "registry.npmjs.org:0443:full",
+            "registry.npmjs.org:+443:full",
+            " registry.npmjs.org : 443 :full",
+        ],
+    )
+    def test_policy_file_twin_on_443_spelled_otherwise_is_replaced(self, tmp_path, twin):
+        # OpenShell trims each segment and reads the port as a number, so
+        # these all open port 443 and must give way to the preset.
+        flag_file = tmp_path / "flag.yml"
+        flag_file.write_text(f"endpoints:\n  - '{twin}'\n")
+        result = resolve_endpoints(
+            flag_path=str(flag_file), workdir=str(tmp_path), profile=_profile("npm")
+        )
+        assert result == [*DEFAULT_ENDPOINTS, NPM]
+
+    @pytest.mark.parametrize("port", ["4430", "44_3", "443x", ""])
+    def test_policy_file_endpoint_on_another_or_bad_port_is_kept(self, tmp_path, port):
+        endpoint = f"registry.npmjs.org:{port}:full"
+        flag_file = tmp_path / "flag.yml"
+        flag_file.write_text(f"endpoints:\n  - '{endpoint}'\n")
+        result = resolve_endpoints(
+            flag_path=str(flag_file), workdir=str(tmp_path), profile=_profile("npm")
+        )
+        assert result == [*DEFAULT_ENDPOINTS, NPM, endpoint]
+
+    def test_preset_host_on_another_port_is_kept(self, tmp_path, capsys):
+        other_port = "registry.npmjs.org:8443:full"
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("npm", other_port))
+        assert result == [*DEFAULT_ENDPOINTS, NPM, other_port]
+        assert "replaced" not in capsys.readouterr().out
+
+    def test_a_preset_string_without_its_preset_is_a_plain_raw_endpoint(self, tmp_path):
+        # Only the presets the profile opens take over their hosts.
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile(PYPI[0]))
+        assert result == [*DEFAULT_ENDPOINTS, PYPI[0]]
+
+    def test_no_profile_keeps_the_l4_defaults(self, tmp_path):
+        result = resolve_endpoints(workdir=str(tmp_path))
+        assert result == list(DEFAULT_ENDPOINTS)
+        assert all(len(ep.split(":")) == 3 for ep in DEFAULT_ENDPOINTS)
+
+    def test_no_profile_repo_file_with_a_preset_string_changes_nothing_else(self, tmp_path):
+        # The repo file is untrusted: naming a preset's L7 endpoint must not
+        # drop or reorder the defaults when there is no profile.
+        _write_repo_policy(tmp_path, PYPI[0])
+        result = resolve_endpoints(workdir=str(tmp_path), auth_mode="openai")
+        assert result == [*DEFAULT_ENDPOINTS, *AUTH_ENDPOINTS["openai"], PYPI[0]]
 
     def test_presets_closed_in_the_agent_phase_are_left_out(self, tmp_path, monkeypatch):
         setup_only = EgressPreset(
@@ -298,7 +424,21 @@ class TestPhaseEndpoints:
     def test_pypi_preset_repeats_default_hosts_for_the_shim(self):
         # The defaults are bound to the agent binaries only, so the shim needs
         # the pypi hosts from the preset.
-        assert phase_endpoints(_profile("pypi"), "setup") == list(EGRESS_PRESETS["pypi"].endpoints)
+        assert phase_endpoints(_profile("pypi"), "setup") == PYPI
+
+    def test_raw_l4_twin_of_a_preset_is_replaced(self):
+        profile = _profile("registry.npmjs.org:443:read-only", "npm", RAW)
+        assert phase_endpoints(profile, "setup") == [NPM, RAW]
+
+    @pytest.mark.parametrize("phase", ["setup", "validate"])
+    @pytest.mark.parametrize("twin", PRESET_HOST_TWINS)
+    def test_any_other_endpoint_for_a_preset_host_gives_way(self, phase, twin, capsys):
+        # The same outcome as the agent phase (resolve_endpoints): one
+        # endpoint per preset host, the preset's.
+        assert phase_endpoints(_profile("goproxy", twin, RAW), phase) == [*GOPROXY, RAW]
+        out = capsys.readouterr().out
+        assert "WARNING: 1 egress endpoint(s) for an egress preset host replaced" in out
+        assert "not opened" not in out
 
     def test_empty_profile_opens_nothing(self):
         assert phase_endpoints(SandboxProfile(), "setup") == []

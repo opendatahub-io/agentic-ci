@@ -363,7 +363,10 @@ for details.
 
 With a [sandbox profile](../sandbox-profiles.md#egress), the repo policy file
 is ignored and the profile's egress presets and raw endpoints are added
-instead.
+instead. Preset endpoints are L7 (`host:443:read-only:rest:enforce`): the
+proxy terminates TLS and allows only `GET`, `HEAD` and `OPTIONS`, and a
+preset endpoint replaces every other endpoint on port 443 for the same host,
+wildcards included (such as the default L4 PyPI endpoints).
 
 ### Egress phases
 
