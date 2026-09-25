@@ -60,6 +60,18 @@ from agentic_ci.telemetry import emit_event
 
 log = logging.getLogger(__name__)
 
+
+def _verdict_error_text(exc: Exception | None) -> str:
+    """Describe a verdict load failure for ``label_applier``'s ``gate_errors``.
+
+    Consumers post gate errors to trackers, so the text names only the
+    exception class; the full message is logged by the caller.
+    """
+    if exc is None:
+        return "Verdict could not be loaded (loader returned no verdict); see the CI job log"
+    return f"Verdict could not be loaded ({type(exc).__name__}); see the CI job log"
+
+
 TRANSIENT_EXIT_CODES = frozenset({124, 137, 143})
 
 
@@ -551,11 +563,16 @@ def run_skill(
                     verdict_error = retry_exc
 
             if verdict is None:
-                log.error("[%s] Failed to load verdict: %s", ticket_key, verdict_error)
+                log.error(
+                    "[%s] Failed to load verdict: %s: %s",
+                    ticket_key,
+                    type(verdict_error).__name__,
+                    verdict_error,
+                )
                 config.label_applier(
                     ticket_key=ticket_key,
                     verdict=None,
-                    gate_errors=[str(verdict_error)],
+                    gate_errors=[_verdict_error_text(verdict_error)],
                     mode=mode,
                     work_dir=work_dir,
                     **extra_kwargs,
