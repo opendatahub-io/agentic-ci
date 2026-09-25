@@ -181,6 +181,257 @@ class TestSearch:
 
         assert results[0]["created"] == ""
 
+    @staticmethod
+    def _page(issues, *, next_token=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        payload: dict = {"issues": issues, "isLast": next_token is None}
+        if next_token is not None:
+            payload["nextPageToken"] = next_token
+        resp.json.return_value = payload
+        return resp
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_default_call_request_and_output_unchanged(self, mock_requests, client):
+        mock_requests.post.return_value = self._page(
+            [
+                {
+                    "key": "TEST-1",
+                    "fields": {
+                        "summary": "Bug 1",
+                        "description": {
+                            "type": "doc",
+                            "version": 1,
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "desc"}],
+                                }
+                            ],
+                        },
+                        "created": "2026-08-02T12:34:56.000+0000",
+                        "issuetype": {"name": "Bug"},
+                        "labels": ["a"],
+                        "status": {"name": "Open"},
+                        "comment": {
+                            "comments": [
+                                {
+                                    "id": "10",
+                                    "author": {
+                                        "displayName": "Ann",
+                                        "emailAddress": "ann@test.com",
+                                    },
+                                    "body": "hi",
+                                    "created": "c",
+                                    "updated": "u",
+                                }
+                            ]
+                        },
+                    },
+                }
+            ]
+        )
+
+        results = client.search("project = TEST")
+
+        assert mock_requests.post.call_count == 1
+        assert mock_requests.post.call_args.args[0] == (
+            "https://test.atlassian.net/rest/api/3/search/jql"
+        )
+        assert mock_requests.post.call_args.kwargs["json"] == {
+            "jql": "project = TEST",
+            "fields": [
+                "summary",
+                "description",
+                "created",
+                "issuetype",
+                "labels",
+                "comment",
+                "status",
+            ],
+            "maxResults": 50,
+        }
+        assert results == [
+            {
+                "key": "TEST-1",
+                "summary": "Bug 1",
+                "description": "desc",
+                "created": "2026-08-02T12:34:56.000+0000",
+                "issue_type": "Bug",
+                "labels": ["a"],
+                "status": "Open",
+                "comments": [
+                    {
+                        "id": "10",
+                        "author": "Ann",
+                        "author_email": "ann@test.com",
+                        "body": "hi",
+                        "created": "c",
+                        "updated": "u",
+                        "visibility": None,
+                    }
+                ],
+            }
+        ]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_default_call_pages_at_50(self, mock_requests, client):
+        mock_requests.post.side_effect = [
+            self._page([{"key": f"TEST-{i}"} for i in range(50)], next_token="t1"),
+            self._page([{"key": "TEST-50"}]),
+        ]
+
+        results = client.search("project = TEST", max_results=60)
+
+        assert len(results) == 51
+        payloads = [c.kwargs["json"] for c in mock_requests.post.call_args_list]
+        assert [p["maxResults"] for p in payloads] == [50, 10]
+        assert "nextPageToken" not in payloads[0]
+        assert payloads[1]["nextPageToken"] == "t1"
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_custom_fields_requested_and_missing_fields_tolerated(self, mock_requests, client):
+        mock_requests.post.return_value = self._page(
+            [{"id": "1", "key": "TEST-1", "fields": {"summary": "Bug 1"}}]
+        )
+
+        results = client.search("project = TEST", fields=["summary"])
+
+        payload = mock_requests.post.call_args.kwargs["json"]
+        assert payload["fields"] == ["summary"]
+        assert payload["maxResults"] == 50
+        assert results == [
+            {
+                "key": "TEST-1",
+                "summary": "Bug 1",
+                "description": "",
+                "created": "",
+                "issue_type": "",
+                "labels": [],
+                "status": "",
+                "comments": [],
+            }
+        ]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_key_only_fields_use_largest_page(self, mock_requests, client):
+        mock_requests.post.return_value = self._page([{"id": "1", "key": "TEST-1"}])
+
+        results = client.search("project = TEST", max_results=10000, fields=["key"])
+
+        payload = mock_requests.post.call_args.kwargs["json"]
+        assert payload["fields"] == ["key"]
+        assert payload["maxResults"] == 5000
+        assert results[0]["key"] == "TEST-1"
+        assert results[0]["comments"] == []
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_single_field_string_not_split_into_characters(self, mock_requests, client):
+        mock_requests.post.return_value = self._page([{"id": "1", "key": "TEST-1"}])
+
+        client.search("project = TEST", fields="key")
+
+        payload = mock_requests.post.call_args.kwargs["json"]
+        assert payload["fields"] == ["key"]
+        assert payload["maxResults"] == 500
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_null_fields_tolerated(self, mock_requests, client):
+        mock_requests.post.return_value = self._page(
+            [
+                {"key": "TEST-1", "fields": None},
+                {
+                    "key": "TEST-2",
+                    "fields": {"issuetype": None, "status": None, "comment": None},
+                },
+            ]
+        )
+
+        results = client.search("project = TEST")
+
+        assert [r["key"] for r in results] == ["TEST-1", "TEST-2"]
+        assert all(r["issue_type"] == "" and r["status"] == "" for r in results)
+        assert all(r["comments"] == [] for r in results)
+
+
+class TestSearchKeys:
+    @staticmethod
+    def _page(keys, *, next_token=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        payload: dict = {
+            "issues": [{"id": str(i), "key": k} for i, k in enumerate(keys)],
+            "isLast": next_token is None,
+        }
+        if next_token is not None:
+            payload["nextPageToken"] = next_token
+        resp.json.return_value = payload
+        return resp
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_pages_with_next_page_token(self, mock_requests, client):
+        mock_requests.post.side_effect = [
+            self._page(["TEST-1", "TEST-2"], next_token="t1"),
+            self._page(["TEST-3"], next_token="t2"),
+            self._page(["TEST-4"]),
+        ]
+
+        keys = client.search_keys("project = TEST", max_results=20000)
+
+        assert keys == ["TEST-1", "TEST-2", "TEST-3", "TEST-4"]
+        payloads = [c.kwargs["json"] for c in mock_requests.post.call_args_list]
+        assert len(payloads) == 3
+        for p in payloads:
+            assert p["jql"] == "project = TEST"
+            assert p["fields"] == ["key"]
+        assert [p["maxResults"] for p in payloads] == [5000, 5000, 5000]
+        assert "nextPageToken" not in payloads[0]
+        assert [p["nextPageToken"] for p in payloads[1:]] == ["t1", "t2"]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_default_max_results_is_one_full_page(self, mock_requests, client):
+        mock_requests.post.return_value = self._page(["TEST-1"])
+
+        client.search_keys("project = TEST")
+
+        assert mock_requests.post.call_args.kwargs["json"]["maxResults"] == 5000
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_max_results_truncates_and_stops_paging(self, mock_requests, client):
+        mock_requests.post.side_effect = [
+            self._page(["TEST-1", "TEST-2"], next_token="t1"),
+            self._page(["TEST-3", "TEST-4", "TEST-5"], next_token="t2"),
+            self._page(["TEST-6"]),
+        ]
+
+        keys = client.search_keys("project = TEST", max_results=3)
+
+        assert keys == ["TEST-1", "TEST-2", "TEST-3"]
+        assert mock_requests.post.call_count == 2
+        payloads = [c.kwargs["json"] for c in mock_requests.post.call_args_list]
+        assert [p["maxResults"] for p in payloads] == [3, 1]
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_stops_when_token_missing(self, mock_requests, client):
+        resp = self._page(["TEST-1"])
+        resp.json.return_value["isLast"] = False
+        mock_requests.post.return_value = resp
+
+        assert client.search_keys("project = TEST") == ["TEST-1"]
+        assert mock_requests.post.call_count == 1
+
+    @patch("agentic_ci.jira.client.requests")
+    def test_issues_without_key_skipped(self, mock_requests, client):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "issues": [{"id": "1"}, {"id": "2", "key": "TEST-2", "fields": {}}, {"key": None}],
+            "isLast": True,
+        }
+        mock_requests.post.return_value = resp
+
+        assert client.search_keys("project = TEST") == ["TEST-2"]
+
 
 class TestGetIssueLinks:
     @staticmethod
