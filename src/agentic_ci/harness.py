@@ -7,6 +7,7 @@ it needs, where credentials are mounted, and how to parse its output.
 
 import json
 import os
+import re
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -704,6 +705,123 @@ class OpenCodeHarness(Harness):
         return []
 
 
+_CODEX_SETTINGS_BEGIN = "# BEGIN agentic-ci run settings (rewritten on every run)"
+_CODEX_SETTINGS_END = "# END agentic-ci run settings"
+_CODEX_SETTINGS_ENV_VAR = "AGENTIC_CI_CODEX_SETTINGS"
+_CODEX_EFFORT_KEYS = ("model_reasoning_effort", "agents.default_subagent_reasoning_effort")
+_CODEX_EFFORT_VALUE_RE = re.compile(r'([A-Za-z0-9_-]+)|"([A-Za-z0-9_-]+)"')
+
+# Rewrites $CODEX_HOME/config.toml with the run settings (from the
+# AGENTIC_CI_CODEX_SETTINGS env var) in a marked block at the top, where TOML
+# root keys must go. The previous run's block is dropped, every other line is
+# kept, and a setting whose top-level key the rest of the file already defines
+# is skipped, since a duplicate key would stop Codex from loading the file.
+# Codex can drop the END marker when it rewrites the file (``codex plugin
+# marketplace add`` does), so a block without one ends at the first table
+# header or at the end of the file, and only its lines that set a key agentic-ci
+# manages (managed_keys) are dropped; every other line in it is kept.
+_CODEX_SETTINGS_AWK = r"""
+function keep(line,    key) {
+    kept[++n] = line
+    key = line
+    sub(/^[ \t]+/, "", key)
+    if (key ~ /^\[/) {
+        root = 0
+        sub(/^\[+[ \t]*/, "", key)
+    } else if (!root || key !~ /^["A-Za-z0-9_-]/) {
+        return
+    }
+    sub(/[]. \t=].*/, "", key)
+    gsub(/"/, "", key)
+    defined[key] = 1
+}
+function end_unterminated_block(    i, key) {
+    for (i = 1; i <= held; i++) {
+        key = block[i]
+        sub(/^[ \t]+/, "", key)
+        sub(/[ \t]*=.*/, "", key)
+        if (!(key in managed_key)) keep(block[i])
+    }
+    managed = 0
+    held = 0
+}
+BEGIN {
+    managed = 0; root = 1; n = 0; held = 0
+    count = split(managed_keys, keys, " ")
+    for (i = 1; i <= count; i++) managed_key[keys[i]] = 1
+}
+$0 == open_marker {
+    if (managed) end_unterminated_block()
+    managed = 1
+    next
+}
+$0 == close_marker { managed = 0; held = 0; next }
+managed && $0 ~ /^[ \t]*\[/ { end_unterminated_block() }
+managed { block[++held] = $0; next }
+{ keep($0) }
+END {
+    if (managed) end_unterminated_block()
+    print open_marker
+    count = split(ENVIRON["AGENTIC_CI_CODEX_SETTINGS"], settings, "\n")
+    for (i = 1; i <= count; i++) {
+        key = settings[i]
+        sub(/[. =].*/, "", key)
+        if (key == "") continue
+        if (key in defined) {
+            if (!(key in warned)) {
+                warned[key] = 1
+                warning = "agentic-ci: config.toml already sets " key
+                print warning "; nested codex runs keep it" > "/dev/stderr"
+            }
+            continue
+        }
+        print settings[i]
+    }
+    print close_marker
+    for (i = 1; i <= n; i++) print kept[i]
+}
+"""
+
+
+def _toml_string(value: str) -> str:
+    """Return *value* as a TOML basic string.
+
+    Escapes quotes, backslashes and every control character TOML forbids
+    unescaped. Lone surrogates cannot be represented in TOML and raise
+    ``ValueError``.
+    """
+    parts = ['"']
+    for char in value:
+        code = ord(char)
+        if char in ('"', "\\"):
+            parts.append("\\" + char)
+        elif code < 0x20 or code == 0x7F:
+            parts.append(f"\\u{code:04X}")
+        elif 0xD800 <= code <= 0xDFFF:
+            raise ValueError(f"cannot encode {value!r} as a TOML string")
+        else:
+            parts.append(char)
+    parts.append('"')
+    return "".join(parts)
+
+
+def _codex_config_overrides(extra_args: list[str] | None) -> dict[str, str]:
+    """Return the ``-c key=value`` overrides in *extra_args*, last one winning."""
+    overrides: dict[str, str] = {}
+    args = list(extra_args or [])
+    for index, arg in enumerate(args):
+        if arg in ("-c", "--config") and index + 1 < len(args):
+            pair = args[index + 1]
+        elif arg.startswith("--config="):
+            pair = arg[len("--config=") :]
+        else:
+            continue
+        key, sep, value = pair.partition("=")
+        if sep:
+            overrides[key.strip()] = value.strip()
+    return overrides
+
+
 class CodexHarness(Harness):
     """OpenAI Codex CLI harness."""
 
@@ -746,21 +864,75 @@ class CodexHarness(Harness):
         raise RuntimeError(f"Codex credentials not found. Set one of: {expected}.")
 
     @staticmethod
-    def _otel_config_args(endpoint):
+    def _otel_settings(endpoint):
+        """Return ``(key, TOML value)`` pairs that export OTLP to *endpoint*."""
         endpoint = endpoint.rstrip("/")
 
         def exporter(signal):
-            url = json.dumps(f"{endpoint}/v1/{signal}")
+            url = _toml_string(f"{endpoint}/v1/{signal}")
             return f'{{ "otlp-http" = {{ endpoint = {url}, protocol = "json" }} }}'
 
         return [
-            "-c",
-            f"otel.exporter={exporter('logs')}",
-            "-c",
-            f"otel.metrics_exporter={exporter('metrics')}",
-            "-c",
-            f"otel.trace_exporter={exporter('traces')}",
+            ("otel.exporter", exporter("logs")),
+            ("otel.metrics_exporter", exporter("metrics")),
+            ("otel.trace_exporter", exporter("traces")),
         ]
+
+    @classmethod
+    def _otel_config_args(cls, endpoint):
+        args = []
+        for key, value in cls._otel_settings(endpoint):
+            args.extend(["-c", f"{key}={value}"])
+        return args
+
+    def run_settings_toml(self, model, extra_args=None, otel_endpoint=None):
+        """Return the ``config.toml`` lines that mirror a run's command-line settings.
+
+        Covers the model, the update check, the reasoning efforts that
+        :meth:`effort_args` put in *extra_args*, and the OTLP exporters, so a
+        ``codex exec`` the agent starts without those flags (such as the
+        implement and review agents a skill dispatches) uses the same model,
+        effort and telemetry. Every line is a top-level key or dotted key. No
+        credential is ever included.
+        """
+        lines = [
+            f"model = {_toml_string(model)}",
+            "check_for_update_on_startup = false",
+        ]
+        overrides = _codex_config_overrides(extra_args)
+        for key in _CODEX_EFFORT_KEYS:
+            match = _CODEX_EFFORT_VALUE_RE.fullmatch(overrides.get(key, ""))
+            if match:
+                lines.append(f"{key} = {_toml_string(match.group(1) or match.group(2))}")
+        if otel_endpoint:
+            lines.extend(f"{key} = {value}" for key, value in self._otel_settings(otel_endpoint))
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def _managed_settings_keys(cls):
+        """Every key :meth:`run_settings_toml` can write, whatever the run's options."""
+        otel_keys = [key for key, _ in cls._otel_settings("")]
+        return ("model", "check_for_update_on_startup", *_CODEX_EFFORT_KEYS, *otel_keys)
+
+    def _write_settings_script(self, model, extra_args, otel_endpoint):
+        """Shell fragment that writes the run settings into ``$CODEX_HOME/config.toml``."""
+        settings = self.run_settings_toml(model, extra_args, otel_endpoint)
+        return (
+            'codex_config="${CODEX_HOME:-$HOME/.codex}/config.toml"; '
+            'mkdir -p "$(dirname "$codex_config")"; '
+            'codex_config_src="$codex_config"; '
+            '[ -f "$codex_config_src" ] || codex_config_src=/dev/null; '
+            'codex_config_tmp=$(mktemp "$codex_config.XXXXXX"); '
+            f"if ! {_CODEX_SETTINGS_ENV_VAR}={shlex.quote(settings)} awk"
+            f" -v open_marker={shlex.quote(_CODEX_SETTINGS_BEGIN)}"
+            f" -v close_marker={shlex.quote(_CODEX_SETTINGS_END)}"
+            f" -v managed_keys={shlex.quote(' '.join(self._managed_settings_keys()))}"
+            f' {shlex.quote(_CODEX_SETTINGS_AWK)} "$codex_config_src" >"$codex_config_tmp"'
+            ' || ! mv "$codex_config_tmp" "$codex_config"; then '
+            'rm -f "$codex_config_tmp"; '
+            'echo "agentic-ci: could not write $codex_config" >&2; exit 1; '
+            "fi; "
+        )
 
     def build_args(
         self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
@@ -789,6 +961,15 @@ class CodexHarness(Harness):
             # can interpret subcommands/options such as ``resume --last``.
             codex_args.extend(arg for arg in extra_args if arg != "--")
         codex_args.extend(["-m", model, "--", prompt])
+        # The flags above only reach this process. A nested ``codex exec`` the
+        # agent runs reads $CODEX_HOME/config.toml, so mirror them there. Only
+        # inside OpenShell, where CODEX_HOME is the sandbox's own copy: on the
+        # local backend it is the operator's personal Codex configuration.
+        settings_script = (
+            self._write_settings_script(model, extra_args, otel_endpoint)
+            if externally_sandboxed
+            else ""
+        )
         return [
             "bash",
             "-c",
@@ -797,6 +978,7 @@ class CodexHarness(Harness):
             '{ echo "codex login --with-api-key failed" >&2; exit 1; }; '
             "fi; "
             "fi; unset OPENAI_API_KEY; "
+            f"{settings_script}"
             'exec codex "$@"',
             "--",
             *codex_args,
@@ -829,7 +1011,8 @@ class CodexHarness(Harness):
         # Codex parents its exec root span under TRACEPARENT when set
         # (codex_otel::traceparent_context_from_env), so its spans join the
         # agentic-ci root trace instead of starting a new one. The OTLP
-        # exporters themselves are configured via -c flags in build_args.
+        # exporters themselves are configured via -c flags in build_args,
+        # which also writes them to $CODEX_HOME/config.toml for nested runs.
         if traceparent:
             lines.append(f"export TRACEPARENT={shlex.quote(traceparent)}")
         return lines
