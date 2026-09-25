@@ -927,6 +927,16 @@ class TestMerge:
         assert all(SECRET_VALUE not in w and "\n" not in w for w in merged.warnings)
         assert "toolchains.evil: unknown toolchain" in " ".join(merged.warnings)
 
+    def test_constructed_overlay_discard_paths_are_checked(self):
+        rogue = SandboxProfile(
+            discard_before_download=("../..", ".git", "/etc", "sub/.git/hooks", ".", "a/./b")
+        )
+        merged = merge_profiles(None, rogue)
+        assert merged.profile.discard_before_download == ("a/b",)
+        assert len(merged.warnings) == 5
+        assert all(w.endswith("; ignored") for w in merged.warnings)
+        assert merged.warnings[0].startswith("discard_before_download[0]: ")
+
     def test_merge_accepts_every_parsed_overlay(self):
         extra = _overlay_profile(
             {

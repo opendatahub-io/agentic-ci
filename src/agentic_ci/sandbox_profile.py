@@ -796,6 +796,17 @@ def _overlay_env(overlay: SandboxProfile, warnings: list[str]) -> dict[str, str]
     return kept
 
 
+def _overlay_discard(overlay: SandboxProfile, warnings: list[str]) -> list[str]:
+    """Keep the overlay discard paths ``parse_profile`` would accept (directly built overlays)."""
+    kept = []
+    for index, entry in enumerate(overlay.discard_before_download):
+        try:
+            kept.append(_normalize_discard_path(entry, f"discard_before_download[{index}]"))
+        except SandboxProfileError as exc:
+            warnings.append(f"{exc.path}: {exc.rule}; ignored")
+    return kept
+
+
 def merge_profiles(
     central: SandboxProfile | None,
     overlay: SandboxProfile | None,
@@ -818,7 +829,9 @@ def merge_profiles(
 
     The overlay is held to the same envelope even when it was built directly
     instead of by :func:`parse_profile`: unknown toolchains, bad toolchain
-    versions and rejected ``env`` names are dropped with a warning.
+    versions, rejected ``env`` names and ``discard_before_download`` paths that
+    are absolute, contain ``..`` or name the workdir or ``.git`` are dropped
+    with a warning.
 
     An overlay without a central profile is merged into a default envelope:
     ``overlay: merge``, no resources and no raw egress.
@@ -857,6 +870,7 @@ def merge_profiles(
 
     toolchains = _overlay_toolchains(overlay, warnings)
     env = _overlay_env(overlay, warnings)
+    discard = _overlay_discard(overlay, warnings)
     profile = SandboxProfile(
         toolchains=_merge_map(base.toolchains, toolchains, "toolchains", warnings),
         egress=_merge_unique(base.egress, presets),
@@ -866,9 +880,7 @@ def merge_profiles(
         skips=_merge_skips(base, overlay.skips, warnings),
         env=_merge_map(base.env, env, "env", warnings),
         resources=base.resources,
-        discard_before_download=_merge_unique(
-            base.discard_before_download, overlay.discard_before_download
-        ),
+        discard_before_download=_merge_unique(base.discard_before_download, discard),
         overlay=base.overlay,
     )
     return MergedProfile(profile=profile, warnings=_cap_warnings(warnings))

@@ -64,7 +64,7 @@ key) means its default.
 | `setup`, `validate` | Each step has a `name` of letters, digits, `.`, `_` or `-`, unique within its list; a non-empty `run` string; and a `timeout` in seconds from 1 to 3600 (default 600). A `validate` step also has a `kind`: `lint`, `build`, `test` or `generated`. |
 | `skips` | Each entry has non-empty `match` and `reason` strings. |
 | `env` | Names match `^[A-Za-z_][A-Za-z0-9_]*$`. See [Reserved environment variable names](#reserved-environment-variable-names) for the names that are rejected. Values are strings; integers are converted with `str()`, and booleans, decimals, null, lists and mappings are rejected. |
-| `resources` | `memory` is a positive quantity string matching `^[0-9]+(Ki|Mi|Gi|Ti)?$` (`512Mi`, `8Gi`). `cpu` is a positive string or number such as `"4"`, `"2.5"` or `"500m"`. `gpu` is a non-negative integer. |
+| `resources` | `memory` is a positive quantity string: digits with an optional unit of `Ki`, `Mi`, `Gi` or `Ti` (`512Mi`, `8Gi`). `cpu` is a positive string or number such as `"4"`, `"2.5"` or `"500m"`. `gpu` is a non-negative integer. |
 | `discard_before_download` | Workdir-relative paths. No absolute paths, no `..` component, no empty string, not the workdir itself (`.`), and not `.git` or anything under it. Paths are normalized (`./dist/` becomes `dist`). |
 | `overlay` | `merge` (default) or `ignore`. |
 
