@@ -69,7 +69,7 @@ class GateSpec:
     """Metadata for a registered gate function."""
 
     name: str
-    fn: Callable
+    fn: Callable[..., list[str]]  # returns error strings; empty means passed
     phase: str  # "pre" or "post"
     required_env: list[str] = field(default_factory=list)
 
@@ -77,7 +77,9 @@ class GateSpec:
 GATE_REGISTRY: dict[str, GateSpec] = {}
 
 
-def _register(name: str, fn: Callable, phase: str, required_env: list[str] | None = None) -> None:
+def _register(
+    name: str, fn: Callable[..., list[str]], phase: str, required_env: list[str] | None = None
+) -> None:
     """Register a gate function in the global registry."""
     GATE_REGISTRY[name] = GateSpec(
         name=name,
@@ -374,17 +376,17 @@ def _run_gitleaks(workdir: str, **_kw: object) -> list[str]:
     return gitleaks_scan(Path(workdir))
 
 
-def _run_jira_description_editors(**_kw: object) -> str | None:
-    """CLI runner for the description-editors gate (pre-gate contract)."""
+def _run_jira_description_editors(**_kw: object) -> list[str]:
+    """CLI runner for the description-editors gate."""
     ticket_key = os.environ.get("TICKET_KEY", "")
     if not ticket_key:
-        return "TICKET_KEY env var not set; cannot check description editors"
+        return ["TICKET_KEY env var not set; cannot check description editors"]
 
     domain_pattern = os.environ.get("INTERNAL_DOMAIN_RE", "")
     if not domain_pattern:
-        return "INTERNAL_DOMAIN_RE env var not set; cannot validate editor emails"
+        return ["INTERNAL_DOMAIN_RE env var not set; cannot validate editor emails"]
     if not domain_pattern.endswith("$"):
-        return "INTERNAL_DOMAIN_RE must be end-anchored ($) to prevent partial matches"
+        return ["INTERNAL_DOMAIN_RE must be end-anchored ($) to prevent partial matches"]
 
     try:
         internal_re = re.compile(domain_pattern, re.IGNORECASE)
@@ -392,34 +394,36 @@ def _run_jira_description_editors(**_kw: object) -> str | None:
         log.error("Invalid INTERNAL_DOMAIN_RE pattern: %s", exc)
         # re.error was renamed PatternError in Python 3.13, so the class name
         # is not stable; the fixed text is enough to find the log line.
-        return f"Invalid INTERNAL_DOMAIN_RE pattern; {_SEE_JOB_LOG}"
+        return [f"Invalid INTERNAL_DOMAIN_RE pattern; {_SEE_JOB_LOG}"]
 
     try:
         client = JiraClient.from_env()
     except Exception as exc:
         log.error("Could not create Jira client: %s", exc)
-        return f"Could not create Jira client ({_failure_class(exc)}); {_SEE_JOB_LOG}"
+        return [f"Could not create Jira client ({_failure_class(exc)}); {_SEE_JOB_LOG}"]
 
     try:
         issue = client.get_issue(ticket_key)
     except Exception as exc:
         log.error("Could not fetch issue %s: %s", ticket_key, exc)
-        return f"Could not fetch issue {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"
+        return [f"Could not fetch issue {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"]
 
     reporter_email = issue.get("reporter_email", "")
     try:
         editors = client.get_description_editors(ticket_key)
     except Exception as exc:
         log.error("Could not fetch changelog for %s: %s", ticket_key, exc)
-        return f"Could not fetch changelog for {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"
+        return [
+            f"Could not fetch changelog for {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"
+        ]
 
     untrusted = check_description_editors(editors, reporter_email, internal_re)
     if untrusted:
-        return (
+        return [
             f"Description edited by untrusted user(s): {', '.join(untrusted)}. "
             f"Only users matching {domain_pattern} may author or edit the ticket description."
-        )
-    return None
+        ]
+    return []
 
 
 # -- Register built-in gates -------------------------------------------------

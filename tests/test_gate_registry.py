@@ -1,5 +1,6 @@
 """Tests for the gate registry and CLI gate integration."""
 
+import argparse
 import logging
 import os
 import subprocess
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agentic_ci.cli import cmd_run
 from agentic_ci.gates import (
     GATE_REGISTRY,
     gitleaks_scan,
@@ -226,13 +228,13 @@ class TestRunJiraDescriptionEditors:
         env = {"TICKET_KEY": "TEST-1", "INTERNAL_DOMAIN_RE": f"({SECRET}$"}
         with caplog.at_level(logging.ERROR, logger="agentic_ci.gates"):
             result = self._run(env=env, client=MagicMock())
-        assert result == "Invalid INTERNAL_DOMAIN_RE pattern; see the CI job log"
+        assert result == ["Invalid INTERNAL_DOMAIN_RE pattern; see the CI job log"]
         assert "missing )" in caplog.text
 
     def test_client_creation_error_text_stays_in_log(self, caplog):
         with caplog.at_level(logging.ERROR, logger="agentic_ci.gates"):
             result = self._run(from_env_exc=RuntimeError(f"bad token {SECRET}"))
-        assert result == "Could not create Jira client (RuntimeError); see the CI job log"
+        assert result == ["Could not create Jira client (RuntimeError); see the CI job log"]
         assert SECRET in caplog.text
 
     def test_get_issue_error_text_stays_in_log(self, caplog):
@@ -240,7 +242,7 @@ class TestRunJiraDescriptionEditors:
         client.get_issue.side_effect = RuntimeError(f"401 body {SECRET}")
         with caplog.at_level(logging.ERROR, logger="agentic_ci.gates"):
             result = self._run(client=client)
-        assert result == "Could not fetch issue TEST-1 (RuntimeError); see the CI job log"
+        assert result == ["Could not fetch issue TEST-1 (RuntimeError); see the CI job log"]
         assert SECRET in caplog.text
 
     def test_changelog_error_text_stays_in_log(self, caplog):
@@ -249,11 +251,55 @@ class TestRunJiraDescriptionEditors:
         client.get_description_editors.side_effect = RuntimeError(f"500 body {SECRET}")
         with caplog.at_level(logging.ERROR, logger="agentic_ci.gates"):
             result = self._run(client=client)
-        assert result == "Could not fetch changelog for TEST-1 (RuntimeError); see the CI job log"
+        assert result == ["Could not fetch changelog for TEST-1 (RuntimeError); see the CI job log"]
         assert SECRET in caplog.text
 
     def test_trusted_editors_pass(self):
         client = MagicMock()
         client.get_issue.return_value = {"reporter_email": "dev@redhat.com"}
         client.get_description_editors.return_value = ["dev@redhat.com"]
-        assert self._run(client=client) is None
+        assert self._run(client=client) == []
+
+    def test_untrusted_editor_returns_one_error(self):
+        client = MagicMock()
+        client.get_issue.return_value = {"reporter_email": "dev@redhat.com"}
+        client.get_description_editors.return_value = ["dev@redhat.com", "x@example.com"]
+        assert self._run(client=client) == [
+            "Description edited by untrusted user(s): x@example.com. "
+            "Only users matching @redhat\\.com$ may author or edit the ticket description."
+        ]
+
+
+class TestCliPreGates:
+    ENV = {
+        "JIRA_URL": "https://jira.example.com",
+        "JIRA_API_TOKEN": "token",
+        "TICKET_KEY": "TEST-1",
+        "INTERNAL_DOMAIN_RE": r"@redhat\.com$",
+    }
+
+    def test_blocked_description_editors_prints_one_line(self, tmp_path, capsys):
+        client = MagicMock()
+        client.get_issue.return_value = {"reporter_email": "dev@redhat.com"}
+        client.get_description_editors.return_value = ["x@example.com"]
+        args = argparse.Namespace(
+            pre_gates="jira-description-editors",
+            post_gates=None,
+            workdir=str(tmp_path),
+        )
+        harness = MagicMock()
+        with (
+            patch.dict(os.environ, self.ENV, clear=True),
+            patch("agentic_ci.gates.JiraClient.from_env", return_value=client),
+            pytest.raises(SystemExit) as exc,
+        ):
+            cmd_run(args, MagicMock(), harness)
+
+        assert exc.value.code == 0
+        harness.model_env_var.assert_not_called()
+        out = capsys.readouterr().out.splitlines()
+        assert [line for line in out if line.startswith("Pre-gate")] == [
+            "Pre-gate jira-description-editors blocked: "
+            "Description edited by untrusted user(s): x@example.com. "
+            "Only users matching @redhat\\.com$ may author or edit the ticket description."
+        ]
