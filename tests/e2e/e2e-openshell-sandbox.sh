@@ -435,6 +435,22 @@ else
             --no-otel || RC=$?
 
         assert_ok "codex exited successfully" test "$RC" -eq 0
+
+        # agentic-ci's OpenAI provider profile has no curl rule, so a plain
+        # sandbox process must not reach api.openai.com with the provider
+        # placeholder, and Codex logs in with the placeholder, so the real
+        # key must not be stored in its auth.json. (A plain exec never
+        # sources the env script, and the agent wrapper deletes it, so the
+        # env script is covered by unit tests instead.)
+        print_step "Probing OpenAI credential isolation..."
+        CURL_OUT="$(openshell sandbox exec --name ci --no-tty -- bash -c \
+            'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models' \
+            2>&1 || true)"
+        assert_contains "plain curl gets no OpenAI key" "$CURL_OUT" "CONNECT tunnel failed, response 403"
+        KEY_HITS="$(openshell sandbox exec --name ci --no-tty -- bash -c \
+            'cat "${CODEX_HOME:-/sandbox/.codex}/auth.json"' 2>/dev/null \
+            | grep -cF -- "$OPENAI_API_KEY" || true)"
+        assert_ok "real OpenAI key is not in Codex auth.json" test "${KEY_HITS:-0}" -eq 0
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true

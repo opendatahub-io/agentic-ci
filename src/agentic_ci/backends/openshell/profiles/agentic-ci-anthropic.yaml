@@ -1,0 +1,28 @@
+# OpenShell provider profile for agentic-ci's Anthropic API key provider.
+#
+# Same credential as OpenShell's builtin "anthropic" profile, but the network
+# rule OpenShell composes from this profile binds api.anthropic.com to the
+# Claude Code and OpenCode binaries instead of curl. See
+# agentic-ci-openai.yaml for why that does not make the key agent-only and
+# why the endpoint is L4 with uninspected credentials allowed.
+id: agentic-ci-anthropic
+display_name: agentic-ci Anthropic
+description: Anthropic API key for agentic-ci, with no curl rule
+category: inference
+credentials:
+  - name: api_key
+    description: Anthropic API key
+    env_vars: [ANTHROPIC_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    access: read-write
+    allow_uninspected_credentials: true
+binaries:
+  - /usr/local/bin/claude
+  - /usr/local/sbin/claude
+  - /usr/local/bin/opencode
+  - /usr/local/sbin/opencode

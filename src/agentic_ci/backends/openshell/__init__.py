@@ -96,8 +96,17 @@ def _clear_sandbox_identity() -> None:
         pass
 
 
-def _sandbox_identity(harness_name: str, image: str | None, auth_mode: str) -> dict:
-    return {"auth_mode": auth_mode, "harness": harness_name, "image": image}
+def _sandbox_identity(
+    harness_name: str, image: str | None, auth_mode: str, credential: str | None = None
+) -> dict:
+    identity = {"auth_mode": auth_mode, "harness": harness_name, "image": image}
+    if credential is not None:
+        # Fingerprint of a key the agent gets only through the provider. A
+        # rotated key must recreate the sandbox: updating the provider alone
+        # reaches a running sandbox only after a delay, and a placeholder
+        # issued before the update keeps resolving to the old key.
+        identity["credential"] = credential
+    return identity
 
 
 class OpenShellBackend(Backend):
@@ -149,6 +158,7 @@ class OpenShellBackend(Backend):
         env = self._merged_env()
         auth_mode = self.harness.auth_mode_for_env(env)
         provider.validate_credentials(auth_mode, env)
+        credential = provider.credential_fingerprint(auth_mode, env)
 
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
@@ -184,7 +194,9 @@ class OpenShellBackend(Backend):
                         "The existing OpenShell sandbox has no identifiable provider; "
                         "run agentic-ci stop before switching harnesses"
                     )
-            expected_identity = _sandbox_identity(self.harness.name, self.image, auth_mode)
+            expected_identity = _sandbox_identity(
+                self.harness.name, self.image, auth_mode, credential
+            )
             if existing_auth_mode == auth_mode and identity == expected_identity:
                 log.section("Sandbox already exists")
                 self._warn_unapplied_resources()
@@ -227,7 +239,9 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
-        _save_sandbox_identity(_sandbox_identity(self.harness.name, self.image, auth_mode))
+        _save_sandbox_identity(
+            _sandbox_identity(self.harness.name, self.image, auth_mode, credential)
+        )
 
     def _warn_unapplied_resources(self):
         """Say so when a reused sandbox keeps an allocation the caller did not ask for.
@@ -385,10 +399,18 @@ class OpenShellBackend(Backend):
         """
         env = self._merged_env() if env is None else env
         auth_mode = self.harness.auth_mode_for_env(env) if auth_mode is None else auth_mode
+        script_env = env
+        if auth_mode == "openai":
+            # The provider already sets OPENAI_API_KEY in the sandbox to an
+            # OpenShell placeholder, and the proxy swaps it for the real key
+            # only on requests to api.openai.com. Exporting the real key here
+            # would also land in $CODEX_HOME/auth.json via codex login, where
+            # any later sandbox process could read it.
+            script_env = {k: v for k, v in env.items() if k not in _OPENAI_CREDENTIAL_ENV_VARS}
         lines = self.harness.build_env_script_lines(
             otel_port=otel_port,
             traceparent=traceparent,
-            env=env,
+            env=script_env,
         )
         if otel_port:
             # The harness sets the OTel endpoint to 10.200.0.1 (the gateway IP
