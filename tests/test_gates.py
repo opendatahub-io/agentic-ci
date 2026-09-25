@@ -69,6 +69,16 @@ class TestFilterCommentsByDomain:
         assert len(result) == 1
         assert result[0]["body"] == "ok"
 
+    def test_missing_or_non_string_email_is_not_in_domain(self):
+        comments = [
+            {"author_email": None, "body": "app"},
+            {"body": "no email key"},
+            {"author_email": 42, "body": "not a string"},
+            {"author_email": "alice@redhat.com", "body": "ok"},
+        ]
+        result = filter_comments_by_domain(comments, REDHAT_RE)
+        assert [c["body"] for c in result] == ["ok"]
+
 
 class TestFilterBotComments:
     def test_removes_sentinel(self):
@@ -79,6 +89,15 @@ class TestFilterBotComments:
         result = filter_bot_comments(comments, ["jira-autofix-bot"])
         assert len(result) == 1
         assert result[0]["body"] == "Human wrote this"
+
+    def test_missing_or_non_string_body_is_kept(self):
+        comments = [
+            {"body": None, "author_email": "a@redhat.com"},
+            {"author_email": "b@redhat.com"},
+            {"body": "AUTO: jira-autofix-bot generated this"},
+        ]
+        result = filter_bot_comments(comments, ["jira-autofix-bot"])
+        assert [c["author_email"] for c in result] == ["a@redhat.com", "b@redhat.com"]
 
 
 class TestCheckExternalReporter:
@@ -94,6 +113,10 @@ class TestCheckExternalReporter:
     def test_already_labeled(self):
         ticket = {"reporter_email": "user@gmail.com", "labels": ["triage-external"]}
         assert check_external_reporter(ticket, REDHAT_RE, external_label="triage-external") is None
+
+    def test_none_reporter_email_is_external(self):
+        ticket = {"reporter_email": None, "labels": []}
+        assert check_external_reporter(ticket, REDHAT_RE, external_label="ext") == "ext"
 
 
 class TestCheckDescriptionEditors:
@@ -175,4 +198,8 @@ class TestCheckLabelAuthorEmail:
 
     def test_missing_found_key(self):
         author_info = {"email": "dev@redhat.com"}
+        assert check_label_author_email(author_info, REDHAT_RE) is False
+
+    def test_none_email(self):
+        author_info = {"found": True, "email": None}
         assert check_label_author_email(author_info, REDHAT_RE) is False

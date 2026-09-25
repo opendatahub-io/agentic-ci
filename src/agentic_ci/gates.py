@@ -31,6 +31,35 @@ from agentic_ci.jira.client import JiraClient
 
 log = logging.getLogger(__name__)
 
+# Gate error strings can end up in tracker comments (Jira, MR notes), so
+# they name only the failure class.  Exception messages and subprocess
+# output go to the job log instead.
+_SEE_JOB_LOG = "see the CI job log"
+
+
+def _failure_class(exc: BaseException) -> str:
+    """Return the exception class name for use in a gate error string."""
+    return type(exc).__name__
+
+
+def _stderr_text(exc: BaseException) -> str:
+    """Return a subprocess exception's captured stderr as stripped text."""
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if not isinstance(stderr, str):
+        return ""
+    return stderr.strip()
+
+
+def _email_matches(pattern: re.Pattern[str], email: object) -> bool:
+    """Return True if ``email`` is a string that ``pattern`` matches.
+
+    Missing (None) or non-string emails, as Jira returns for apps and
+    deleted users, never match.
+    """
+    return isinstance(email, str) and bool(pattern.search(email))
+
 
 # -- Gate registry -----------------------------------------------------------
 
@@ -167,9 +196,11 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
             check=True,
             timeout=30,
         )
-    except subprocess.CalledProcessError as exc:
-        log.error("git rev-list failed: %s", exc.stderr.strip())
-        return [f"gitleaks pre-check failed: git rev-list error: {exc.stderr.strip()}"]
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        log.error("git rev-list failed: %s; stderr: %s", exc, _stderr_text(exc))
+        return [
+            f"gitleaks pre-check failed: git rev-list error ({_failure_class(exc)}); {_SEE_JOB_LOG}"
+        ]
 
     try:
         commit_count = int(count_output.stdout.strip())
@@ -217,16 +248,30 @@ def filter_comments_by_domain(
     comments: list[dict],
     allowed_domain_re: re.Pattern[str],
 ) -> list[dict]:
-    """Keep only comments from authors whose email matches ``allowed_domain_re``."""
-    return [c for c in comments if allowed_domain_re.search(c.get("author_email", ""))]
+    """Keep only comments from authors whose email matches ``allowed_domain_re``.
+
+    Comments with a missing (None) or non-string ``author_email`` are dropped.
+    """
+    return [c for c in comments if _email_matches(allowed_domain_re, c.get("author_email"))]
 
 
 def filter_bot_comments(
     comments: list[dict],
     sentinel_phrases: list[str],
 ) -> list[dict]:
-    """Remove comments containing any of the given bot sentinel phrases."""
-    return [c for c in comments if not any(s in c.get("body", "") for s in sentinel_phrases)]
+    """Remove comments containing any of the given bot sentinel phrases.
+
+    A missing (None) or non-string ``body`` holds no sentinel, so the
+    comment is kept.
+    """
+    kept = []
+    for c in comments:
+        body = c.get("body")
+        if not isinstance(body, str):
+            body = ""
+        if not any(s in body for s in sentinel_phrases):
+            kept.append(c)
+    return kept
 
 
 def check_description_editors(
@@ -266,11 +311,10 @@ def check_external_reporter(
     Returns ``external_label`` if the reporter is external and the label
     is not already present, otherwise ``None``.
     """
-    reporter_email = ticket.get("reporter_email", "")
     labels = ticket.get("labels", [])
     if external_label in labels:
         return None
-    if not internal_domain_re.search(reporter_email):
+    if not _email_matches(internal_domain_re, ticket.get("reporter_email")):
         return external_label
     return None
 
@@ -284,12 +328,12 @@ def check_label_author_email(
     ``author_info`` is the dict returned by ``JiraClient.get_label_author()``,
     expected to contain ``"found"`` (bool) and ``"email"`` (str) keys.
 
-    Returns True if the author was found and the email matches.
+    Returns True if the author was found and the email matches.  A missing
+    (None) or non-string email never matches.
     """
     if not author_info.get("found"):
         return False
-    email = author_info.get("email", "")
-    return bool(domain_pattern.search(email))
+    return _email_matches(domain_pattern, author_info.get("email"))
 
 
 # -- CLI gate runners --------------------------------------------------------
@@ -302,7 +346,8 @@ def _run_sensitive_files(workdir: str, **_kw: object) -> list[str]:
     try:
         changed = get_changed_files(Path(workdir), base_ref="origin/HEAD")
     except GitDiffError as exc:
-        return [f"Could not compute changed files: {exc}"]
+        log.error("Could not compute changed files: %s", exc)
+        return [f"Could not compute changed files ({_failure_class(exc)}); {_SEE_JOB_LOG}"]
 
     blocked = check_sensitive_files(changed)
     if blocked:
@@ -316,7 +361,8 @@ def _run_commit_author(workdir: str, **_kw: object) -> list[str]:
     try:
         info = get_commit_info(Path(workdir))
     except subprocess.CalledProcessError as exc:
-        return [f"Could not read commit info: {exc}"]
+        log.error("Could not read commit info: %s; stderr: %s", exc, _stderr_text(exc))
+        return [f"Could not read commit info ({_failure_class(exc)}); {_SEE_JOB_LOG}"]
 
     if not check_commit_identity(info, expected):
         return [f"Commit committer '{info.get('email')}' does not match expected '{expected}'"]
@@ -343,23 +389,29 @@ def _run_jira_description_editors(**_kw: object) -> str | None:
     try:
         internal_re = re.compile(domain_pattern, re.IGNORECASE)
     except re.error as exc:
-        return f"Invalid INTERNAL_DOMAIN_RE pattern: {exc}"
+        log.error("Invalid INTERNAL_DOMAIN_RE pattern: %s", exc)
+        # re.error was renamed PatternError in Python 3.13, so the class name
+        # is not stable; the fixed text is enough to find the log line.
+        return f"Invalid INTERNAL_DOMAIN_RE pattern; {_SEE_JOB_LOG}"
 
     try:
         client = JiraClient.from_env()
     except Exception as exc:
-        return f"Could not create Jira client: {exc}"
+        log.error("Could not create Jira client: %s", exc)
+        return f"Could not create Jira client ({_failure_class(exc)}); {_SEE_JOB_LOG}"
 
     try:
         issue = client.get_issue(ticket_key)
     except Exception as exc:
-        return f"Could not fetch issue {ticket_key}: {exc}"
+        log.error("Could not fetch issue %s: %s", ticket_key, exc)
+        return f"Could not fetch issue {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"
 
     reporter_email = issue.get("reporter_email", "")
     try:
         editors = client.get_description_editors(ticket_key)
     except Exception as exc:
-        return f"Could not fetch changelog for {ticket_key}: {exc}"
+        log.error("Could not fetch changelog for %s: %s", ticket_key, exc)
+        return f"Could not fetch changelog for {ticket_key} ({_failure_class(exc)}); {_SEE_JOB_LOG}"
 
     untrusted = check_description_editors(editors, reporter_email, internal_re)
     if untrusted:
