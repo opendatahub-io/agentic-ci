@@ -1,0 +1,4327 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run AI coding agents in sandboxed CI environments">
+      
+      
+      
+        <link rel="canonical" href="https://opendatahub-io.github.io/agentic-ci/api/harness/">
+      
+      
+        <link rel="prev" href="../backend/">
+      
+      
+        <link rel="next" href="../stream/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Harness - agentic-ci</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#harness" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="agentic-ci" class="md-header__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            agentic-ci
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Harness
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="agentic-ci" class="md-nav__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    agentic-ci
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/openshell-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Development with OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Container Images
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Container Images
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Sandbox Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backends/podman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backends/openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sandbox-profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agentic_ci.harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.EFFORT_NONE" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFFORT_NONE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.AGENT_EFFORT_ENV_VAR" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AGENT_EFFORT_ENV_VAR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.auth_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.registry_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.supports_otel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supports_otel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.autoupdater_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        autoupdater_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.validate_credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_credentials
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_env_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_env_script_lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_script_lines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_otel_exec_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_otel_exec_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.credential_mount_target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        credential_mount_target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.create_stream_processor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_stream_processor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.image_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        image_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.model_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.default_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.default_model_tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_model_tiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.effort_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        effort_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.subagent_effort_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        subagent_effort_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.resolve_efforts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_efforts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_effort_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_effort_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.effort_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        effort_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.classifier_effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        classifier_effort
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_classifier_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_classifier_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_local_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_local_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.write_sandbox_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_sandbox_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.sandbox_config_mounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sandbox_config_mounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.ClaudeCodeHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClaudeCodeHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ClaudeCodeHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.ClaudeCodeHarness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.OpenCodeHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCodeHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenCodeHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.OpenCodeHarness.build_otel_exec_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_otel_exec_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodexHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CodexHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.auth_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.run_settings_toml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_settings_toml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.create_harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_harness
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stream Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../otel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTEL Collector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generic Event Transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factory & Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox_profile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verdict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verdict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../git/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Git Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../forge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forge (GitHub/GitLab)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jira/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jira
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Utilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skill_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agentic_ci.harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.EFFORT_NONE" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EFFORT_NONE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.AGENT_EFFORT_ENV_VAR" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AGENT_EFFORT_ENV_VAR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Harness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Harness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.auth_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.registry_key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        registry_key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        models
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.supports_otel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        supports_otel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.autoupdater_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        autoupdater_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.validate_credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        validate_credentials
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_env_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_env_script_lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_env_script_lines
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_otel_exec_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_otel_exec_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.credential_mount_target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        credential_mount_target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.create_stream_processor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_stream_processor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.image_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        image_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.model_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.default_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.default_model_tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_model_tiers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.effort_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        effort_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.subagent_effort_env_var" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        subagent_effort_env_var
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.resolve_efforts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_efforts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_effort_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_effort_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.effort_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        effort_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.classifier_effort" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        classifier_effort
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_classifier_args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_classifier_args
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.build_local_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_local_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.write_sandbox_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_sandbox_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.Harness.sandbox_config_mounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sandbox_config_mounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.ClaudeCodeHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ClaudeCodeHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ClaudeCodeHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.ClaudeCodeHarness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.OpenCodeHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCodeHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenCodeHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.OpenCodeHarness.build_otel_exec_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_otel_exec_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CodexHarness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CodexHarness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.auth_mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.auth_mode_for_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auth_mode_for_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.CodexHarness.run_settings_toml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_settings_toml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.harness.create_harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_harness
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="harness">Harness<a class="headerlink" href="#harness" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="agentic_ci.harness" class="doc doc-heading">
+            <code>harness</code>
+
+
+<a href="#agentic_ci.harness" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Harness abstraction for AI agent CLI tools.</p>
+<p>A harness encapsulates everything specific to a particular agent CLI
+(Claude Code, OpenCode, Codex, etc.): how to build the command, what env vars
+it needs, where credentials are mounted, and how to parse its output.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.harness.EFFORT_NONE" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">EFFORT_NONE</span> <span class="o">=</span> <span class="s1">'none'</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.EFFORT_NONE" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Effort override value meaning "pass no effort flag".</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.harness.AGENT_EFFORT_ENV_VAR" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">AGENT_EFFORT_ENV_VAR</span> <span class="o">=</span> <span class="s1">'AGENT_REASONING_EFFORT'</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.AGENT_EFFORT_ENV_VAR" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var carrying the effective reasoning effort into the agent environment.</p>
+<p>Backends export it next to <code>AGENT_MODEL</code> so skills can read the effort in
+use without knowing the harness. Like <code>AGENT_MODEL</code> it is output only:
+:meth:<code>Harness.resolve_efforts</code> never reads it, so an agentic-ci run started
+inside an agent does not inherit the outer run's effort.</p>
+
+    </div>
+
+</div>
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.harness.Harness" class="doc doc-heading">
+            <code>Harness</code>
+
+
+<a href="#agentic_ci.harness.Harness" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="abc.ABC">ABC</span></code></p>
+
+
+
+        <p>Base class for agent CLI harnesses.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.auth_mode" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auth_mode</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.auth_mode" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return 'api-key' if ANTHROPIC_API_KEY is set, else 'vertex'.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.name" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">name</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.name" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Human-readable name for log messages.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.registry_key" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">registry_key</span> <span class="o">=</span> <span class="s1">''</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.registry_key" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Key of this harness in <code>agentic_ci.models.MODEL_REGISTRY</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.models" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">models</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.models" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Model ids and effort levels for this harness, from the registry.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.supports_otel" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">supports_otel</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.supports_otel" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Whether the agent CLI supports OTEL telemetry export.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.Harness.autoupdater_env_var" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">autoupdater_env_var</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.autoupdater_env_var" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var name to disable auto-updates.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.auth_mode_for_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auth_mode_for_env</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.auth_mode_for_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the authentication mode selected by <em>env</em>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-47">47</a></span>
+<span class="normal"><a href="#__codelineno-0-48">48</a></span>
+<span class="normal"><a href="#__codelineno-0-49">49</a></span>
+<span class="normal"><a href="#__codelineno-0-50">50</a></span>
+<span class="normal"><a href="#__codelineno-0-51">51</a></span>
+<span class="normal"><a href="#__codelineno-0-52">52</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="k">def</span><span class="w"> </span><span class="nf">auth_mode_for_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="w">    </span><span class="sd">"""Return the authentication mode selected by *env*."""</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">credential_env</span> <span class="o">=</span> <span class="n">env</span> <span class="k">if</span> <span class="n">env</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="k">if</span> <span class="n">credential_env</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"ANTHROPIC_API_KEY"</span><span class="p">):</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51"></a>        <span class="k">return</span> <span class="s2">"api-key"</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a>    <span class="k">return</span> <span class="s2">"vertex"</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.validate_credentials" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">validate_credentials</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">allow_auth_file</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.validate_credentials" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Fail early when harness-specific credentials are unavailable.</p>
+<p>Harnesses without additional validation requirements use this no-op
+implementation.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-54">54</a></span>
+<span class="normal"><a href="#__codelineno-0-55">55</a></span>
+<span class="normal"><a href="#__codelineno-0-56">56</a></span>
+<span class="normal"><a href="#__codelineno-0-57">57</a></span>
+<span class="normal"><a href="#__codelineno-0-58">58</a></span>
+<span class="normal"><a href="#__codelineno-0-59">59</a></span>
+<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+<span class="normal"><a href="#__codelineno-0-61">61</a></span>
+<span class="normal"><a href="#__codelineno-0-62">62</a></span>
+<span class="normal"><a href="#__codelineno-0-63">63</a></span>
+<span class="normal"><a href="#__codelineno-0-64">64</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="k">def</span><span class="w"> </span><span class="nf">validate_credentials</span><span class="p">(</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a>    <span class="n">allow_auth_file</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="w">    </span><span class="sd">"""Fail early when harness-specific credentials are unavailable.</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a>
+<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    Harnesses without additional validation requirements use this no-op</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    implementation.</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_args" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_args</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">extra_args</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">otel_endpoint</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">externally_sandboxed</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.build_args" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Build the CLI argument list to run inside the container.</p>
+<p><code>externally_sandboxed</code> is True when the backend already isolates the
+agent (OpenShell), so a harness may drop its own approval prompts and
+inner sandbox. Harnesses that always bypass permissions ignore it.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-71">71</a></span>
+<span class="normal"><a href="#__codelineno-0-72">72</a></span>
+<span class="normal"><a href="#__codelineno-0-73">73</a></span>
+<span class="normal"><a href="#__codelineno-0-74">74</a></span>
+<span class="normal"><a href="#__codelineno-0-75">75</a></span>
+<span class="normal"><a href="#__codelineno-0-76">76</a></span>
+<span class="normal"><a href="#__codelineno-0-77">77</a></span>
+<span class="normal"><a href="#__codelineno-0-78">78</a></span>
+<span class="normal"><a href="#__codelineno-0-79">79</a></span>
+<span class="normal"><a href="#__codelineno-0-80">80</a></span>
+<span class="normal"><a href="#__codelineno-0-81">81</a></span>
+<span class="normal"><a href="#__codelineno-0-82">82</a></span>
+<span class="normal"><a href="#__codelineno-0-83">83</a></span>
+<span class="normal"><a href="#__codelineno-0-84">84</a></span>
+<span class="normal"><a href="#__codelineno-0-85">85</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_args</span><span class="p">(</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="n">extra_args</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="n">otel_endpoint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="n">externally_sandboxed</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="w">    </span><span class="sd">"""Build the CLI argument list to run inside the container.</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">    ``externally_sandboxed`` is True when the backend already isolates the</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">    agent (OpenShell), so a harness may drop its own approval prompts and</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">    inner sandbox. Harnesses that always bypass permissions ignore it.</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_env_args" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_env_args</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.build_env_args" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return ['--env', 'K=V', ...] pairs for <code>podman run</code> (PodmanBackend only).</p>
+<p>Container-image ENV vars (config dirs, AGENT_TOOL) are already
+set in the Containerfile, so this method should not override them.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-87">87</a></span>
+<span class="normal"><a href="#__codelineno-0-88">88</a></span>
+<span class="normal"><a href="#__codelineno-0-89">89</a></span>
+<span class="normal"><a href="#__codelineno-0-90">90</a></span>
+<span class="normal"><a href="#__codelineno-0-91">91</a></span>
+<span class="normal"><a href="#__codelineno-0-92">92</a></span>
+<span class="normal"><a href="#__codelineno-0-93">93</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_env_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="w">    </span><span class="sd">"""Return ['--env', 'K=V', ...] pairs for ``podman run`` (PodmanBackend only).</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90"></a>
+<a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">    Container-image ENV vars (config dirs, AGENT_TOOL) are already</span>
+<a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">    set in the Containerfile, so this method should not override them.</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_env_script_lines" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_env_script_lines</span><span class="p">(</span><span class="n">otel_port</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">otel_rate_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.build_env_script_lines" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return <code>export K=V</code> lines for the env script (OpenShellBackend only).</p>
+<p>OpenShell extracts the container filesystem but drops OCI ENV
+metadata, so every required env var must be re-injected here.
+Config dirs use <code>/sandbox/...</code> paths per OpenShell convention.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-95"> 95</a></span>
+<span class="normal"><a href="#__codelineno-0-96"> 96</a></span>
+<span class="normal"><a href="#__codelineno-0-97"> 97</a></span>
+<span class="normal"><a href="#__codelineno-0-98"> 98</a></span>
+<span class="normal"><a href="#__codelineno-0-99"> 99</a></span>
+<span class="normal"><a href="#__codelineno-0-100">100</a></span>
+<span class="normal"><a href="#__codelineno-0-101">101</a></span>
+<span class="normal"><a href="#__codelineno-0-102">102</a></span>
+<span class="normal"><a href="#__codelineno-0-103">103</a></span>
+<span class="normal"><a href="#__codelineno-0-104">104</a></span>
+<span class="normal"><a href="#__codelineno-0-105">105</a></span>
+<span class="normal"><a href="#__codelineno-0-106">106</a></span>
+<span class="normal"><a href="#__codelineno-0-107">107</a></span>
+<span class="normal"><a href="#__codelineno-0-108">108</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_env_script_lines</span><span class="p">(</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-98" name="__codelineno-0-98"></a>    <span class="n">otel_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-99" name="__codelineno-0-99"></a>    <span class="n">otel_rate_file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a>    <span class="n">traceparent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-101" name="__codelineno-0-101"></a>    <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="w">    </span><span class="sd">"""Return ``export K=V`` lines for the env script (OpenShellBackend only).</span>
+<a id="__codelineno-0-104" name="__codelineno-0-104"></a>
+<a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">    OpenShell extracts the container filesystem but drops OCI ENV</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">    metadata, so every required env var must be re-injected here.</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">    Config dirs use ``/sandbox/...`` paths per OpenShell convention.</span>
+<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_otel_exec_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_otel_exec_env</span><span class="p">(</span><span class="n">otel_port</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.build_otel_exec_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return ['--env', 'K=V', ...] pairs for podman exec when OTEL is enabled.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-110">110</a></span>
+<span class="normal"><a href="#__codelineno-0-111">111</a></span>
+<span class="normal"><a href="#__codelineno-0-112">112</a></span>
+<span class="normal"><a href="#__codelineno-0-113">113</a></span>
+<span class="normal"><a href="#__codelineno-0-114">114</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-110" name="__codelineno-0-110"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-111" name="__codelineno-0-111"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_otel_exec_env</span><span class="p">(</span>
+<a id="__codelineno-0-112" name="__codelineno-0-112"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">otel_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="w">    </span><span class="sd">"""Return ['--env', 'K=V', ...] pairs for podman exec when OTEL is enabled."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.credential_mount_target" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">credential_mount_target</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.credential_mount_target" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Container-side home directory for credential mounts.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-116">116</a></span>
+<span class="normal"><a href="#__codelineno-0-117">117</a></span>
+<span class="normal"><a href="#__codelineno-0-118">118</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-116" name="__codelineno-0-116"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117"></a><span class="k">def</span><span class="w"> </span><span class="nf">credential_mount_target</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118"></a><span class="w">    </span><span class="sd">"""Container-side home directory for credential mounts."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.create_stream_processor" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">create_stream_processor</span><span class="p">(</span><span class="n">pid</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.create_stream_processor" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return a stream processor for this harness's output format.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-120">120</a></span>
+<span class="normal"><a href="#__codelineno-0-121">121</a></span>
+<span class="normal"><a href="#__codelineno-0-122">122</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_stream_processor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pid</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="w">    </span><span class="sd">"""Return a stream processor for this harness's output format."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.image_env_var" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">image_env_var</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.image_env_var" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var name for the fallback container image.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-124">124</a></span>
+<span class="normal"><a href="#__codelineno-0-125">125</a></span>
+<span class="normal"><a href="#__codelineno-0-126">126</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a><span class="k">def</span><span class="w"> </span><span class="nf">image_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="w">    </span><span class="sd">"""Env var name for the fallback container image."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.model_env_var" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">model_env_var</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.model_env_var" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var name for the model override.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-128">128</a></span>
+<span class="normal"><a href="#__codelineno-0-129">129</a></span>
+<span class="normal"><a href="#__codelineno-0-130">130</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-128" name="__codelineno-0-128"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129"></a><span class="k">def</span><span class="w"> </span><span class="nf">model_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130"></a><span class="w">    </span><span class="sd">"""Env var name for the model override."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.default_model" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">default_model</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.harness.Harness.default_model" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Default model when no --model flag or env var is set.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-140">140</a></span>
+<span class="normal"><a href="#__codelineno-0-141">141</a></span>
+<span class="normal"><a href="#__codelineno-0-142">142</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-140" name="__codelineno-0-140"></a><span class="k">def</span><span class="w"> </span><span class="nf">default_model</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-141" name="__codelineno-0-141"></a><span class="w">    </span><span class="sd">"""Default model when no --model flag or env var is set."""</span>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">default</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.default_model_tiers" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">default_model_tiers</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.harness.Harness.default_model_tiers" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Registry <code>low</code>/<code>medium</code>/<code>high</code> routing tiers for this harness.</p>
+<p>The <code>high</code> tier matches :meth:<code>default_model</code> so routed runs never
+regress hard tasks. <code>SkillConfig.model_tiers</code> overrides entries.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-144">144</a></span>
+<span class="normal"><a href="#__codelineno-0-145">145</a></span>
+<span class="normal"><a href="#__codelineno-0-146">146</a></span>
+<span class="normal"><a href="#__codelineno-0-147">147</a></span>
+<span class="normal"><a href="#__codelineno-0-148">148</a></span>
+<span class="normal"><a href="#__codelineno-0-149">149</a></span>
+<span class="normal"><a href="#__codelineno-0-150">150</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-144" name="__codelineno-0-144"></a><span class="k">def</span><span class="w"> </span><span class="nf">default_model_tiers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ModelTier</span><span class="p">]:</span>
+<a id="__codelineno-0-145" name="__codelineno-0-145"></a><span class="w">    </span><span class="sd">"""Registry ``low``/``medium``/``high`` routing tiers for this harness.</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="sd">    The ``high`` tier matches :meth:`default_model` so routed runs never</span>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a><span class="sd">    regress hard tasks. ``SkillConfig.model_tiers`` overrides entries.</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a><span class="sd">    """</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a>    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">tiers</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.effort_env_var" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">effort_env_var</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.effort_env_var" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var name for the reasoning effort override.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-152">152</a></span>
+<span class="normal"><a href="#__codelineno-0-153">153</a></span>
+<span class="normal"><a href="#__codelineno-0-154">154</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-152" name="__codelineno-0-152"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-153" name="__codelineno-0-153"></a><span class="k">def</span><span class="w"> </span><span class="nf">effort_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a><span class="w">    </span><span class="sd">"""Env var name for the reasoning effort override."""</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.subagent_effort_env_var" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">subagent_effort_env_var</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.harness.Harness.subagent_effort_env_var" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Env var name for the sub-agent effort override (<code>None</code> = no separate knob).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-156">156</a></span>
+<span class="normal"><a href="#__codelineno-0-157">157</a></span>
+<span class="normal"><a href="#__codelineno-0-158">158</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-156" name="__codelineno-0-156"></a><span class="k">def</span><span class="w"> </span><span class="nf">subagent_effort_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-157" name="__codelineno-0-157"></a><span class="w">    </span><span class="sd">"""Env var name for the sub-agent effort override (``None`` = no separate knob)."""</span>
+<a id="__codelineno-0-158" name="__codelineno-0-158"></a>    <span class="k">return</span> <span class="kc">None</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.resolve_efforts" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">resolve_efforts</span><span class="p">(</span><span class="n">effort</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.resolve_efforts" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the effective <code>(effort, subagent_effort)</code> for a run.</p>
+<p>Precedence for the main effort: explicit <em>effort</em> argument, then the
+:meth:<code>effort_env_var</code> value, then the registry <code>default_effort</code>.
+The sub-agent effort is the :meth:<code>subagent_effort_env_var</code> value,
+then the registry <code>subagent_effort</code>, then the main effort; it is
+<code>None</code> for harnesses without a separate sub-agent knob. The literal
+value <code>none</code> selects "no effort flag". Values are validated by
+:meth:<code>build_effort_args</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-160">160</a></span>
+<span class="normal"><a href="#__codelineno-0-161">161</a></span>
+<span class="normal"><a href="#__codelineno-0-162">162</a></span>
+<span class="normal"><a href="#__codelineno-0-163">163</a></span>
+<span class="normal"><a href="#__codelineno-0-164">164</a></span>
+<span class="normal"><a href="#__codelineno-0-165">165</a></span>
+<span class="normal"><a href="#__codelineno-0-166">166</a></span>
+<span class="normal"><a href="#__codelineno-0-167">167</a></span>
+<span class="normal"><a href="#__codelineno-0-168">168</a></span>
+<span class="normal"><a href="#__codelineno-0-169">169</a></span>
+<span class="normal"><a href="#__codelineno-0-170">170</a></span>
+<span class="normal"><a href="#__codelineno-0-171">171</a></span>
+<span class="normal"><a href="#__codelineno-0-172">172</a></span>
+<span class="normal"><a href="#__codelineno-0-173">173</a></span>
+<span class="normal"><a href="#__codelineno-0-174">174</a></span>
+<span class="normal"><a href="#__codelineno-0-175">175</a></span>
+<span class="normal"><a href="#__codelineno-0-176">176</a></span>
+<span class="normal"><a href="#__codelineno-0-177">177</a></span>
+<span class="normal"><a href="#__codelineno-0-178">178</a></span>
+<span class="normal"><a href="#__codelineno-0-179">179</a></span>
+<span class="normal"><a href="#__codelineno-0-180">180</a></span>
+<span class="normal"><a href="#__codelineno-0-181">181</a></span>
+<span class="normal"><a href="#__codelineno-0-182">182</a></span>
+<span class="normal"><a href="#__codelineno-0-183">183</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-160" name="__codelineno-0-160"></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve_efforts</span><span class="p">(</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">effort</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a><span class="w">    </span><span class="sd">"""Return the effective ``(effort, subagent_effort)`` for a run.</span>
+<a id="__codelineno-0-164" name="__codelineno-0-164"></a>
+<a id="__codelineno-0-165" name="__codelineno-0-165"></a><span class="sd">    Precedence for the main effort: explicit *effort* argument, then the</span>
+<a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="sd">    :meth:`effort_env_var` value, then the registry ``default_effort``.</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">    The sub-agent effort is the :meth:`subagent_effort_env_var` value,</span>
+<a id="__codelineno-0-168" name="__codelineno-0-168"></a><span class="sd">    then the registry ``subagent_effort``, then the main effort; it is</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">    ``None`` for harnesses without a separate sub-agent knob. The literal</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="sd">    value ``none`` selects "no effort flag". Values are validated by</span>
+<a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="sd">    :meth:`build_effort_args`.</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a><span class="sd">    """</span>
+<a id="__codelineno-0-173" name="__codelineno-0-173"></a>    <span class="n">config_env</span> <span class="o">=</span> <span class="n">env</span> <span class="k">if</span> <span class="n">env</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
+<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="n">main</span> <span class="o">=</span> <span class="n">effort</span> <span class="ow">or</span> <span class="n">config_env</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">effort_env_var</span><span class="p">())</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">default_effort</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="k">if</span> <span class="n">main</span> <span class="o">==</span> <span class="n">EFFORT_NONE</span><span class="p">:</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a>        <span class="n">main</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">sub_var</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">subagent_effort_env_var</span><span class="p">()</span>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a>    <span class="k">if</span> <span class="n">sub_var</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a>        <span class="k">return</span> <span class="n">main</span><span class="p">,</span> <span class="kc">None</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>    <span class="n">sub</span> <span class="o">=</span> <span class="n">config_env</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sub_var</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">subagent_effort</span> <span class="ow">or</span> <span class="n">main</span>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a>    <span class="k">if</span> <span class="n">sub</span> <span class="o">==</span> <span class="n">EFFORT_NONE</span><span class="p">:</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a>        <span class="n">sub</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>    <span class="k">return</span> <span class="n">main</span><span class="p">,</span> <span class="n">sub</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_effort_args" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_effort_args</span><span class="p">(</span><span class="n">effort</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.build_effort_args" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return CLI args that set reasoning effort for this harness.</p>
+<p>Returns <code>[]</code> when both values are <code>None</code>. Raises <code>ValueError</code>
+for a value outside the registry's <code>efforts</code> set, so an invalid
+override fails before the agent starts. The result is passed to
+<code>build_args()</code> through <code>extra_args</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-185">185</a></span>
+<span class="normal"><a href="#__codelineno-0-186">186</a></span>
+<span class="normal"><a href="#__codelineno-0-187">187</a></span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span>
+<span class="normal"><a href="#__codelineno-0-190">190</a></span>
+<span class="normal"><a href="#__codelineno-0-191">191</a></span>
+<span class="normal"><a href="#__codelineno-0-192">192</a></span>
+<span class="normal"><a href="#__codelineno-0-193">193</a></span>
+<span class="normal"><a href="#__codelineno-0-194">194</a></span>
+<span class="normal"><a href="#__codelineno-0-195">195</a></span>
+<span class="normal"><a href="#__codelineno-0-196">196</a></span>
+<span class="normal"><a href="#__codelineno-0-197">197</a></span>
+<span class="normal"><a href="#__codelineno-0-198">198</a></span>
+<span class="normal"><a href="#__codelineno-0-199">199</a></span>
+<span class="normal"><a href="#__codelineno-0-200">200</a></span>
+<span class="normal"><a href="#__codelineno-0-201">201</a></span>
+<span class="normal"><a href="#__codelineno-0-202">202</a></span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_effort_args</span><span class="p">(</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">effort</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a><span class="w">    </span><span class="sd">"""Return CLI args that set reasoning effort for this harness.</span>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">    Returns ``[]`` when both values are ``None``. Raises ``ValueError``</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">    for a value outside the registry's ``efforts`` set, so an invalid</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">    override fails before the agent starts. The result is passed to</span>
+<a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">    ``build_args()`` through ``extra_args``.</span>
+<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">    """</span>
+<a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="p">((</span><span class="s2">"effort"</span><span class="p">,</span> <span class="n">effort</span><span class="p">),</span> <span class="p">(</span><span class="s2">"sub-agent effort"</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="p">)):</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a>        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">value</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">efforts</span><span class="p">:</span>
+<a id="__codelineno-0-197" name="__codelineno-0-197"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a>                <span class="sa">f</span><span class="s2">"Unsupported </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">; "</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a>                <span class="sa">f</span><span class="s2">"expected one of </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">efforts</span><span class="p">)</span><span class="si">}</span><span class="s2"> or </span><span class="si">{</span><span class="n">EFFORT_NONE</span><span class="si">!r}</span><span class="s2">"</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a>            <span class="p">)</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a>    <span class="k">if</span> <span class="n">effort</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">subagent_effort</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a>        <span class="k">return</span> <span class="p">[]</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">effort_args</span><span class="p">(</span><span class="n">effort</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.effort_args" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">effort_args</span><span class="p">(</span><span class="n">effort</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.effort_args" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>CLI fragment for already-validated efforts.</p>
+<p>Harnesses without a sub-agent knob ignore <em>subagent_effort</em>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-205">205</a></span>
+<span class="normal"><a href="#__codelineno-0-206">206</a></span>
+<span class="normal"><a href="#__codelineno-0-207">207</a></span>
+<span class="normal"><a href="#__codelineno-0-208">208</a></span>
+<span class="normal"><a href="#__codelineno-0-209">209</a></span>
+<span class="normal"><a href="#__codelineno-0-210">210</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="k">def</span><span class="w"> </span><span class="nf">effort_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">effort</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span> <span class="n">subagent_effort</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="w">    </span><span class="sd">"""CLI fragment for already-validated efforts.</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">    Harnesses without a sub-agent knob ignore *subagent_effort*.</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.classifier_effort" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">classifier_effort</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.harness.Harness.classifier_effort" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Effort for the classifier run, from the registry.</p>
+<p><code>None</code> means normal resolution (effort env var, else <code>default_effort</code>).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-212">212</a></span>
+<span class="normal"><a href="#__codelineno-0-213">213</a></span>
+<span class="normal"><a href="#__codelineno-0-214">214</a></span>
+<span class="normal"><a href="#__codelineno-0-215">215</a></span>
+<span class="normal"><a href="#__codelineno-0-216">216</a></span>
+<span class="normal"><a href="#__codelineno-0-217">217</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="k">def</span><span class="w"> </span><span class="nf">classifier_effort</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="w">    </span><span class="sd">"""Effort for the classifier run, from the registry.</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a><span class="sd">    ``None`` means normal resolution (effort env var, else ``default_effort``).</span>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    """</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a>    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">models</span><span class="o">.</span><span class="n">classifier_effort</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_classifier_args" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_classifier_args</span><span class="p">(</span><span class="n">max_turns</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.build_classifier_args" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Extra CLI args that bound the classifier run.</p>
+<p>Default is no bound; harnesses whose CLI has a turn cap override this.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-219">219</a></span>
+<span class="normal"><a href="#__codelineno-0-220">220</a></span>
+<span class="normal"><a href="#__codelineno-0-221">221</a></span>
+<span class="normal"><a href="#__codelineno-0-222">222</a></span>
+<span class="normal"><a href="#__codelineno-0-223">223</a></span>
+<span class="normal"><a href="#__codelineno-0-224">224</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-219" name="__codelineno-0-219"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_classifier_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">max_turns</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="w">    </span><span class="sd">"""Extra CLI args that bound the classifier run.</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">    Default is no bound; harnesses whose CLI has a turn cap override this.</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">    """</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a>    <span class="k">return</span> <span class="p">[]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.build_local_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_local_env</span><span class="p">(</span><span class="n">otel_port</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">otel_rate_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-abstractmethod"><code>abstractmethod</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.Harness.build_local_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return env vars as a plain dict for direct (local) execution.</p>
+<p>Unlike build_env_args (podman --env format) or build_env_script_lines
+(OpenShell export format), this returns a dict suitable for merging
+into os.environ and passing to subprocess.Popen(env=...).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-226">226</a></span>
+<span class="normal"><a href="#__codelineno-0-227">227</a></span>
+<span class="normal"><a href="#__codelineno-0-228">228</a></span>
+<span class="normal"><a href="#__codelineno-0-229">229</a></span>
+<span class="normal"><a href="#__codelineno-0-230">230</a></span>
+<span class="normal"><a href="#__codelineno-0-231">231</a></span>
+<span class="normal"><a href="#__codelineno-0-232">232</a></span>
+<span class="normal"><a href="#__codelineno-0-233">233</a></span>
+<span class="normal"><a href="#__codelineno-0-234">234</a></span>
+<span class="normal"><a href="#__codelineno-0-235">235</a></span>
+<span class="normal"><a href="#__codelineno-0-236">236</a></span>
+<span class="normal"><a href="#__codelineno-0-237">237</a></span>
+<span class="normal"><a href="#__codelineno-0-238">238</a></span>
+<span class="normal"><a href="#__codelineno-0-239">239</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="nd">@abstractmethod</span>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_local_env</span><span class="p">(</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a>    <span class="n">otel_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a>    <span class="n">otel_rate_file</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a>    <span class="n">traceparent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a>    <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="w">    </span><span class="sd">"""Return env vars as a plain dict for direct (local) execution.</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">    Unlike build_env_args (podman --env format) or build_env_script_lines</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">    (OpenShell export format), this returns a dict suitable for merging</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">    into os.environ and passing to subprocess.Popen(env=...).</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.write_sandbox_config" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">write_sandbox_config</span><span class="p">(</span><span class="n">config_dir</span><span class="p">,</span> <span class="n">otel_enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.write_sandbox_config" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Write agent-specific config files to the sandbox config dir.</p>
+<p>Called by backends before container start. Default is a no-op.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_sandbox_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_dir</span><span class="p">,</span> <span class="n">otel_enabled</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a><span class="w">    </span><span class="sd">"""Write agent-specific config files to the sandbox config dir.</span>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    Called by backends before container start. Default is a no-op.</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a><span class="sd">    """</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.Harness.sandbox_config_mounts" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">sandbox_config_mounts</span><span class="p">(</span><span class="n">config_dir</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.Harness.sandbox_config_mounts" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return list of (host_path, container_path) for config file mounts.</p>
+<p>Called by backends to mount config files written by write_sandbox_config().
+Default returns empty list.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span>
+<span class="normal"><a href="#__codelineno-0-263">263</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="k">def</span><span class="w"> </span><span class="nf">sandbox_config_mounts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_dir</span><span class="p">):</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a><span class="w">    </span><span class="sd">"""Return list of (host_path, container_path) for config file mounts.</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a><span class="sd">    Called by backends to mount config files written by write_sandbox_config().</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a><span class="sd">    Default returns empty list.</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="sd">    """</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>    <span class="k">return</span> <span class="p">[]</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.harness.ClaudeCodeHarness" class="doc doc-heading">
+            <code>ClaudeCodeHarness</code>
+
+
+<a href="#agentic_ci.harness.ClaudeCodeHarness" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Harness (agentic_ci.harness.Harness)" href="#agentic_ci.harness.Harness">Harness</a></code></p>
+
+
+
+        <p>Claude Code CLI harness.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.ClaudeCodeHarness.auth_mode_for_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auth_mode_for_env</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.ClaudeCodeHarness.auth_mode_for_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return 'oauth' when CLAUDE_CODE_OAUTH_TOKEN is set and ANTHROPIC_API_KEY is not.</p>
+<p>ANTHROPIC_API_KEY still wins, matching Claude Code's own authentication
+precedence. Only this harness selects 'oauth': a subscription token is a
+Claude Code credential, and OpenCode and Codex have no path to use it.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-275">275</a></span>
+<span class="normal"><a href="#__codelineno-0-276">276</a></span>
+<span class="normal"><a href="#__codelineno-0-277">277</a></span>
+<span class="normal"><a href="#__codelineno-0-278">278</a></span>
+<span class="normal"><a href="#__codelineno-0-279">279</a></span>
+<span class="normal"><a href="#__codelineno-0-280">280</a></span>
+<span class="normal"><a href="#__codelineno-0-281">281</a></span>
+<span class="normal"><a href="#__codelineno-0-282">282</a></span>
+<span class="normal"><a href="#__codelineno-0-283">283</a></span>
+<span class="normal"><a href="#__codelineno-0-284">284</a></span>
+<span class="normal"><a href="#__codelineno-0-285">285</a></span>
+<span class="normal"><a href="#__codelineno-0-286">286</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="k">def</span><span class="w"> </span><span class="nf">auth_mode_for_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">env</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-276" name="__codelineno-0-276"></a><span class="w">    </span><span class="sd">"""Return 'oauth' when CLAUDE_CODE_OAUTH_TOKEN is set and ANTHROPIC_API_KEY is not.</span>
+<a id="__codelineno-0-277" name="__codelineno-0-277"></a>
+<a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">    ANTHROPIC_API_KEY still wins, matching Claude Code's own authentication</span>
+<a id="__codelineno-0-279" name="__codelineno-0-279"></a><span class="sd">    precedence. Only this harness selects 'oauth': a subscription token is a</span>
+<a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">    Claude Code credential, and OpenCode and Codex have no path to use it.</span>
+<a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">    """</span>
+<a id="__codelineno-0-282" name="__codelineno-0-282"></a>    <span class="n">credential_env</span> <span class="o">=</span> <span class="n">env</span> <span class="k">if</span> <span class="n">env</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
+<a id="__codelineno-0-283" name="__codelineno-0-283"></a>    <span class="n">mode</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">auth_mode_for_env</span><span class="p">(</span><span class="n">credential_env</span><span class="p">)</span>
+<a id="__codelineno-0-284" name="__codelineno-0-284"></a>    <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">"vertex"</span> <span class="ow">and</span> <span class="n">credential_env</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"CLAUDE_CODE_OAUTH_TOKEN"</span><span class="p">):</span>
+<a id="__codelineno-0-285" name="__codelineno-0-285"></a>        <span class="k">return</span> <span class="s2">"oauth"</span>
+<a id="__codelineno-0-286" name="__codelineno-0-286"></a>    <span class="k">return</span> <span class="n">mode</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.harness.OpenCodeHarness" class="doc doc-heading">
+            <code>OpenCodeHarness</code>
+
+
+<a href="#agentic_ci.harness.OpenCodeHarness" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Harness (agentic_ci.harness.Harness)" href="#agentic_ci.harness.Harness">Harness</a></code></p>
+
+
+
+        <p>OpenCode CLI harness.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.OpenCodeHarness.build_otel_exec_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_otel_exec_env</span><span class="p">(</span><span class="n">otel_port</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.OpenCodeHarness.build_otel_exec_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return OTel env vars for OpenCode.</p>
+<p>See docs/otel-configuration.md for why these differ from Claude Code.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span>
+<span class="normal"><a href="#__codelineno-0-622">622</a></span>
+<span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span>
+<span class="normal"><a href="#__codelineno-0-628">628</a></span>
+<span class="normal"><a href="#__codelineno-0-629">629</a></span>
+<span class="normal"><a href="#__codelineno-0-630">630</a></span>
+<span class="normal"><a href="#__codelineno-0-631">631</a></span>
+<span class="normal"><a href="#__codelineno-0-632">632</a></span>
+<span class="normal"><a href="#__codelineno-0-633">633</a></span>
+<span class="normal"><a href="#__codelineno-0-634">634</a></span>
+<span class="normal"><a href="#__codelineno-0-635">635</a></span>
+<span class="normal"><a href="#__codelineno-0-636">636</a></span>
+<span class="normal"><a href="#__codelineno-0-637">637</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_otel_exec_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">otel_port</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">traceparent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-619" name="__codelineno-0-619"></a><span class="w">    </span><span class="sd">"""Return OTel env vars for OpenCode.</span>
+<a id="__codelineno-0-620" name="__codelineno-0-620"></a>
+<a id="__codelineno-0-621" name="__codelineno-0-621"></a><span class="sd">    See docs/otel-configuration.md for why these differ from Claude Code.</span>
+<a id="__codelineno-0-622" name="__codelineno-0-622"></a><span class="sd">    """</span>
+<a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">otel_port</span><span class="p">:</span>
+<a id="__codelineno-0-624" name="__codelineno-0-624"></a>        <span class="k">return</span> <span class="p">[]</span>
+<a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="n">env</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-0-626" name="__codelineno-0-626"></a>        <span class="s2">"--env"</span><span class="p">,</span>
+<a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="sa">f</span><span class="s2">"OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:</span><span class="si">{</span><span class="n">otel_port</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+<a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="s2">"--env"</span><span class="p">,</span>
+<a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="s2">"OTEL_EXPORTER_OTLP_PROTOCOL=http/json"</span><span class="p">,</span>
+<a id="__codelineno-0-630" name="__codelineno-0-630"></a>        <span class="s2">"--env"</span><span class="p">,</span>
+<a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="c1"># Flush spans immediately -- OpenCode's process.exit() kills the</span>
+<a id="__codelineno-0-632" name="__codelineno-0-632"></a>        <span class="c1"># Node.js process before the batch processor can drain its queue.</span>
+<a id="__codelineno-0-633" name="__codelineno-0-633"></a>        <span class="s2">"OTEL_BSP_SCHEDULE_DELAY=0"</span><span class="p">,</span>
+<a id="__codelineno-0-634" name="__codelineno-0-634"></a>    <span class="p">]</span>
+<a id="__codelineno-0-635" name="__codelineno-0-635"></a>    <span class="k">if</span> <span class="n">traceparent</span><span class="p">:</span>
+<a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="n">env</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s2">"--env"</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"TRACEPARENT=</span><span class="si">{</span><span class="n">traceparent</span><span class="si">}</span><span class="s2">"</span><span class="p">])</span>
+<a id="__codelineno-0-637" name="__codelineno-0-637"></a>    <span class="k">return</span> <span class="n">env</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.harness.CodexHarness" class="doc doc-heading">
+            <code>CodexHarness</code>
+
+
+<a href="#agentic_ci.harness.CodexHarness" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Harness (agentic_ci.harness.Harness)" href="#agentic_ci.harness.Harness">Harness</a></code></p>
+
+
+
+        <p>OpenAI Codex CLI harness.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.harness.CodexHarness.auth_mode" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auth_mode</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.harness.CodexHarness.auth_mode" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Codex uses OpenAI credentials, not Anthropic or Vertex.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.CodexHarness.auth_mode_for_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auth_mode_for_env</span><span class="p">(</span><span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.CodexHarness.auth_mode_for_env" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Codex always uses its OpenAI-compatible authentication path.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-841">841</a></span>
+<span class="normal"><a href="#__codelineno-0-842">842</a></span>
+<span class="normal"><a href="#__codelineno-0-843">843</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-841" name="__codelineno-0-841"></a><span class="k">def</span><span class="w"> </span><span class="nf">auth_mode_for_env</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-842" name="__codelineno-0-842"></a><span class="w">    </span><span class="sd">"""Codex always uses its OpenAI-compatible authentication path."""</span>
+<a id="__codelineno-0-843" name="__codelineno-0-843"></a>    <span class="k">return</span> <span class="s2">"openai"</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.harness.CodexHarness.run_settings_toml" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">run_settings_toml</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">extra_args</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">otel_endpoint</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.CodexHarness.run_settings_toml" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the <code>config.toml</code> lines that mirror a run's command-line settings.</p>
+<p>Covers the model, the update check, the reasoning efforts that
+:meth:<code>effort_args</code> put in <em>extra_args</em>, and the OTLP exporters, so a
+<code>codex exec</code> the agent starts without those flags (such as the
+implement and review agents a skill dispatches) uses the same model,
+effort and telemetry. Every line is a top-level key or dotted key. No
+credential is ever included.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-888">888</a></span>
+<span class="normal"><a href="#__codelineno-0-889">889</a></span>
+<span class="normal"><a href="#__codelineno-0-890">890</a></span>
+<span class="normal"><a href="#__codelineno-0-891">891</a></span>
+<span class="normal"><a href="#__codelineno-0-892">892</a></span>
+<span class="normal"><a href="#__codelineno-0-893">893</a></span>
+<span class="normal"><a href="#__codelineno-0-894">894</a></span>
+<span class="normal"><a href="#__codelineno-0-895">895</a></span>
+<span class="normal"><a href="#__codelineno-0-896">896</a></span>
+<span class="normal"><a href="#__codelineno-0-897">897</a></span>
+<span class="normal"><a href="#__codelineno-0-898">898</a></span>
+<span class="normal"><a href="#__codelineno-0-899">899</a></span>
+<span class="normal"><a href="#__codelineno-0-900">900</a></span>
+<span class="normal"><a href="#__codelineno-0-901">901</a></span>
+<span class="normal"><a href="#__codelineno-0-902">902</a></span>
+<span class="normal"><a href="#__codelineno-0-903">903</a></span>
+<span class="normal"><a href="#__codelineno-0-904">904</a></span>
+<span class="normal"><a href="#__codelineno-0-905">905</a></span>
+<span class="normal"><a href="#__codelineno-0-906">906</a></span>
+<span class="normal"><a href="#__codelineno-0-907">907</a></span>
+<span class="normal"><a href="#__codelineno-0-908">908</a></span>
+<span class="normal"><a href="#__codelineno-0-909">909</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-888" name="__codelineno-0-888"></a><span class="k">def</span><span class="w"> </span><span class="nf">run_settings_toml</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">extra_args</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">otel_endpoint</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<a id="__codelineno-0-889" name="__codelineno-0-889"></a><span class="w">    </span><span class="sd">"""Return the ``config.toml`` lines that mirror a run's command-line settings.</span>
+<a id="__codelineno-0-890" name="__codelineno-0-890"></a>
+<a id="__codelineno-0-891" name="__codelineno-0-891"></a><span class="sd">    Covers the model, the update check, the reasoning efforts that</span>
+<a id="__codelineno-0-892" name="__codelineno-0-892"></a><span class="sd">    :meth:`effort_args` put in *extra_args*, and the OTLP exporters, so a</span>
+<a id="__codelineno-0-893" name="__codelineno-0-893"></a><span class="sd">    ``codex exec`` the agent starts without those flags (such as the</span>
+<a id="__codelineno-0-894" name="__codelineno-0-894"></a><span class="sd">    implement and review agents a skill dispatches) uses the same model,</span>
+<a id="__codelineno-0-895" name="__codelineno-0-895"></a><span class="sd">    effort and telemetry. Every line is a top-level key or dotted key. No</span>
+<a id="__codelineno-0-896" name="__codelineno-0-896"></a><span class="sd">    credential is ever included.</span>
+<a id="__codelineno-0-897" name="__codelineno-0-897"></a><span class="sd">    """</span>
+<a id="__codelineno-0-898" name="__codelineno-0-898"></a>    <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-0-899" name="__codelineno-0-899"></a>        <span class="sa">f</span><span class="s2">"model = </span><span class="si">{</span><span class="n">_toml_string</span><span class="p">(</span><span class="n">model</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+<a id="__codelineno-0-900" name="__codelineno-0-900"></a>        <span class="s2">"check_for_update_on_startup = false"</span><span class="p">,</span>
+<a id="__codelineno-0-901" name="__codelineno-0-901"></a>    <span class="p">]</span>
+<a id="__codelineno-0-902" name="__codelineno-0-902"></a>    <span class="n">overrides</span> <span class="o">=</span> <span class="n">_codex_config_overrides</span><span class="p">(</span><span class="n">extra_args</span><span class="p">)</span>
+<a id="__codelineno-0-903" name="__codelineno-0-903"></a>    <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">_CODEX_EFFORT_KEYS</span><span class="p">:</span>
+<a id="__codelineno-0-904" name="__codelineno-0-904"></a>        <span class="n">match</span> <span class="o">=</span> <span class="n">_CODEX_EFFORT_VALUE_RE</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">overrides</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="s2">""</span><span class="p">))</span>
+<a id="__codelineno-0-905" name="__codelineno-0-905"></a>        <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+<a id="__codelineno-0-906" name="__codelineno-0-906"></a>            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">_toml_string</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="ow">or</span><span class="w"> </span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<a id="__codelineno-0-907" name="__codelineno-0-907"></a>    <span class="k">if</span> <span class="n">otel_endpoint</span><span class="p">:</span>
+<a id="__codelineno-0-908" name="__codelineno-0-908"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_otel_settings</span><span class="p">(</span><span class="n">otel_endpoint</span><span class="p">))</span>
+<a id="__codelineno-0-909" name="__codelineno-0-909"></a>    <span class="k">return</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.harness.create_harness" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">create_harness</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.harness.create_harness" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Create a harness instance by name.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/harness.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1066">1066</a></span>
+<span class="normal"><a href="#__codelineno-0-1067">1067</a></span>
+<span class="normal"><a href="#__codelineno-0-1068">1068</a></span>
+<span class="normal"><a href="#__codelineno-0-1069">1069</a></span>
+<span class="normal"><a href="#__codelineno-0-1070">1070</a></span>
+<span class="normal"><a href="#__codelineno-0-1071">1071</a></span>
+<span class="normal"><a href="#__codelineno-0-1072">1072</a></span>
+<span class="normal"><a href="#__codelineno-0-1073">1073</a></span>
+<span class="normal"><a href="#__codelineno-0-1074">1074</a></span>
+<span class="normal"><a href="#__codelineno-0-1075">1075</a></span>
+<span class="normal"><a href="#__codelineno-0-1076">1076</a></span>
+<span class="normal"><a href="#__codelineno-0-1077">1077</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1066" name="__codelineno-0-1066"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_harness</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Harness</span><span class="p">:</span>
+<a id="__codelineno-0-1067" name="__codelineno-0-1067"></a><span class="w">    </span><span class="sd">"""Create a harness instance by name."""</span>
+<a id="__codelineno-0-1068" name="__codelineno-0-1068"></a>    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"claude-code"</span><span class="p">:</span>
+<a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>        <span class="k">return</span> <span class="n">ClaudeCodeHarness</span><span class="p">()</span>
+<a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>    <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"opencode"</span><span class="p">:</span>
+<a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>        <span class="k">return</span> <span class="n">OpenCodeHarness</span><span class="p">()</span>
+<a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>    <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"codex"</span><span class="p">:</span>
+<a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>        <span class="k">return</span> <span class="n">CodexHarness</span><span class="p">()</span>
+<a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>    <span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>            <span class="sa">f</span><span class="s2">"Unknown harness: </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">. Choose 'claude-code', 'opencode', or 'codex'."</span>
+<a id="__codelineno-0-1077" name="__codelineno-0-1077"></a>        <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
