@@ -3,7 +3,11 @@
 import json
 import os
 import subprocess
+import tempfile
 from collections.abc import Mapping
+from importlib.resources import as_file, files
+
+import yaml
 
 from agentic_ci import log
 from agentic_ci.gcp import adc_path as _adc_path
@@ -12,14 +16,30 @@ from agentic_ci.gcp import read_credential_type as _adc_credential_type
 
 PROVIDER_NAME = "ci-gcp"
 
+# Provider profiles agentic-ci registers with the gateway before creating an
+# API key provider. OpenShell's builtin "openai" and "anthropic" profiles bind
+# the API host to curl, so any sandbox process could spend the key; these
+# profiles bind it to agent binaries instead. An agent binary wrapper can
+# still spend the key; see the YAML files for details.
+OPENAI_PROFILE_ID = "agentic-ci-openai"
+ANTHROPIC_PROFILE_ID = "agentic-ci-anthropic"
+_PROFILE_PACKAGE = "agentic_ci.backends.openshell"
+_PROFILE_DIR = "profiles"
+
 _SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "OPENAI_API_KEY=")
 _PROVIDER_AUTH_MODES = {
     "google-cloud": "vertex",
     "google-vertex-ai": "vertex",
-    "anthropic": "api-key",
+    ANTHROPIC_PROFILE_ID: "api-key",
     "claude": "api-key",
-    "openai": "openai",
+    OPENAI_PROFILE_ID: "openai",
     "codex": "openai",
+    # Providers that earlier agentic-ci releases created from the builtin
+    # profiles. Reporting a different auth mode makes OpenShellBackend.setup()
+    # delete and recreate the sandbox and provider from agentic-ci's profile
+    # instead of reusing one whose key curl can spend.
+    "anthropic": "api-key-builtin-profile",
+    "openai": "openai-builtin-profile",
 }
 
 # Auth modes whose credential reaches the sandbox only through the env
@@ -135,7 +155,73 @@ def delete():
     _run(["openshell", "provider", "delete", PROVIDER_NAME], check=True)
 
 
+def _profile_matches(wanted, current):
+    """Return whether every field of *wanted* has the same value in *current*.
+
+    ``openshell provider profile export`` adds server-side fields
+    (``resource_version``, ``source``, ``scope``) and defaults, so only the
+    fields agentic-ci sets are compared.
+    """
+    if isinstance(wanted, dict):
+        return isinstance(current, dict) and all(
+            _profile_matches(value, current.get(key)) for key, value in wanted.items()
+        )
+    if isinstance(wanted, list):
+        return (
+            isinstance(current, list)
+            and len(wanted) == len(current)
+            and all(_profile_matches(w, c) for w, c in zip(wanted, current))
+        )
+    return wanted == current
+
+
+def ensure_profile(profile_id):
+    """Register agentic-ci's provider profile *profile_id* with the gateway.
+
+    Profiles live in the gateway database, which ``gateway.start()`` creates
+    fresh, so this runs before every provider creation. ``profile import``
+    refuses an id that already exists, so an existing profile is exported
+    first: left alone when it matches the packaged file, otherwise updated
+    in place with the resource version the gateway expects.
+    """
+    resource = files(_PROFILE_PACKAGE).joinpath(_PROFILE_DIR, f"{profile_id}.yaml")
+    wanted = yaml.safe_load(resource.read_text(encoding="utf-8"))
+
+    current = _run(
+        ["openshell", "provider", "profile", "export", profile_id, "-o", "yaml"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if current.returncode != 0:
+        print(f"  Importing provider profile {profile_id}", flush=True)
+        with as_file(resource) as profile_path:
+            _run(
+                ["openshell", "provider", "profile", "import", "-f", str(profile_path)],
+                check=True,
+            )
+        return
+
+    exported = yaml.safe_load(current.stdout)
+    if _profile_matches(wanted, exported):
+        return
+
+    print(f"  Updating provider profile {profile_id}", flush=True)
+    updated = {**wanted, "resource_version": exported["resource_version"]}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.safe_dump(updated, f, sort_keys=False)
+        profile_file = f.name
+    try:
+        _run(
+            ["openshell", "provider", "profile", "update", profile_id, "-f", profile_file],
+            check=True,
+        )
+    finally:
+        os.unlink(profile_file)
+
+
 def _create_anthropic_provider(env: Mapping[str, str] | None = None):
+    ensure_profile(ANTHROPIC_PROFILE_ID)
     print("  Creating Anthropic API key provider", flush=True)
     kwargs: dict[str, object] = {"check": True}
     if env is not None:
@@ -148,7 +234,7 @@ def _create_anthropic_provider(env: Mapping[str, str] | None = None):
             "--name",
             PROVIDER_NAME,
             "--type",
-            "anthropic",
+            ANTHROPIC_PROFILE_ID,
             "--credential",
             "ANTHROPIC_API_KEY",
         ],
@@ -162,6 +248,7 @@ def _create_openai_provider(env: Mapping[str, str] | None = None):
     if not api_key:
         raise RuntimeError("OpenShell Codex runs require OPENAI_API_KEY")
 
+    ensure_profile(OPENAI_PROFILE_ID)
     print("  Creating OpenAI API key provider", flush=True)
     process_env = {**os.environ, **credential_env}
     _run(
@@ -172,7 +259,7 @@ def _create_openai_provider(env: Mapping[str, str] | None = None):
             "--name",
             PROVIDER_NAME,
             "--type",
-            "openai",
+            OPENAI_PROFILE_ID,
             "--credential",
             "OPENAI_API_KEY",
         ],

@@ -1,6 +1,7 @@
 """Tests for backend factory."""
 
 import json
+import subprocess
 import threading
 from unittest import mock
 
@@ -287,6 +288,40 @@ def test_openshell_recreates_sandbox_when_auth_mode_changes(monkeypatch, tmp_pat
     setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
     create_sandbox.assert_called_once()
     assert create_sandbox.call_args.kwargs["auth_mode"] == "openai"
+
+
+def test_openshell_recreates_legacy_builtin_openai_provider(monkeypatch, tmp_path):
+    # A provider an earlier release created from OpenShell's builtin "openai"
+    # profile binds api.openai.com to curl; setup must not reuse it.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(json.dumps({"auth_mode": "openai", "harness": "Codex", "image": None}))
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+    listing = subprocess.CompletedProcess(
+        ["openshell"], 0, stdout='{"providers": [{"name": "ci-gcp", "type": "openai"}]}'
+    )
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider._run", return_value=listing),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_called_once_with()
+    setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
+    create_sandbox.assert_called_once()
 
 
 def test_openshell_recreates_sandbox_when_identity_changes(monkeypatch, tmp_path):

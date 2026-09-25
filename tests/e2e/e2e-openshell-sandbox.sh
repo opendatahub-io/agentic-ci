@@ -432,9 +432,19 @@ else
             --image "$CODEX_SANDBOX" \
             --harness codex \
             --workdir "$WORKDIR" \
+            --keep \
             --no-otel || RC=$?
 
         assert_ok "codex exited successfully" test "$RC" -eq 0
+
+        # agentic-ci's OpenAI provider profile has no curl rule, so a plain
+        # sandbox process must not reach api.openai.com. The run above used
+        # --keep so the sandbox is still up for this probe.
+        print_step "Probing OpenAI credential isolation..."
+        CURL_OUT="$(openshell sandbox exec --name ci --no-tty -- bash -c \
+            'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models' \
+            2>&1 || true)"
+        assert_contains "plain curl cannot reach api.openai.com" "$CURL_OUT" "CONNECT tunnel failed, response 403"
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true
