@@ -1,15 +1,22 @@
 """OpenShell sandbox lifecycle management."""
 
+import copy
 import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Iterable
 
 import yaml
 
 from agentic_ci import log
-from agentic_ci.backends.openshell.policy import build_credential_binding_patch, resolve_endpoints
+from agentic_ci.backends.openshell.policy import (
+    EGRESS_PHASES,
+    build_credential_binding_patch,
+    resolve_endpoints,
+)
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME, requires_provider
+from agentic_ci.sandbox_profile import SandboxProfile, is_raw_endpoint
 
 SANDBOX_NAME = "ci"
 
@@ -21,6 +28,31 @@ AGENT_BINARY_PATHS = (
     "/usr/local/bin/codex",
     "/usr/local/sbin/codex",
 )
+
+# Setup and validate steps run under this shim, shipped in the sandbox images.
+# OpenShell matches a connection to rules by the caller's executable and its
+# parent chain, so rules bound to the shim apply to a step and everything it
+# starts, and to nothing else. The shim forks and waits instead of exec-ing,
+# so it stays in the parent chain.
+SANDBOX_SETUP_SHIM = "/usr/local/bin/agentic-ci-sandbox-setup"
+
+# Rules the phase switch adds are named PHASE_RULE_PREFIX + index. Any rule
+# with this prefix is replaced on every switch.
+PHASE_RULE_PREFIX = "agentic_ci_phase_"
+
+# Rules OpenShell composes for an attached provider. They are not part of
+# ``policy get --base`` and the server refuses them in ``policy set``.
+_PROVIDER_RULE_PREFIX = "_provider_"
+
+# While the setup shim's egress is open (the setup and validate phases), every
+# agent binary path in a user rule is rewritten to this prefix plus the path,
+# so the rule stays in the policy with its credential bindings but matches no
+# process: a step cannot reach agent egress by running an agent binary under
+# the shim. The agent phase strips the prefix again. Nothing can be created
+# under /proc, so no executable can ever have a parked path.
+PARKED_BINARY_PREFIX = "/proc/agentic-ci-parked"
+
+_ALLOWED_IP_OPTION = "allowed-ip="
 
 
 def _run(args, **kwargs):
@@ -48,6 +80,7 @@ def create(
     memory: str | None = None,
     cpu: str | None = None,
     gpu: int | None = None,
+    profile: SandboxProfile | None = None,
 ) -> None:
     """Create a persistent sandbox with the CI provider attached, if *auth_mode* uses one.
 
@@ -73,6 +106,8 @@ def create(
         gpu: GPU count to request, e.g. ``1``. None requests no GPU, which
             means an accelerator on the host is not visible to the agent even
             when the container running this can see it.
+        profile: Sandbox profile whose agent-phase egress is added to the
+            policy. None keeps the policy exactly as without profiles.
     """
     args = [
         "openshell",
@@ -121,10 +156,11 @@ def create(
         otel_port=otel_port,
         workdir=workdir,
         auth_mode=auth_mode,
+        profile=profile,
     )
 
 
-def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
+def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None, profile=None):
     """Apply network policy endpoints and wait for activation.
 
     Two-step process:
@@ -136,7 +172,9 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None):
        withholds credentials unless the sandbox policy explicitly binds them.
        Skipped for auth modes with no provider, which has nothing to bind.
     """
-    endpoints = resolve_endpoints(policy_path, workdir=workdir, auth_mode=auth_mode)
+    endpoints = resolve_endpoints(
+        policy_path, workdir=workdir, auth_mode=auth_mode, profile=profile
+    )
     if otel_port:
         endpoints.append(f"host.openshell.internal:{otel_port}:read-write")
     if not endpoints:
@@ -193,6 +231,209 @@ def _apply_credential_bindings():
         )
     finally:
         os.unlink(policy_file)
+
+
+def _endpoint_to_policy(spec, index):
+    """Convert one ``host:port:access[:protocol[:enforcement[:options]]]`` string.
+
+    Returns the endpoint mapping a policy file uses (the shape
+    ``openshell policy get -o json`` prints). The grammar is the one a central
+    profile's raw egress must follow (:func:`agentic_ci.sandbox_profile.is_raw_endpoint`).
+    Only ``allowed-ip=`` options are accepted: the credential options are
+    never given to a setup-shim rule. Raises ``ValueError`` naming only the
+    endpoint's position, never its text.
+    """
+    if not is_raw_endpoint(spec):
+        raise ValueError(
+            f"phase endpoint {index} is not host:port:access[:protocol[:enforcement[:options]]]"
+        )
+    host, port, access, protocol, enforcement, options = (spec.split(":") + [""] * 6)[:6]
+    endpoint = {"host": host, "port": int(port), "access": access}
+    if protocol:
+        endpoint["protocol"] = protocol
+    if enforcement:
+        endpoint["enforcement"] = enforcement
+    allowed_ips = []
+    for option in options.split(",") if options else ():
+        if not option.startswith(_ALLOWED_IP_OPTION):
+            raise ValueError(
+                f"phase endpoint {index} has a credential option, "
+                "which a setup-shim rule never gets"
+            )
+        value = option[len(_ALLOWED_IP_OPTION) :]
+        if value not in allowed_ips:
+            allowed_ips.append(value)
+    if allowed_ips:
+        endpoint["allowed_ips"] = allowed_ips
+    return endpoint
+
+
+def _rebind(rule, park):
+    """Return *rule* with its ``binaries`` adjusted for a phase, or None to drop it.
+
+    Removes :data:`SANDBOX_SETUP_SHIM`, dropping the rule only when the shim
+    was its only binary. With *park*, every agent binary path gets
+    :data:`PARKED_BINARY_PREFIX`; without it, parked paths get their original
+    path back (without duplicating one that is already there). An empty
+    ``binaries`` list means any binary to OpenShell, so no rule is ever turned
+    into one; a rule that already had no binaries is left as it is.
+    """
+    binaries = rule.get("binaries") if isinstance(rule, dict) else None
+    if not isinstance(binaries, list) or not binaries:
+        return rule
+    kept = []
+    for binary in binaries:
+        path = binary.get("path") if isinstance(binary, dict) else None
+        if path == SANDBOX_SETUP_SHIM:
+            continue
+        if isinstance(path, str):
+            if park and path in AGENT_BINARY_PATHS:
+                binary = {**binary, "path": PARKED_BINARY_PREFIX + path}
+            elif not park and path.startswith(PARKED_BINARY_PREFIX + "/"):
+                binary = {**binary, "path": path[len(PARKED_BINARY_PREFIX) :]}
+            if any(isinstance(b, dict) and b.get("path") == binary["path"] for b in kept):
+                continue
+        kept.append(binary)
+    if not kept:
+        return None
+    rule["binaries"] = kept
+    return rule
+
+
+def build_phase_policy(base_get_output, endpoints: Iterable[str], *, park_agent=False):
+    """Build the policy for an egress phase from ``openshell policy get --base -o json``.
+
+    Takes the ``.policy`` object, deep-copies it, and in ``network_policies``:
+
+    1. drops every rule named with :data:`PHASE_RULE_PREFIX` (the previous
+       phase's rules) or ``_provider_`` (composed by the server);
+    2. removes :data:`SANDBOX_SETUP_SHIM` from every other rule's
+       ``binaries``, dropping a rule only when the shim was its only binary;
+    3. with *park_agent* (the setup and validate phases), parks every agent
+       binary path under :data:`PARKED_BINARY_PREFIX` so no process matches
+       the agent's rules while the shim's egress is open; without it (the
+       agent phase), restores the parked paths;
+    4. adds one rule per endpoint, in order and de-duplicated, named
+       ``PHASE_RULE_PREFIX + index`` and bound to the shim only.
+
+    One rule per endpoint mirrors the rules ``openshell policy update``
+    creates and the shape the September 2026 spike verified, and keeps each
+    endpoint's options independent. Every other field (``version``,
+    ``filesystem_policy``, ``landlock``, ``process``, rule names and endpoints,
+    and the credential bindings on user rules) is returned unchanged:
+    ``openshell policy set`` needs the whole object and refuses to drop the
+    static fields of a live sandbox.
+
+    Returns the raw policy dict for ``openshell policy set``. Raises
+    ``ValueError`` when ``.policy`` or its ``network_policies`` is missing or
+    an endpoint is malformed; the message never includes policy content.
+    """
+    raw_policy = base_get_output.get("policy") if isinstance(base_get_output, dict) else None
+    if not isinstance(raw_policy, dict):
+        raise ValueError("policy get output has no 'policy' object")
+    if not isinstance(raw_policy.get("network_policies"), dict):
+        raise ValueError("policy get output has no 'network_policies' mapping")
+
+    new_rules = [
+        _endpoint_to_policy(spec, index) for index, spec in enumerate(dict.fromkeys(endpoints))
+    ]
+
+    policy = copy.deepcopy(raw_policy)
+    rules = {}
+    for name, rule in policy["network_policies"].items():
+        if str(name).startswith((PHASE_RULE_PREFIX, _PROVIDER_RULE_PREFIX)):
+            continue
+        kept = _rebind(rule, park_agent)
+        if kept is not None:
+            rules[name] = kept
+    for index, endpoint in enumerate(new_rules):
+        name = f"{PHASE_RULE_PREFIX}{index}"
+        rules[name] = {
+            "name": name,
+            "endpoints": [endpoint],
+            "binaries": [{"path": SANDBOX_SETUP_SHIM}],
+        }
+    policy["network_policies"] = rules
+    return policy
+
+
+def _log_stderr(result):
+    stderr = (result.stderr or "").strip()
+    if stderr:
+        log.detail("openshell stderr", stderr)
+
+
+def apply_phase_policy(phase, endpoints):
+    """Switch the sandbox's setup-shim egress to *phase*.
+
+    Reads the base policy, builds the phase policy with
+    :func:`build_phase_policy` and applies the whole object with
+    ``openshell policy set --wait``. ``openshell policy update`` is never
+    used here: it folds an endpoint whose host overlaps an existing rule into
+    that rule, where the shim could not be removed again.
+
+    *phase* is one of ``setup``, ``validate`` or ``agent``. ``setup`` and
+    ``validate`` also park the agent's rules (see :data:`PARKED_BINARY_PREFIX`),
+    so running an agent binary under the shim gains nothing. ``agent`` strips
+    every shim-bound rule, restores the agent's rules and takes no endpoints.
+    Any policy change closes every open proxied connection in the sandbox,
+    so switch only while nothing runs there. Nothing is applied when the
+    policy would not change, so switching to the phase already in effect is
+    free.
+
+    Raises ``RuntimeError`` when an ``openshell`` command fails or prints
+    unusable output. The message names the step and the failure class only;
+    stderr goes to the job log.
+    """
+    if phase not in EGRESS_PHASES:
+        raise ValueError(f"phase must be one of {', '.join(EGRESS_PHASES)}, not {phase!r}")
+    endpoints = list(endpoints)
+    if phase == "agent" and endpoints:
+        raise ValueError("the agent phase opens no setup-shim endpoints")
+
+    result = _run(
+        ["openshell", "policy", "get", "--base", "-o", "json", SANDBOX_NAME],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        _log_stderr(result)
+        raise RuntimeError(
+            f"Could not switch to the {phase} egress phase: openshell policy get "
+            f"exited with status {result.returncode}; see the job log"
+        )
+    try:
+        current = json.loads(result.stdout)
+        policy = build_phase_policy(current, endpoints, park_agent=phase != "agent")
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Could not switch to the {phase} egress phase: unusable policy get output "
+            f"({type(exc).__name__}); see the job log"
+        ) from exc
+
+    if policy == current["policy"]:
+        log.info(f"Egress phase {phase}: policy unchanged")
+        return
+
+    fd, policy_file = tempfile.mkstemp(prefix="agentic-ci-phase-", suffix=".yaml")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            yaml.safe_dump(policy, fh, default_flow_style=False)
+        result = _run(
+            ["openshell", "policy", "set", "--wait", "--policy", policy_file, SANDBOX_NAME],
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.unlink(policy_file)
+    if result.returncode != 0:
+        _log_stderr(result)
+        raise RuntimeError(
+            f"Could not switch to the {phase} egress phase: openshell policy set "
+            f"exited with status {result.returncode}; see the job log"
+        )
+    opened = len(dict.fromkeys(endpoints))
+    log.info(f"Egress phase {phase}: {opened} setup-shim endpoint(s) open")
 
 
 def upload(local_path):

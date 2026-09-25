@@ -30,7 +30,7 @@ src/agentic_ci/
             __init__.py # OpenShellBackend — sandbox execution
             gateway.py  # OpenShell gateway lifecycle
             sandbox.py  # OpenShell sandbox lifecycle
-            policy.py   # Policy resolution + built-in default
+            policy.py   # Policy resolution, built-in default, egress presets
     config.py           # Project config loader (.agentic-ci/config.yml)
     sandbox_profile.py  # Sandbox profile schema, parsing, merge and hashing
     plugins.py          # Plugin/skill install (build-time) and filtering (runtime)
@@ -53,7 +53,7 @@ src/agentic_ci/
 
 - **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`, `install_codex_plugins`) and runtime filtering (`enable_plugins`). At build time, installs plugins or skills from the skills-registry marketplace (supporting both legacy `repo` and `git-subdir` source formats) into the container image and writes a plugin-to-skill manifest. All marketplace source paths are validated against the clone root to prevent directory traversal. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk; Codex removes unwanted native plugins and manifest-managed compatibility skills while preserving unmanaged personal skills.
 
-- **`sandbox_profile.py`**: Frozen `SandboxProfile` dataclasses describing what a target repo needs in the sandbox (toolchains, egress presets, setup, validate, skips, env, resources, `discard_before_download`, `overlay`). `parse_profile(data, source="central"|"overlay")` validates raw JSON/YAML (overlay problems that could widen access are dropped with warnings), `merge_profiles()` applies central-wins precedence, and `profile_to_dict()` / `profile_hash()` serialize. `SkillConfig.sandbox_profile` carries it through `run_skill` / `run_routed_skill` and `_AgentSession` to `create_backend`, which passes it only to `OpenShellBackend` and only when set; other backends warn and ignore it. Only `resources` takes effect so far (explicit backend kwargs win).
+- **`sandbox_profile.py`**: Frozen `SandboxProfile` dataclasses describing what a target repo needs in the sandbox (toolchains, egress presets, setup, validate, skips, env, resources, `discard_before_download`, `overlay`). `parse_profile(data, source="central"|"overlay")` validates raw JSON/YAML (overlay problems that could widen access are dropped with warnings), `merge_profiles()` applies central-wins precedence, and `profile_to_dict()` / `profile_hash()` serialize. `SkillConfig.sandbox_profile` carries it through `run_skill` / `run_routed_skill` and `_AgentSession` to `create_backend`, which passes it only to `OpenShellBackend` and only when set; other backends warn and ignore it. `resources` (explicit backend kwargs win) and `egress` take effect so far: OpenShell opens the profile's presets and raw endpoints to the agent at sandbox create, ignores the repo `openshell-policy.yml`, and `OpenShellBackend._set_egress_phase()` binds setup and validate egress to the in-image setup shim `/usr/local/bin/agentic-ci-sandbox-setup` (see `sandbox.apply_phase_policy()`).
 
 - **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
@@ -85,6 +85,8 @@ images/
     shared/
       Containerfile.base            — Runner base image (UBI10 + common tools)
       entrypoint.sh                 — Container entrypoint (credential setup + exec)
+      agentic-ci-sandbox-setup.c    (setup shim for the OpenShell sandbox images:
+                                      fork, wait, forward the exit status)
     claude-code/
       Containerfile                 — Claude Code runner image
       Containerfile.openshell       — Claude Code sandbox image (OpenShell); extends
@@ -119,7 +121,9 @@ Hummingbird agentic images (`quay.io/aipcc/base-images/agentic/claude-code`,
 digest-pinned `hi/nodejs:26-builder` image supplies `dnf` and repository
 configuration through a temporary build mount. The final images retain the
 Hummingbird runtime, Node.js 26, harness, `/sandbox` layout, and agentic-ci
-tooling, but do not retain a package manager.
+tooling, but do not retain a package manager. A `setup-shim` stage built
+from the same builder compiles `agentic-ci-sandbox-setup.c` statically and
+installs it root-owned at `/usr/local/bin/agentic-ci-sandbox-setup`.
 
 The runner-base Containerfile (`images/runner/shared/Containerfile.base`)
 is pre-built as `localhost/base:latest` before building the Claude,

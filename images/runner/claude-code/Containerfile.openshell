@@ -14,6 +14,22 @@
 
 ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.263@sha256:c508214c384561d9c90e493bdd480a421b30875ba8d6bf9e82ddec61e54f17aa
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:b9a4e0ec353dd30a89fc4c18775ac284b1fce6d5e19c2af6d0030be28e46eaf4 AS builder
+
+# Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
+# statically on the same pinned builder. Only the binary reaches the final
+# image, so the compiler and dnf stay out of it.
+FROM builder AS setup-shim
+USER root
+RUN dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=tsflags=nodocs \
+        gcc \
+        glibc-static
+COPY images/runner/shared/agentic-ci-sandbox-setup.c /src/agentic-ci-sandbox-setup.c
+RUN mkdir -p /out \
+    && gcc -std=c99 -O2 -Wall -Wextra -Werror -static \
+        -o /out/agentic-ci-sandbox-setup /src/agentic-ci-sandbox-setup.c
+
 FROM ${CLAUDE_CODE_BASE_IMAGE}
 
 ARG UV_VERSION=0.12.9
@@ -62,6 +78,11 @@ RUN --mount=type=bind,from=builder,target=/builder \
         xz \
     && rm -rf /var/cache/dnf /var/cache/yum /var/cache/libdnf5 \
         /var/log/dnf5.log /run/dnf
+
+# Setup and validate steps run under this shim, so network rules bound to its
+# path apply to them and to nothing else (see agentic_ci.backends.openshell).
+COPY --from=setup-shim --chown=root:root --chmod=0755 \
+    /out/agentic-ci-sandbox-setup /usr/local/bin/agentic-ci-sandbox-setup
 
 # uv (pinned)
 RUN curl -fsSL -o /tmp/uv.tar.gz \

@@ -78,3 +78,7 @@ e2e-codex: ## Run Codex runner e2e tests
 .PHONY: e2e-openshell
 e2e-openshell: ## Run OpenShell sandbox e2e tests
 	bash tests/e2e/e2e-openshell-sandbox.sh
+
+.PHONY: e2e-openshell-profile
+e2e-openshell-profile: ## Run OpenShell sandbox-profile egress e2e tests (replaces the "ci" sandbox and gateway)
+	bash tests/e2e/e2e-openshell-profile.sh
