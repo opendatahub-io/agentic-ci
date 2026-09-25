@@ -62,15 +62,16 @@ RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
     && ln -sf /usr/bin/pip3.12 /usr/local/bin/pip3 \
     && ln -sf /usr/bin/pip3.12 /usr/local/bin/pip
 
-# uv
+# uv and uvx (both ship in the same release tarball)
 ARG UV_VERSION=0.12.9
 ARG UV_SHA256=aa4b1f8770910f7c7c543c7acc980e4270e52e70750c996acef813ea1c7c2912
 RUN curl -fsSL -o /tmp/uv.tar.gz \
         "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/uv.tar.gz -C /tmp \
-    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
-    && chmod +x /usr/local/bin/uv \
+    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /tmp/uv-x86_64-unknown-linux-musl/uvx \
+        /usr/local/bin/ \
+    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx \
     && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
 
 # OpenShell CLI (binary from the published CLI image).

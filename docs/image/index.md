@@ -64,7 +64,7 @@ entrypoint handles credential setup only for standalone use (direct
 | Build | make, which, tar, xz |
 | VCS CLIs | gh (GitHub), glab (GitLab) |
 | Linting | shellcheck, shfmt, ruff |
-| Python | uv |
+| Python | uv, uvx |
 | Library | agentic-ci |
 
 ### Pre-installed skills
@@ -95,7 +95,7 @@ SHA256 checksum. Only x86_64 binaries are included.
 | shfmt | Version + SHA256 |
 | gh | Version + SHA256 |
 | glab | Version + SHA256 |
-| uv | Version + SHA256 |
+| uv, uvx | Version + SHA256 (one release tarball) |
 | Python packages | Version-pinned via `uv pip install` |
 
 The image is rebuilt daily on a schedule, refreshing all skill versions
