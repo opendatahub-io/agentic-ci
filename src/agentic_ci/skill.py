@@ -55,6 +55,7 @@ from agentic_ci.routing import (
     resolve_model_tiers,
     route_path,
 )
+from agentic_ci.sandbox_profile import SandboxProfile
 from agentic_ci.telemetry import emit_event
 
 log = logging.getLogger(__name__)
@@ -115,6 +116,14 @@ class SkillConfig:
 
     model_tiers: dict[str, ModelTier] = field(default_factory=dict)
     """Per-tier overrides of the harness default routing tiers (``run_routed_skill`` only)."""
+
+    sandbox_profile: SandboxProfile | None = None
+    """What the target repo needs in the sandbox (see ``agentic_ci.sandbox_profile``).
+
+    Reaches the backend through the container runner; only the OpenShell
+    backend uses it, and in this release only its ``resources``. A custom
+    ``container_runner`` receives it as the ``sandbox_profile`` keyword, and
+    only when it is set."""
 
 
 @dataclass(frozen=True)
@@ -177,6 +186,7 @@ class _AgentSession:
         container_env=None,
         backend_name="podman",
         harness_name="claude-code",
+        sandbox_profile=None,
     ):
         self.work_dir = Path(work_dir)
         self.run_dir = self.work_dir / "_run"
@@ -186,12 +196,16 @@ class _AgentSession:
         self.default_model = (
             os.environ.get(self.harness.model_env_var()) or self.harness.default_model()
         )
+        # The profile is passed only when set, so a run without one creates the
+        # backend exactly as before. It never goes into extra_env.
+        profile_kwargs = {} if sandbox_profile is None else {"sandbox_profile": sandbox_profile}
         self.backend = create_backend(
             backend_name,
             harness=self.harness,
             workdir=str(work_dir),
             image=image,
             extra_env=container_env or {},
+            **profile_kwargs,
         )
         if verdict_path is not None:
             self.backend.verdict_path = verdict_path
@@ -323,14 +337,17 @@ def _default_run_container(
     model=None,
     effort=None,
     router=None,
+    sandbox_profile=None,
 ):
     """Default container runner using the configured backend.
 
     *model* defaults to the harness env var or default model. *router*, when
     given, is called as ``router(session, prompt)`` before the main run and
     must return a :class:`~agentic_ci.routing.RouteDecision` whose model and
-    effort are then used for the run.
+    effort are then used for the run. *sandbox_profile* is handed to the
+    backend (see :class:`SkillConfig`).
     """
+    session_kwargs = {} if sandbox_profile is None else {"sandbox_profile": sandbox_profile}
     with _AgentSession(
         work_dir,
         image=image,
@@ -338,6 +355,7 @@ def _default_run_container(
         container_env=container_env,
         backend_name=backend_name,
         harness_name=harness_name,
+        **session_kwargs,
     ) as session:
         target_model = model or session.default_model
         target_effort = effort
@@ -438,6 +456,8 @@ def run_skill(
     runner_kwargs: dict = {"image": config.container_image}
     if config.container_env:
         runner_kwargs["container_env"] = config.container_env
+    if config.sandbox_profile is not None:
+        runner_kwargs["sandbox_profile"] = config.sandbox_profile
     if config.container_runner is None:
         runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
         runner_kwargs["backend_name"] = config.backend_name

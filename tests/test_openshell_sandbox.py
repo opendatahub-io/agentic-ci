@@ -4,9 +4,11 @@ from unittest import mock
 
 import pytest
 
+import agentic_ci.backends.openshell as openshell_backend
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import sandbox
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
+from agentic_ci.sandbox_profile import Resources, SandboxProfile
 
 
 @pytest.fixture
@@ -161,3 +163,97 @@ class TestExistingSandboxKeepsItsAllocation:
             backend._warn_unapplied_resources()
 
         logged.assert_not_called()
+
+
+class TestSandboxProfileResources:
+    """A profile's ``resources`` size the sandbox unless the caller passed a value."""
+
+    def _backend(self, resources, **kwargs):
+        profile = SandboxProfile(resources=resources)
+        with mock.patch("agentic_ci.backends.openshell.log.info") as logged:
+            backend = create_backend(
+                "openshell", harness=mock.Mock(), sandbox_profile=profile, **kwargs
+            )
+        return backend, logged
+
+    def test_profile_resources_are_applied(self):
+        backend, logged = self._backend(Resources(memory="8Gi", cpu="4", gpu=1))
+        assert (backend.memory, backend.cpu, backend.gpu) == ("8Gi", "4", 1)
+        logged.assert_called_once_with(
+            "Sandbox resources: memory=8Gi (sandbox profile), cpu=4 (sandbox profile), "
+            "gpu=1 (sandbox profile)"
+        )
+
+    def test_explicit_kwargs_win(self):
+        backend, logged = self._backend(Resources(memory="8Gi", cpu="4"), memory="16Gi")
+        assert (backend.memory, backend.cpu, backend.gpu) == ("16Gi", "4", None)
+        logged.assert_called_once_with(
+            "Sandbox resources: memory=16Gi (explicit), cpu=4 (sandbox profile)"
+        )
+
+    def test_profile_without_resources_changes_nothing(self):
+        backend, logged = self._backend(None, cpu="2")
+        assert (backend.memory, backend.cpu, backend.gpu) == (None, "2", None)
+        logged.assert_not_called()
+
+    def test_no_profile_logs_nothing(self):
+        with mock.patch("agentic_ci.backends.openshell.log.info") as logged:
+            backend = create_backend("openshell", harness=mock.Mock(), memory="8Gi")
+        assert backend.sandbox_profile is None
+        assert backend.memory == "8Gi"
+        logged.assert_not_called()
+
+    @pytest.mark.parametrize("empty", ["", 0])
+    def test_falsy_explicit_value_does_not_hide_the_profile(self, empty):
+        """sandbox.create drops a falsy limit, so it must not count as explicit."""
+        backend, logged = self._backend(Resources(memory="8Gi", gpu=1), memory=empty, gpu=empty)
+        assert (backend.memory, backend.gpu) == ("8Gi", 1)
+        logged.assert_called_once_with(
+            "Sandbox resources: memory=8Gi (sandbox profile), gpu=1 (sandbox profile)"
+        )
+
+    def test_profile_gpu_zero_is_not_logged_as_applied(self):
+        backend, logged = self._backend(Resources(memory="8Gi", gpu=0))
+        assert backend.gpu is None
+        logged.assert_called_once_with("Sandbox resources: memory=8Gi (sandbox profile)")
+
+    def _setup(self, backend, tmp_path, monkeypatch, *, exists):
+        monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(tmp_path / "state.json"))
+        backend.workdir = str(tmp_path)
+        backend.harness.auth_mode_for_env.return_value = "vertex"
+        backend.harness.name = "claude-code"
+        openshell = "agentic_ci.backends.openshell"
+        identity = openshell_backend._sandbox_identity("claude-code", backend.image, "vertex")
+        with (
+            mock.patch(f"{openshell}.provider") as provider,
+            mock.patch(f"{openshell}.gateway.is_running", return_value=True),
+            mock.patch(f"{openshell}.sandbox.exists", return_value=exists),
+            mock.patch(f"{openshell}.sandbox.create") as create,
+            mock.patch(f"{openshell}.sandbox.delete") as delete,
+            mock.patch(f"{openshell}.sandbox.upload"),
+            mock.patch(f"{openshell}._load_sandbox_identity", return_value=identity),
+            mock.patch(f"{openshell}.log.info") as logged,
+            mock.patch.object(backend, "_run_setup_steps"),
+            mock.patch.object(backend, "_upload_sandbox_config"),
+        ):
+            provider.provider_exists.return_value = exists
+            provider.auth_mode.return_value = "vertex"
+            backend.setup()
+        return create, delete, logged
+
+    def test_profile_resources_reach_sandbox_create(self, tmp_path, monkeypatch):
+        backend, _ = self._backend(Resources(memory="8Gi", gpu=1))
+        create, _, _ = self._setup(backend, tmp_path, monkeypatch, exists=False)
+        assert create.call_args.kwargs["memory"] == "8Gi"
+        assert create.call_args.kwargs["cpu"] is None
+        assert create.call_args.kwargs["gpu"] == 1
+
+    def test_reused_sandbox_says_profile_resources_were_not_applied(self, tmp_path, monkeypatch):
+        backend, _ = self._backend(Resources(memory="8Gi", gpu=1))
+        create, delete, logged = self._setup(backend, tmp_path, monkeypatch, exists=True)
+        create.assert_not_called()
+        delete.assert_not_called()
+        warning = logged.call_args.args[0]
+        assert "memory=8Gi" in warning and "gpu=1" in warning
+        assert "cpu" not in warning
+        assert "Delete it" in warning
