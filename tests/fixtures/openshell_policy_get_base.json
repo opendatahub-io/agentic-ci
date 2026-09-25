@@ -1,0 +1,125 @@
+{
+  "active_version": 2,
+  "config_revision": 14835798364537335242,
+  "hash": "a93f048540b0d2e306358927a2e366f9d5c86b1dc018722470d481351e8f31a2",
+  "policy": {
+    "filesystem_policy": {
+      "include_workdir": true,
+      "read_only": [
+        "/usr",
+        "/lib",
+        "/proc",
+        "/dev/urandom",
+        "/app",
+        "/etc",
+        "/var/log"
+      ],
+      "read_write": [
+        "/tmp",
+        "/dev/null"
+      ]
+    },
+    "landlock": {
+      "compatibility": "best_effort"
+    },
+    "network_policies": {
+      "allow_api_openai_com_443": {
+        "binaries": [
+          {
+            "path": "/usr/local/bin/claude"
+          },
+          {
+            "path": "/usr/local/sbin/claude"
+          },
+          {
+            "path": "/usr/local/bin/opencode"
+          },
+          {
+            "path": "/usr/local/sbin/opencode"
+          },
+          {
+            "path": "/usr/local/bin/codex"
+          },
+          {
+            "path": "/usr/local/sbin/codex"
+          }
+        ],
+        "endpoints": [
+          {
+            "access": "read-write",
+            "allow_uninspected_credentials": true,
+            "host": "api.openai.com",
+            "port": 443
+          }
+        ],
+        "name": "allow_api_openai_com_443"
+      },
+      "allow_github_com_443": {
+        "binaries": [
+          {
+            "path": "/usr/local/bin/claude"
+          },
+          {
+            "path": "/usr/local/sbin/claude"
+          },
+          {
+            "path": "/usr/local/bin/opencode"
+          },
+          {
+            "path": "/usr/local/sbin/opencode"
+          },
+          {
+            "path": "/usr/local/bin/codex"
+          },
+          {
+            "path": "/usr/local/sbin/codex"
+          }
+        ],
+        "endpoints": [
+          {
+            "access": "full",
+            "host": "github.com",
+            "port": 443
+          }
+        ],
+        "name": "allow_github_com_443"
+      },
+      "allow_pypi_org_443": {
+        "binaries": [
+          {
+            "path": "/usr/local/bin/claude"
+          },
+          {
+            "path": "/usr/local/sbin/claude"
+          },
+          {
+            "path": "/usr/local/bin/opencode"
+          },
+          {
+            "path": "/usr/local/sbin/opencode"
+          },
+          {
+            "path": "/usr/local/bin/codex"
+          },
+          {
+            "path": "/usr/local/sbin/codex"
+          }
+        ],
+        "endpoints": [
+          {
+            "access": "read-only",
+            "host": "pypi.org",
+            "port": 443
+          }
+        ],
+        "name": "allow_pypi_org_443"
+      }
+    },
+    "version": 1
+  },
+  "policy_source": "sandbox",
+  "sandbox": "ci",
+  "scope": "sandbox",
+  "status": "effective",
+  "version": 2
+}

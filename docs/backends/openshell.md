@@ -228,7 +228,8 @@ openshell sandbox create \
 
 # Apply network policy and wait for the supervisor to compile and load it.
 # Built-in defaults are always included. If .agentic-ci/openshell-policy.yml
-# exists in the workdir, its endpoints are merged in automatically.
+# exists in the workdir, its endpoints are merged in automatically, unless a
+# sandbox profile is set (its agent-phase egress is added instead).
 openshell policy update --wait \
   --binary /usr/local/bin/claude \
   --binary /usr/bin/opencode \
@@ -359,6 +360,43 @@ Projects can declare additional endpoints in
 `.agentic-ci/openshell-policy.yml`. See
 [Project Configuration](../configuration.md#network-policy-openshell)
 for details.
+
+With a [sandbox profile](../sandbox-profiles.md#egress), the repo policy file
+is ignored and the profile's egress presets and raw endpoints are added
+instead.
+
+### Egress phases
+
+A sandbox profile's egress has three phases: `setup`, `agent` and `validate`.
+The rules applied at creation (defaults, auth endpoints and the profile's
+agent-phase presets, bound to the agent binaries) are the `agent` phase.
+`OpenShellBackend._set_egress_phase("setup")` or `("validate")` adds rules
+bound only to the setup shim, `/usr/local/bin/agentic-ci-sandbox-setup`, and
+parks the agent's rules (each agent binary path is prefixed with
+`/proc/agentic-ci-parked`, which no process can match), so running an agent
+binary under the shim gains nothing. `("agent")` removes the shim rules and
+restores the agent's rules. Without a profile it does nothing; a reused
+profile sandbox is switched to `agent` in `setup()`.
+
+The switch (`sandbox.apply_phase_policy()`) reads
+`openshell policy get --base -o json`, rewrites only `network_policies`
+(drops `agentic_ci_phase_*` and `_provider_*` rules, removes the shim from
+every other rule, parks or restores the agent binaries, adds one shim rule per
+endpoint) and applies the whole object:
+
+```bash
+openshell policy get --base -o json ci
+openshell policy set --wait --policy <phase-policy.yaml> ci
+```
+
+It never uses `openshell policy update`, which folds an endpoint whose host
+overlaps an existing rule into that rule (the shim would end up in the agent's
+`allow_pypi_org_443`). A network-only policy is refused on a live sandbox
+(`filesystem policy cannot be removed on a live sandbox`), so the static
+fields are sent back unchanged. No rule is ever left with an empty `binaries`
+list, which OpenShell reads as any binary. Any policy change closes every open
+proxied connection in the sandbox, agent streams included, so switch only
+while nothing runs there.
 
 ## OpenShell Artifacts
 

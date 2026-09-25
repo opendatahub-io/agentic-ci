@@ -1,11 +1,37 @@
 """Tests for policy resolution."""
 
+import pytest
+
+from agentic_ci import sandbox_profile
 from agentic_ci.backends.openshell.policy import (
     AUTH_ENDPOINTS,
     DEFAULT_ENDPOINTS,
+    EGRESS_PHASES,
+    EGRESS_PRESETS,
+    EgressPreset,
     build_credential_binding_patch,
+    phase_endpoints,
     resolve_endpoints,
 )
+from agentic_ci.sandbox_profile import SandboxProfile, parse_profile
+
+NPM = "registry.npmjs.org:443:read-only"
+GOPROXY = [
+    "proxy.golang.org:443:read-only",
+    "sum.golang.org:443:read-only",
+    "storage.googleapis.com:443:read-only",
+]
+RAW = "internal.example.com:443:read-only"
+
+
+def _profile(*egress):
+    return parse_profile({"egress": list(egress)}, source="central").profile
+
+
+def _write_repo_policy(tmp_path, endpoint="repo.example.com:443:full"):
+    policy_dir = tmp_path / ".agentic-ci"
+    policy_dir.mkdir()
+    (policy_dir / "openshell-policy.yml").write_text(f"endpoints:\n  - '{endpoint}'\n")
 
 
 def test_default_endpoints_returned_when_no_flag(tmp_path):
@@ -162,3 +188,187 @@ def test_credentialed_provider_hosts_allow_uninspected_credentials():
     for auth_mode, host in (("api-key", "api.anthropic.com"), ("openai", "api.openai.com")):
         matching = [ep for ep in resolve_endpoints(auth_mode=auth_mode) if ep.startswith(host)]
         assert matching == [f"{host}:443:read-write:::allow-uninspected-credentials"]
+
+
+class TestEgressPresets:
+    def test_preset_names_match_the_profile_schema(self):
+        assert set(EGRESS_PRESETS) == sandbox_profile.KNOWN_EGRESS_PRESETS
+
+    def test_preset_endpoints(self):
+        assert EGRESS_PRESETS["pypi"].endpoints == (
+            "pypi.org:443:read-only",
+            "files.pythonhosted.org:443:read-only",
+        )
+        assert EGRESS_PRESETS["npm"].endpoints == (NPM,)
+        assert list(EGRESS_PRESETS["goproxy"].endpoints) == GOPROXY
+        assert EGRESS_PRESETS["github-release-assets"].endpoints == (
+            "release-assets.githubusercontent.com:443:read-only",
+            "objects.githubusercontent.com:443:read-only",
+            "raw.githubusercontent.com:443:read-only",
+        )
+
+    def test_every_preset_is_read_only_on_443_in_every_phase(self):
+        for preset in EGRESS_PRESETS.values():
+            assert preset.phases == frozenset(EGRESS_PHASES)
+            for endpoint in preset.endpoints:
+                assert endpoint.endswith(":443:read-only")
+
+    def test_presets_cannot_be_changed(self):
+        with pytest.raises(TypeError):
+            EGRESS_PRESETS["npm"] = EgressPreset(endpoints=("evil.example.com:443:full",))
+
+
+class TestResolveEndpointsWithProfile:
+    def test_no_profile_is_unchanged(self, tmp_path, capsys):
+        _write_repo_policy(tmp_path)
+        result = resolve_endpoints(workdir=str(tmp_path), auth_mode="openai", profile=None)
+        assert result == [
+            *DEFAULT_ENDPOINTS,
+            *AUTH_ENDPOINTS["openai"],
+            "repo.example.com:443:full",
+        ]
+        assert "Policy source: repo (" in capsys.readouterr().out
+
+    def test_repo_policy_file_is_ignored_with_a_profile(self, tmp_path, capsys):
+        _write_repo_policy(tmp_path)
+        result = resolve_endpoints(workdir=str(tmp_path), profile=SandboxProfile())
+        assert result == list(DEFAULT_ENDPOINTS)
+        assert (
+            "Policy source: sandbox profile (repo policy file ignored)" in capsys.readouterr().out
+        )
+
+    def test_source_without_a_repo_policy_file(self, tmp_path, capsys):
+        resolve_endpoints(workdir=str(tmp_path), profile=SandboxProfile())
+        out = capsys.readouterr().out
+        assert "Policy source: sandbox profile\n" in out
+
+    def test_policy_flag_still_applies_with_a_profile(self, tmp_path, capsys):
+        _write_repo_policy(tmp_path)
+        flag_file = tmp_path / "flag.yml"
+        flag_file.write_text("endpoints:\n  - 'flag.example.com:443:full'\n")
+        result = resolve_endpoints(
+            flag_path=str(flag_file), workdir=str(tmp_path), profile=_profile("npm")
+        )
+        assert result == [*DEFAULT_ENDPOINTS, NPM, "flag.example.com:443:full"]
+        assert "repo.example.com:443:full" not in result
+        assert "and sandbox profile" in capsys.readouterr().out
+
+    def test_agent_presets_and_raw_egress_follow_defaults_and_auth(self, tmp_path):
+        result = resolve_endpoints(
+            workdir=str(tmp_path), auth_mode="openai", profile=_profile("goproxy", "npm", RAW)
+        )
+        assert result == [
+            *DEFAULT_ENDPOINTS,
+            *AUTH_ENDPOINTS["openai"],
+            *GOPROXY,
+            NPM,
+            RAW,
+        ]
+
+    def test_endpoints_are_deduplicated(self, tmp_path):
+        # pypi is already a default, and the raw endpoint repeats a preset.
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("pypi", "npm", NPM))
+        assert result == [*DEFAULT_ENDPOINTS, NPM]
+
+    def test_presets_closed_in_the_agent_phase_are_left_out(self, tmp_path, monkeypatch):
+        setup_only = EgressPreset(
+            endpoints=("setup.example.com:443:read-only",), phases=frozenset({"setup"})
+        )
+        monkeypatch.setattr(
+            "agentic_ci.backends.openshell.policy.EGRESS_PRESETS", {"npm": setup_only}
+        )
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile("npm"))
+        assert result == list(DEFAULT_ENDPOINTS)
+
+
+class TestPhaseEndpoints:
+    @pytest.mark.parametrize("phase", ["setup", "validate"])
+    def test_presets_then_raw_egress(self, phase):
+        profile = _profile("npm", "goproxy", RAW)
+        assert phase_endpoints(profile, phase) == [NPM, *GOPROXY, RAW]
+
+    @pytest.mark.parametrize("phase", ["setup", "validate"])
+    @pytest.mark.parametrize("auth_mode", sorted(AUTH_ENDPOINTS))
+    def test_never_includes_defaults_auth_or_otel(self, phase, auth_mode):
+        result = phase_endpoints(_profile("npm", "github-release-assets"), phase)
+        assert not set(result) & set(DEFAULT_ENDPOINTS)
+        assert not set(result) & set(AUTH_ENDPOINTS[auth_mode])
+        assert not any("host.openshell.internal" in ep for ep in result)
+
+    def test_pypi_preset_repeats_default_hosts_for_the_shim(self):
+        # The defaults are bound to the agent binaries only, so the shim needs
+        # the pypi hosts from the preset.
+        assert phase_endpoints(_profile("pypi"), "setup") == list(EGRESS_PRESETS["pypi"].endpoints)
+
+    def test_empty_profile_opens_nothing(self):
+        assert phase_endpoints(SandboxProfile(), "setup") == []
+
+    def test_phase_filter(self, monkeypatch):
+        presets = {
+            "npm": EgressPreset(endpoints=(NPM,), phases=frozenset({"setup"})),
+            "goproxy": EgressPreset(endpoints=tuple(GOPROXY), phases=frozenset({"validate"})),
+        }
+        monkeypatch.setattr("agentic_ci.backends.openshell.policy.EGRESS_PRESETS", presets)
+        profile = _profile("npm", "goproxy", RAW)
+        assert phase_endpoints(profile, "setup") == [NPM, RAW]
+        assert phase_endpoints(profile, "validate") == [*GOPROXY, RAW]
+
+    @pytest.mark.parametrize("phase", ["agent", "install", ""])
+    def test_only_shim_phases(self, phase):
+        with pytest.raises(ValueError, match="phase must be one of setup, validate"):
+            phase_endpoints(SandboxProfile(), phase)
+
+    def test_unknown_preset_on_a_directly_built_profile_is_skipped(self, capsys):
+        profile = SandboxProfile(egress=("npm", "not-a-preset"))
+        assert phase_endpoints(profile, "setup") == [NPM]
+        out = capsys.readouterr().out
+        assert "1 unknown egress preset(s)" in out
+        assert "not-a-preset" not in out
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "internal.example.com:443:read-write:::allow-uninspected-credentials",
+            "internal.example.com:443:read-write:rest:enforce:request-body-credential-rewrite",
+            "internal.example.com:443:full:websocket::allowed-ip=10.0.0.1,"
+            "websocket-credential-rewrite",
+        ],
+    )
+    def test_raw_egress_with_a_credential_option_is_not_opened(self, endpoint, capsys):
+        profile = _profile("npm", endpoint)
+        assert phase_endpoints(profile, "setup") == [NPM]
+        out = capsys.readouterr().out
+        assert "1 egress endpoint(s) not opened in the setup phase" in out
+        assert "internal.example.com" not in out
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "api.openai.com:443:read-only",
+            "API.OpenAI.com:443:read-only",
+            "chatgpt.com:443:read-write",
+            "api.anthropic.com:443:read-only",
+            "oauth2.googleapis.com:443:read-only",
+            "us.aiplatform.googleapis.com:443:read-only",
+            "*.googleapis.com:443:read-only",
+            "*.openai.com:443:read-only",
+            "host.openshell.internal:4318:read-write",
+        ],
+    )
+    def test_raw_egress_to_auth_llm_or_otel_hosts_is_not_opened(self, endpoint, capsys):
+        profile = _profile(endpoint, RAW)
+        assert phase_endpoints(profile, "validate") == [RAW]
+        out = capsys.readouterr().out
+        assert "1 egress endpoint(s) not opened in the validate phase" in out
+        assert endpoint.split(":")[0] not in out
+
+    def test_unrelated_hosts_and_allowed_ip_stay(self, capsys):
+        storage = "storage.googleapis.com:443:read-only"
+        pinned = "internal.example.com:443:read-only:::allowed-ip=10.0.0.0/8"
+        assert phase_endpoints(_profile(storage, pinned), "setup") == [storage, pinned]
+        assert "not opened" not in capsys.readouterr().out
+
+    def test_agent_phase_keeps_raw_credential_egress(self, tmp_path):
+        endpoint = "api.example.com:443:read-write:::allow-uninspected-credentials"
+        result = resolve_endpoints(workdir=str(tmp_path), profile=_profile(endpoint))
+        assert endpoint in result

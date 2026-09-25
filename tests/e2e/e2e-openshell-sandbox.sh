@@ -160,6 +160,74 @@ assert_ok "shfmt is installed in Codex sandbox" \
     run_in "$CODEX_SANDBOX" shfmt --version
 assert_ok "ruff is installed" run_in "$CLAUDE_SANDBOX" ruff --version
 
+print_header "=== shared sandbox: setup shim ==="
+
+# Setup and validate steps run under this shim; OpenShell binds their egress
+# to its path. It must fork and wait (never exec itself), forward its exit
+# status and signals, and be root-owned so the sandbox user cannot replace it.
+SHIM=/usr/local/bin/agentic-ci-sandbox-setup
+# sh -c "$SHIM_SIGNAL_CHECK" sh SHIM SIG: start the shim in the background with
+# SIGINT and SIGQUIT back at their defaults (a non-interactive shell ignores
+# them for background jobs, and the shim keeps ignored signals ignored), wait
+# until the command has installed its trap (no sleep race), send SIG to the
+# shim and expect the command's trap exit status 42.
+SHIM_SIGNAL_CHECK='
+shim=$1 sig=$2 ready=$(mktemp -d)/ready
+python3 -c "import os, signal, sys
+for s in (signal.SIGINT, signal.SIGQUIT):
+    signal.signal(s, signal.SIG_DFL)
+os.execv(sys.argv[1], sys.argv[1:])" "$shim" sh -c \
+    "trap '"'"'exit 42'"'"' $sig; touch $ready; while :; do sleep 0.1; done" &
+p=$!
+i=0
+while [ ! -e "$ready" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+kill -"$sig" "$p"
+wait "$p"
+test $? -eq 42'
+# sh -c "$SHIM_GROUP_CHECK" sh SHIM: a grandchild the command started in the
+# background must die with it when the shim is sent SIGTERM.
+SHIM_GROUP_CHECK='
+shim=$1 dir=$(mktemp -d)
+"$shim" sh -c "sh -c '"'"'touch $dir/started; sleep 3; touch $dir/survived'"'"' & wait" &
+p=$!
+i=0
+while [ ! -e "$dir/started" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+kill -TERM "$p"
+wait "$p"
+test $? -eq 143 || exit 1
+sleep 4
+test ! -e "$dir/survived"'
+for image in "$CLAUDE_SANDBOX" "$OPENCODE_SANDBOX" "$CODEX_SANDBOX"; do
+    name="${image##*/}"
+    assert_ok "$name: setup shim is root-owned mode 755" \
+        run_in "$image" sh -c "test \"\$(stat -c '%U:%G %a' $SHIM)\" = 'root:root 755'"
+    assert_ok "$name: setup shim runs true (exit 0)" run_in "$image" "$SHIM" true
+    assert_ok "$name: setup shim forwards false (exit 1)" \
+        run_in "$image" sh -c "$SHIM false; test \$? -eq 1"
+    assert_ok "$name: setup shim forwards an exit status (exit 7)" \
+        run_in "$image" sh -c "$SHIM sh -c 'exit 7'; test \$? -eq 7"
+    assert_ok "$name: setup shim prints usage and exits 2 without a command" \
+        run_in "$image" sh -c "$SHIM 2>&1 | grep -q '^usage: agentic-ci-sandbox-setup'; $SHIM; test \$? -eq 2"
+    assert_ok "$name: setup shim stays the parent of the command (no exec)" \
+        run_in "$image" sh -c "test \"\$($SHIM sh -c 'readlink /proc/\$PPID/exe')\" = $SHIM"
+    assert_ok "$name: setup shim exits 127 for a missing command" \
+        run_in "$image" sh -c "$SHIM /nonexistent 2>/dev/null; test \$? -eq 127"
+    for sig in TERM INT HUP QUIT; do
+        assert_ok "$name: setup shim forwards SIG$sig to the command" \
+            run_in "$image" sh -c "$SHIM_SIGNAL_CHECK" sh "$SHIM" "$sig"
+    done
+    # SIGKILL cannot be forwarded or trapped, so only the shim's own
+    # WIFSIGNALED mapping can turn the child's death into 137.
+    assert_ok "$name: setup shim reports a signal-killed command as 128+N" \
+        run_in "$image" sh -c "$SHIM sh -c 'kill -KILL \$\$'; test \$? -eq 137"
+    assert_ok "$name: setup shim signals the whole process group of the command" \
+        run_in "$image" sh -c "$SHIM_GROUP_CHECK" sh "$SHIM"
+    assert_ok "$name: setup shim keeps a signal it was started with ignored" \
+        run_in "$image" sh -c "(trap '' TERM; exec $SHIM sh -c 'sleep 2; exit 7') & p=\$!; sleep 0.5; kill -TERM \$p; wait \$p; test \$? -eq 7"
+    assert_ok "$name: sandbox retains no package manager or compiler" \
+        run_in "$image" sh -c '! command -v dnf && ! command -v microdnf && ! command -v gcc && ! command -v cc'
+done
+
 print_header "=== shared sandbox: runtime/user/workdir ==="
 
 assert_ok "claude sandbox uses a Hummingbird runtime" \
@@ -168,8 +236,6 @@ assert_ok "opencode sandbox uses a Hummingbird runtime" \
     run_in "$OPENCODE_SANDBOX" sh -c '. /etc/os-release; test "$ID" = "hummingbird"'
 assert_ok "codex sandbox uses a Hummingbird runtime" \
     run_in "$CODEX_SANDBOX" sh -c '. /etc/os-release; test "$ID" = "hummingbird"'
-assert_ok "sandbox retains no package manager" \
-    run_in "$CLAUDE_SANDBOX" sh -c '! command -v dnf && ! command -v microdnf'
 assert_ok "sandbox user has uid 1001 and a matching primary group" \
     run_in "$CLAUDE_SANDBOX" sh -c \
         'test "$(id -u sandbox)" -eq 1001 && test "$(id -g sandbox)" -eq 1001'

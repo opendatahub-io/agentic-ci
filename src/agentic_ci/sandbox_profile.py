@@ -17,8 +17,10 @@ download exclusions for one target repo. The same shape is used in two places:
 with an overlay, and :func:`profile_to_dict` / :func:`profile_hash` serialize
 one. ``SkillConfig.sandbox_profile`` carries the result to the backend.
 
-In this release only ``resources`` takes effect (``OpenShellBackend`` sizes
-the sandbox with it). The other fields are validated and carried but not yet
+In this release ``resources`` and ``egress`` take effect: ``OpenShellBackend``
+sizes the sandbox with ``resources`` and opens the ``egress`` presets and raw
+endpoints to the agent (``agentic_ci.backends.openshell.policy`` holds the
+preset endpoints). The other fields are validated and carried but not yet
 acted on.
 
 Error and warning messages name the field path (for example
@@ -55,7 +57,11 @@ KNOWN_TOOLCHAINS = frozenset(
 """Toolchain names a profile may request. A later release replaces this with a catalog."""
 
 KNOWN_EGRESS_PRESETS = frozenset({"github-release-assets", "goproxy", "npm", "pypi"})
-"""Egress preset names a profile may request. A later release attaches endpoint lists."""
+"""Egress preset names a profile may request.
+
+The endpoints live in ``agentic_ci.backends.openshell.policy.EGRESS_PRESETS``,
+whose names a test keeps equal to this set; this module stays backend-neutral.
+"""
 
 DEFAULT_OVERLAY_ALLOWED_PRESETS = frozenset({"goproxy", "npm", "pypi"})
 """Egress presets a repo overlay may add unless the caller allows others."""
@@ -140,13 +146,18 @@ _PORT_RE = re.compile(r"[0-9]{1,5}")
 # "tcp" is left out: OpenShell rejects it together with an access level, which is required.
 _ENDPOINT_PROTOCOLS = ("", "rest", "sql", "websocket")
 _ENDPOINT_ENFORCEMENTS = ("", "audit", "enforce")
-_ENDPOINT_OPTIONS = frozenset(
+CREDENTIAL_ENDPOINT_OPTIONS = frozenset(
     {
         "allow-uninspected-credentials",
         "request-body-credential-rewrite",
         "websocket-credential-rewrite",
     }
 )
+"""Raw endpoint options that let a rule carry or rewrite provider credentials.
+
+A raw endpoint may also carry ``allowed-ip=IPV4[/BITS]`` options. The OpenShell
+backend never opens an endpoint with a credential option to the setup shim.
+"""
 _ALLOWED_IP_RE = re.compile(r"allowed-ip=[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?")
 # A name shown as-is in a field path; anything else is quoted with ``_show``.
 _PLAIN_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
@@ -602,7 +613,7 @@ def _check_raw_endpoint(entry: str, path: str) -> None:
         f"protocol one of {', '.join(p for p in _ENDPOINT_PROTOCOLS if p)}, "
         f"enforcement one of {', '.join(e for e in _ENDPOINT_ENFORCEMENTS if e)} "
         "(only with a protocol), "
-        f"options from {', '.join(sorted(_ENDPOINT_OPTIONS))}, allowed-ip=IPV4[/BITS], "
+        f"options from {', '.join(sorted(CREDENTIAL_ENDPOINT_OPTIONS))}, allowed-ip=IPV4[/BITS], "
         "and no whitespace"
     )
     if _WHITESPACE_RE.search(entry):
@@ -623,10 +634,26 @@ def _check_raw_endpoint(entry: str, path: str) -> None:
     if enforcement and not protocol:
         raise SandboxProfileError(path, rule)
     if options and not all(
-        option in _ENDPOINT_OPTIONS or _ALLOWED_IP_RE.fullmatch(option)
+        option in CREDENTIAL_ENDPOINT_OPTIONS or _ALLOWED_IP_RE.fullmatch(option)
         for option in options.split(",")
     ):
         raise SandboxProfileError(path, rule)
+
+
+def is_raw_endpoint(entry: object) -> bool:
+    """Return whether *entry* is a raw endpoint a central profile's ``egress`` accepts.
+
+    The same ``host:port:access[:protocol[:enforcement[:options]]]`` grammar
+    :func:`parse_profile` applies, for code that builds policy from endpoint
+    strings and must not keep a second copy of the rules.
+    """
+    if not isinstance(entry, str):
+        return False
+    try:
+        _check_raw_endpoint(entry, "egress")
+    except SandboxProfileError:
+        return False
+    return True
 
 
 def _check_cpu(value: object) -> str:

@@ -148,6 +148,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: COPY paths in Containerfiles didn't match the repo layout after restructuring.
 - **Where to look**: `images/runner/shared/Containerfile.base`, COPY directives
 
+### OpenShell egress phase switch fails, or a profile preset is not reachable
+- **Symptom**: `Could not switch to the <phase> egress phase: openshell policy get|set exited with status N; see the job log`, or a host from a sandbox profile's `egress` is denied.
+- **Likely cause**: Phase switches replace the whole policy with `openshell policy set`; the `openshell stderr:` line before the error has the server's reason (a missing `filesystem_policy` or a `_provider_` rule name in the input are refused). Setup and validate egress is bound only to `/usr/local/bin/agentic-ci-sandbox-setup`: a command not started through the shim, a process it left behind, or an image without the shim gets 403. While setup or validate egress is open, the agent's rules are parked (binary paths prefixed with `/proc/agentic-ci-parked`), so agent binaries get 403 too until the switch back to `agent`; `setup()` switches a reused profile sandbox back to `agent`. Raw endpoints overlapping LLM/auth hosts or carrying credential options are never opened to the shim (`WARNING: N egress endpoint(s) not opened in the <phase> phase`). Agent-phase presets are applied only at sandbox create; the profile hash in the identity file recreates the sandbox when the profile changes. With a profile, `.agentic-ci/openshell-policy.yml` is ignored by design (`Policy source: sandbox profile (repo policy file ignored)`).
+- **Where to look**: `backends/openshell/policy.py` (`EGRESS_PRESETS`, `resolve_endpoints`, `phase_endpoints`), `backends/openshell/sandbox.py` (`build_phase_policy`, `apply_phase_policy`), `OpenShellBackend._set_egress_phase()`, `tests/e2e/e2e-openshell-profile.sh`
+
 ### OpenShell sandbox auto-attaches provider
 - **Likely cause**: Default provider attachment behavior interfered with custom credential injection. Fixed by preventing auto-attachment.
 - **Where to look**: `backends/openshell/sandbox.py` provider config

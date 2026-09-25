@@ -8,11 +8,12 @@ before the workdir is copied back. Callers build one with
 as `SkillConfig.sandbox_profile`.
 
 !!! note "What takes effect in this release"
-    Only `resources` takes effect today: the OpenShell backend sizes the
-    sandbox with it. Every other field is validated, merged and carried to the
-    backend, but not yet acted on. Egress presets, toolchain provisioning,
-    in-sandbox setup, validation runs and `discard_before_download` land in
-    the following releases.
+    `resources` and `egress` take effect today: the OpenShell backend sizes
+    the sandbox with `resources` and opens the `egress` presets and raw
+    endpoints to the agent (see [Egress](#egress)). Every other field is
+    validated, merged and carried to the backend, but not yet acted on.
+    Toolchain provisioning, in-sandbox setup, validation runs and
+    `discard_before_download` land in the following releases.
 
 Sandbox profiles apply only to the OpenShell backend. The Podman and local
 backends log a warning and ignore a profile.
@@ -166,3 +167,70 @@ value to the backend explicitly; explicit values win. The backend logs one line
 saying where each value came from. As with explicit values, resources apply
 only when the sandbox is created; see
 [Sandbox Resources](backends/openshell.md#sandbox-resources).
+
+## Egress
+
+With a profile, the OpenShell backend builds the sandbox's network policy from
+the built-in defaults, the endpoints the harness's auth mode needs, and then
+the profile's egress: the endpoints of each preset open in the `agent` phase,
+followed by the profile's raw endpoints (central only), de-duplicated. These
+rules are bound to the agent binaries, like the defaults. The repo's
+`.agentic-ci/openshell-policy.yml` is ignored when a profile is set, so only
+reviewed configuration opens egress; the log says `Policy source: sandbox
+profile`, with ` (repo policy file ignored)` appended when the repo has that
+file. An explicit `--policy` flag still applies.
+Without a profile the policy is exactly what it was before profiles existed.
+
+The profile's hash is recorded in the sandbox identity file, so a changed
+profile recreates the sandbox instead of reusing one with the old egress. A
+reused sandbox is switched to the `agent` phase before anything runs, in case
+an earlier run stopped in `setup` or `validate`. Resources the profile set
+are not reported as "not applied" on reuse, since the hash guarantees them.
+
+| Preset | Endpoints (all `443`, `read-only`) | Phases |
+|--------|------------------------------------|--------|
+| `pypi` | `pypi.org`, `files.pythonhosted.org` | setup, validate, agent |
+| `npm` | `registry.npmjs.org` | setup, validate, agent |
+| `goproxy` | `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com` | setup, validate, agent |
+| `github-release-assets` | `release-assets.githubusercontent.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | setup, validate, agent |
+
+The endpoint lists live in `agentic_ci.backends.openshell.policy.EGRESS_PRESETS`.
+Raw endpoints apply to all three phases.
+
+### Phases and the setup shim
+
+A sandbox moves through three egress phases: `setup` (before the agent),
+`agent`, and `validate` (after the agent). For `setup` and `validate`, the
+backend adds one rule per endpoint of the presets open in that phase plus the
+raw endpoints, bound only to the setup shim
+`/usr/local/bin/agentic-ci-sandbox-setup`, and parks the agent's rules: each
+agent binary path becomes `/proc/agentic-ci-parked/<path>`, which no process
+can match, so a step that runs `codex` (or another agent binary) under the
+shim gets no agent egress. The `agent` phase strips every shim rule and
+restores the agent's rules unchanged, credential bindings included. The shim
+only gets the profile's presets and raw endpoints, never the default forge
+rules, LLM endpoints or the OTel collector (a preset such as `pypi` can still
+name a host that the defaults also allow): a raw endpoint whose host overlaps an auth endpoint or the collector (wildcards
+included), or that carries a credential option such as
+`allow-uninspected-credentials`, is left out of the shim's rules and only
+their count is logged. Each switch replaces the whole policy with `openshell
+policy set` and closes every open proxied connection, so it happens only while
+nothing runs in the sandbox.
+
+One gap is accepted: the OpenShell `openai` and `anthropic` provider profiles
+bind the API host to `/usr/bin/curl` and `/usr/local/bin/curl` and inject the
+real key into those requests. Those rules are composed by the server, are not
+part of `policy get --base`, and so stay live in every phase: setup and
+validate code cannot read the key but can spend it through curl, as the agent
+already can.
+
+The shim is a small static binary in the OpenShell sandbox images. It runs its
+arguments as a child process in a new process group, waits, forwards
+`SIGTERM`, `SIGINT`, `SIGHUP` and `SIGQUIT` to that whole group (so a step
+killed on timeout takes its own children with it), and exits with the child's
+status (`128+N` for a signal).
+OpenShell matches a connection by the caller's executable and its parent
+chain, so a command started through the shim, and everything it starts, gets
+the shim's rules; a bare process, or one the shim leaves behind after it
+exits, does not. Running setup and validate steps through the shim lands in a
+following release.

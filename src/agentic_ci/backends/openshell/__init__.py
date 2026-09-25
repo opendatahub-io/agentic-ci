@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.backends.openshell.policy import phase_endpoints
 from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
+from agentic_ci.sandbox_profile import profile_hash
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -97,8 +99,22 @@ def _clear_sandbox_identity() -> None:
         pass
 
 
-def _sandbox_identity(harness_name: str, image: str | None, auth_mode: str) -> dict:
-    return {"auth_mode": auth_mode, "harness": harness_name, "image": image}
+def _sandbox_identity(
+    harness_name: str,
+    image: str | None,
+    auth_mode: str,
+    profile: SandboxProfile | None = None,
+) -> dict:
+    """Describe a sandbox so ``setup()`` can tell whether an existing one fits.
+
+    The profile hash is recorded only when a profile is set, so without one
+    the identity (and the file it is saved to) is unchanged. With one, a
+    changed profile recreates the sandbox instead of reusing its old egress.
+    """
+    identity = {"auth_mode": auth_mode, "harness": harness_name, "image": image}
+    if profile is not None:
+        identity["profile_hash"] = profile_hash(profile)
+    return identity
 
 
 class OpenShellBackend(Backend):
@@ -119,9 +135,12 @@ class OpenShellBackend(Backend):
     after the download, so the agent's git config never runs on the host.
 
     ``sandbox_profile`` (see :mod:`agentic_ci.sandbox_profile`) is stored on
-    the backend. In this release only its ``resources`` take effect: they
-    size the sandbox wherever the caller did not pass ``memory``, ``cpu`` or
-    ``gpu`` explicitly.
+    the backend. Its ``resources`` size the sandbox wherever the caller did
+    not pass ``memory``, ``cpu`` or ``gpu`` explicitly, and its ``egress``
+    presets open for the agent when the sandbox is created (the repo's
+    ``.agentic-ci/openshell-policy.yml`` is then ignored).
+    :meth:`_set_egress_phase` switches the egress of the setup shim between
+    the ``setup``, ``validate`` and ``agent`` phases.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -149,6 +168,9 @@ class OpenShellBackend(Backend):
         self.cpu = cpu
         self.gpu = gpu
         self.sandbox_profile = sandbox_profile
+        self._explicit_resources = {
+            name: value for name, value in (("memory", memory), ("cpu", cpu), ("gpu", gpu)) if value
+        }
         self._apply_profile_resources()
 
     def _apply_profile_resources(self):
@@ -216,10 +238,15 @@ class OpenShellBackend(Backend):
                         "The existing OpenShell sandbox has no identifiable provider; "
                         "run agentic-ci stop before switching harnesses"
                     )
-            expected_identity = _sandbox_identity(self.harness.name, self.image, auth_mode)
+            expected_identity = _sandbox_identity(
+                self.harness.name, self.image, auth_mode, self.sandbox_profile
+            )
             if existing_auth_mode == auth_mode and identity == expected_identity:
                 log.section("Sandbox already exists")
                 self._warn_unapplied_resources()
+                # An earlier run may have stopped in the setup or validate
+                # phase; the agent must never start with shim rules live.
+                self._set_egress_phase("agent")
                 return
 
             if existing_auth_mode != auth_mode:
@@ -251,6 +278,7 @@ class OpenShellBackend(Backend):
             memory=self.memory,
             cpu=self.cpu,
             gpu=self.gpu,
+            **self._profile_kwargs(),
         )
 
         self._run_setup_steps()
@@ -259,7 +287,34 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
-        _save_sandbox_identity(_sandbox_identity(self.harness.name, self.image, auth_mode))
+        _save_sandbox_identity(
+            _sandbox_identity(self.harness.name, self.image, auth_mode, self.sandbox_profile)
+        )
+
+    def _profile_kwargs(self) -> dict:
+        """``profile=`` for ``sandbox.create``, passed only when a profile is set."""
+        return {} if self.sandbox_profile is None else {"profile": self.sandbox_profile}
+
+    def _set_egress_phase(self, phase: str) -> None:
+        """Open the sandbox profile's egress for *phase* to the setup shim.
+
+        ``setup`` and ``validate`` bind the endpoints of the profile's presets
+        open in that phase, plus its raw egress, to the setup shim only, and
+        park the agent's rules so no process matches them; ``agent`` strips
+        every shim-bound rule and restores the agent's rules. Idempotent: a
+        switch to the phase already in effect changes nothing. No-op without a
+        sandbox profile.
+
+        A policy change closes every open proxied connection in the sandbox,
+        so call this only while nothing runs there. The agent phase must be
+        in effect before the agent starts, because the agent can run the shim.
+        """
+        profile = self.sandbox_profile
+        if profile is None:
+            return
+        endpoints = [] if phase == "agent" else phase_endpoints(profile, phase)
+        log.section(f"Switching sandbox egress to the {phase} phase")
+        sandbox.apply_phase_policy(phase, endpoints)
 
     def _warn_unapplied_resources(self):
         """Say so when a reused sandbox keeps an allocation the caller did not ask for.
@@ -275,9 +330,12 @@ class OpenShellBackend(Backend):
         parsing ``openshell sandbox get`` and comparing units -- ``1``, ``1000m``
         and ``1.0`` are the same CPU -- which is a contract worth adding only once
         something needs to depend on it.
+
+        Values taken from the sandbox profile are not reported: the profile's
+        hash is part of the sandbox identity, so a reused sandbox was created
+        with them.
         """
-        requested = {"memory": self.memory, "cpu": self.cpu, "gpu": self.gpu}
-        asked_for = {k: v for k, v in requested.items() if v}
+        asked_for = self._explicit_resources
         if not asked_for:
             return
         values = ", ".join(f"{k}={v}" for k, v in asked_for.items())
