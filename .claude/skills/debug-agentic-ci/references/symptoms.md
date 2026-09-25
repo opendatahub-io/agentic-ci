@@ -132,6 +132,16 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: `check_sensitive_files` was matching patterns against both the filename and the full path. Python's `fnmatch` treats `*` as matching path separators, so the `*secret*` blocklist pattern matched directory components like `secrets/`. Fixed by restricting matching to the filename only (`os.path.basename`).
 - **Where to look**: `gates.py:check_sensitive_files()`, fnmatch pattern matching
 
+### Gate error or verdict failure says only "(SomeError); see the CI job log"
+- **Symptom**: A tracker comment or `gate_errors` entry reads like `gitleaks pre-check failed: git rev-list error (CalledProcessError); see the CI job log` or `Verdict could not be loaded (ValueError); see the CI job log`, with no detail.
+- **Likely cause**: By design (RHAI-2736). Gate error strings and the `gate_errors` that `run_skill()` passes to `label_applier` after a verdict load failure name only the exception class, because consumers post them to Jira and exception or stderr text can carry secrets. The full exception message and subprocess stderr are logged at ERROR level by `agentic_ci.gates` or `agentic_ci.skill` in the same job. `loader returned no verdict` means the retried `verdict_loader` returned `None` instead of raising.
+- **Where to look**: the job log line `git rev-list failed: ...; stderr: ...`, `Could not ...: ...` or `[KEY] Failed to load verdict: <class>: <message>`; `gates.py:gitleaks_scan()` and the CLI gate runners, `skill.py:_verdict_error_text()`
+
+### Comments or label authors with no email dropped
+- **Symptom**: A comment from a Jira app or deleted user is missing from the agent context, or a label added by one fails the label-author check.
+- **Likely cause**: By design. `filter_comments_by_domain()`, `check_label_author_email()` and `check_external_reporter()` treat a missing (`None`) or non-string email as outside the domain. Before RHAI-2736 a `None` `author_email` raised `TypeError` and aborted the run. `filter_bot_comments()` keeps a comment whose `body` is missing, since it holds no sentinel.
+- **Where to look**: `gates.py:_email_matches()`, the `author_email` / `email` / `reporter_email` values from `jira/client.py`
+
 ## Container images
 
 ### AGENTS.md not found in container

@@ -198,6 +198,11 @@ All required environment variables are validated before any gate runs.
 If any are missing, the CLI exits immediately with a clear error listing
 every missing variable and which gate needs it.
 
+Consumers post gate error strings to trackers, so a gate that fails on an
+exception names only its class, for example
+`gitleaks pre-check failed: git rev-list error (CalledProcessError); see the CI job log`.
+The full exception message and subprocess stderr are written to the job log.
+
 ## Credentials
 
 Anthropic, Vertex AI, and OpenAI authentication are supported. The auth family
@@ -507,7 +512,7 @@ awareness of this file. `context_dir` is validated to stay within
 6. **Retry** -- transient failures (exit 124/137/143) retry once if `mode` is in `retryable_modes`
 7. **Cost** -- parses OTEL metrics from the run directory
 8. **Post-gates** -- each `post_gates` callable validates the output (e.g. sensitive file check, gitleaks)
-9. **Verdict** -- `verdict_loader` reads the agent's structured output
+9. **Verdict** -- `verdict_loader` reads the agent's structured output. If it raises (after one retry run in `retryable_modes`), `label_applier` gets `verdict=None` and `gate_errors=["Verdict could not be loaded (<ExceptionClass>); see the CI job log"]`; the exception message is only logged
 10. **Report** -- `label_applier` applies labels, posts comments, transitions tickets
 
 ### Reasoning Effort
