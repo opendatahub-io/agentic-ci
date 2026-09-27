@@ -120,5 +120,9 @@ Each endpoint uses the format `host:port:access` where access is one of
 The `--policy` CLI flag takes precedence: if a flag path is provided and
 the file exists, the repo-level file is ignored.
 
+When the caller passes a [sandbox profile](sandbox-profiles.md#egress)
+(for example autofix, through `SkillConfig.sandbox_profile`), the repo-level
+file is ignored as well and egress comes from the profile.
+
 See [OpenShell Backend](backends/openshell.md) for the full list of
 built-in default endpoints.

@@ -828,3 +828,12 @@ jobs:
           OPENCODE_SANDBOX_IMAGE: ${{ needs.build-opencode-sandbox.outputs.image }}
           CODEX_SANDBOX_IMAGE: ${{ needs.build-codex-sandbox.outputs.image }}
         run: bash tests/e2e/e2e-openshell-sandbox.sh
+
+      # Sandbox-profile egress: phase switches and the setup shim's binary
+      # binding. No LLM call; the script creates the provider with a fake key.
+      # Runs even when the step above failed, so its result is never hidden.
+      - name: Run sandbox profile e2e tests
+        if: ${{ !cancelled() }}
+        env:
+          CODEX_SANDBOX_IMAGE: ${{ needs.build-codex-sandbox.outputs.image }}
+        run: bash tests/e2e/e2e-openshell-profile.sh
