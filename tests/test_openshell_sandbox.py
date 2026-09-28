@@ -238,6 +238,9 @@ class TestSandboxProfileResources:
         ):
             provider.provider_exists.return_value = exists
             provider.auth_mode.return_value = "vertex"
+            # Vertex credentials also reach the sandbox outside the provider,
+            # so they have no fingerprint in the sandbox identity.
+            provider.credential_fingerprint.return_value = None
             backend.setup()
         return create, delete, logged
 

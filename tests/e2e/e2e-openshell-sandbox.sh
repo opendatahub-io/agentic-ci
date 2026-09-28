@@ -443,13 +443,44 @@ else
         assert_ok "codex exited successfully" test "$RC" -eq 0
 
         # agentic-ci's OpenAI provider profile has no curl rule, so a plain
-        # sandbox process must not reach api.openai.com. The run above used
-        # --keep so the sandbox is still up for this probe.
+        # sandbox process must not reach api.openai.com with the provider
+        # placeholder, and Codex logs in with the placeholder, so the real
+        # key must not be stored in its auth.json. The run above used --keep
+        # so the sandbox is still up for these probes. (A plain exec never
+        # sources the env script, and the agent wrapper deletes it, so the
+        # env script is covered by unit tests instead.)
         print_step "Probing OpenAI credential isolation..."
         CURL_OUT="$(openshell sandbox exec --name ci --no-tty -- bash -c \
             'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models' \
             2>&1 || true)"
-        assert_contains "plain curl cannot reach api.openai.com" "$CURL_OUT" "CONNECT tunnel failed, response 403"
+        assert_contains "plain curl gets no OpenAI key" "$CURL_OUT" "CONNECT tunnel failed, response 403"
+        AUTH_JSON="$(openshell sandbox exec --name ci --no-tty -- bash -c \
+            'cat "${CODEX_HOME:-/sandbox/.codex}/auth.json"' 2>&1 || true)"
+        # Counts only: assert_contains would print auth.json on failure.
+        PLACEHOLDER_HITS="$(printf '%s\n' "$AUTH_JSON" | grep -c "openshell:resolve:env:" || true)"
+        assert_ok "Codex logged in with the provider placeholder" test "${PLACEHOLDER_HITS:-0}" -ge 1
+        # Compare against the key with all whitespace removed (API keys
+        # contain none), as agentic-ci and `codex login` store it: a secret
+        # with a trailing newline, space or tab would otherwise never match
+        # the trimmed key in auth.json.
+        OPENAI_KEY_TRIMMED="${OPENAI_API_KEY//[[:space:]]/}"
+        assert_ok "OpenAI key is not blank" test -n "$OPENAI_KEY_TRIMMED"
+        KEY_HITS="$(printf '%s\n' "$AUTH_JSON" | grep -cF -- "$OPENAI_KEY_TRIMMED" || true)"
+        assert_ok "real OpenAI key is not in Codex auth.json" test "${KEY_HITS:-0}" -eq 0
+        # OpenShell refuses to inject a key with a line break and answers
+        # HTTP 500, which Codex reports as "high demand". The proxy logs
+        # each Responses API request as ALLOWED by policy before it binds
+        # the credential, so requiring one such line keeps an empty or
+        # failed log read from passing the rejection check below.
+        LOG_RC=0
+        PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
+        assert_ok "read the sandbox proxy log" test "$LOG_RC" -eq 0
+        REQUESTS="$(printf '%s\n' "$PROXY_LOG" \
+            | grep -cE "ALLOWED (GET|POST) http://api\.openai\.com:443/v1/responses" || true)"
+        assert_ok "proxy log shows Codex requests to api.openai.com" test "${REQUESTS:-0}" -ge 1
+        REJECTED="$(printf '%s\n' "$PROXY_LOG" \
+            | grep -cE "prohibited characters|reason:credential_unavailable" || true)"
+        assert_ok "proxy resolved the OpenAI placeholder" test "${REJECTED:-0}" -eq 0
         dump_gateway_log
 
         agentic-ci stop --backend openshell --harness codex 2>/dev/null || true

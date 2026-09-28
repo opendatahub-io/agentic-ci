@@ -13,9 +13,8 @@
 # match the api.openai.com rule agentic-ci adds for the agent binaries
 # (policy.AUTH_ENDPOINTS). OpenShell refuses a CONNECT when any credentialed
 # rule that matches the caller lacks that opt-in, so an L7 rule here would
-# block Codex. An L4 tunnel is not inspected, so the proxy cannot replace the
-# provider placeholder in request headers: Codex logs in with the real key
-# from the sandbox env script, and this profile only keeps curl off the host.
+# block Codex. The proxy still terminates TLS on the tunnel and replaces the
+# provider placeholder in request headers for this host.
 id: agentic-ci-openai
 display_name: agentic-ci OpenAI
 description: OpenAI API key for agentic-ci, with no curl rule
