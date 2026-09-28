@@ -10,13 +10,21 @@
 # L7: GETs (and the Go proxy's redirect to Cloud Storage) pass, PUT and POST
 # get the proxy's own 403, and npm and uv work through the shim.
 #
+# A refused connection looks different across OpenShell releases: v0.0.116
+# answers the CONNECT with 403 ("Tunnel connection failed: 403", curl's
+# "CONNECT tunnel failed, response 403"), v0.1.x refuses the socket connect
+# ("[Errno 13] Permission denied", curl's "(7) Failed to connect"). Either
+# counts as a denial only together with the sandbox log's DENIED line for
+# that caller and host, stamped after the check started (`openshell logs`):
+# a bare EACCES, connect failure or 403 proves nothing.
+#
 # The shim is an extra layer, not isolation, so sections 7 to 9 check what
 # keeps the agent out of the setup and validate phases: processes the agent
 # left running (a nohup job, setsid daemons, one named like the sandbox's main
 # process, one that keeps trying the shim, and a planted ~/.bash_profile that
 # would forge the switch's own execs under a login shell) are gone once
 # validate opens, while the main process and the sandbox stay usable; and the
-# OpenAI provider is detached, so curl gets the proxy's 403 instead of an
+# OpenAI provider is detached, so curl is refused instead of getting an
 # injected key, even from under codex or with a placeholder issued in the
 # agent phase, until the agent phase attaches it again. A control attaches the
 # provider by hand in the setup phase to show that codex -> curl is injected
@@ -57,6 +65,8 @@ source "$SCRIPT_DIR/../images/shell-utils.sh"
 PASS=0
 FAIL=0
 TMPDIR_E2E="$(mktemp -d)"
+# Host-side filter for the sandbox log (see denial_logged).
+DENIALS="$TMPDIR_E2E/denials.py"
 SANDBOX=ci
 SHIM=/usr/local/bin/agentic-ci-sandbox-setup
 # The raw endpoints overlap preset hosts (registry.npmjs.org exactly,
@@ -117,18 +127,106 @@ assert_ok() {
     if "$@" >/dev/null 2>&1; then pass "$desc"; else fail "$desc"; fi
 }
 
+# The executable the sandbox log names for the probe (the python3 symlink
+# resolved, such as /usr/bin/python3.14) and for curl.
+PY_CALLER='/usr/bin/python3(\.[0-9]+)?'
+CURL_CALLER=/usr/bin/curl
+
+# read_log: the sandbox log of the last 10 minutes, empty when it cannot be read.
+read_log() { openshell logs "$SANDBOX" --source sandbox --since 10m -n 5000 2>/dev/null || true; }
+
+# denial_mark CALLER_RE HOST [METHOD]: the MARK for denial_logged, taken right
+# before the probe runs: the later of now and the stamp of the newest sandbox
+# log line that already records such a denial. The sandbox shares the host's
+# clock (same kernel), so a line an earlier probe caused is stamped before
+# now; the newest-line stamp keeps it out even if the two clocks drift apart.
+denial_mark() { read_log | python3 "$DENIALS" --mark "$@"; }
+
+# denial_logged MARK CALLER_RE HOST [METHOD]: print the first sandbox log line
+# stamped strictly after MARK (see denial_mark) that records a denial: without
+# METHOD a refused connection from CALLER_RE to HOST ("DENIED
+# /usr/bin/curl(0) -> HOST:443"), with METHOD an L7 denial of METHOD to HOST
+# ("DENIED PUT http://HOST:443/..."; these lines name no caller). Polls the
+# log for 20 s at most, since the supervisor ships it with a delay; returns
+# non-zero when no such line shows up.
+denial_logged() {
+    local mark="$1"; shift
+    for _ in $(seq 20); do
+        if read_log | python3 "$DENIALS" "$mark" "$@"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# probe_host CMD...: the host of the first https:// argument.
+probe_host() {
+    local arg host
+    for arg in "$@"; do
+        if [[ "$arg" == https://* ]]; then
+            host="${arg#https://}"
+            echo "${host%%/*}"
+            return
+        fi
+    done
+}
+
+# probe_method CMD...: the probe's METHOD argument (the one after the URL), or GET.
+probe_method() {
+    while (($#)); do
+        if [[ "$1" == https://* ]]; then
+            echo "${2:-GET}"
+            return
+        fi
+        shift
+    done
+    echo GET
+}
+
 # expect RESULT DESC -- CMD...: run CMD in the sandbox and compare the probe's
-# verdict (ALLOWED, DENIED, L7DENIED or ERROR) with RESULT. L7DENIED is the
-# proxy's own 403 policy_denied answer after it inspected the request.
+# verdict (ALLOWED, DENIED, L7DENIED or ERROR) with RESULT. DENIED is a
+# refused connection: the probe's BLOCKED verdict (proxy-403 or eacces, see
+# the top of this file) with the sandbox log's DENIED line for python and
+# the URL's host. L7DENIED is the proxy's own 403 policy_denied answer after
+# it inspected the request, with the log's DENIED line for the method and
+# host.
 expect() {
     local want="$1" desc="$2"; shift 3
-    local out
+    local out mark="" host method shape=""
+    host="$(probe_host "$@")"
+    method="$(probe_method "$@")"
+    case "$want" in
+        DENIED) mark="$(denial_mark "$PY_CALLER" "$host")" ;;
+        L7DENIED) mark="$(denial_mark "" "$host" "$method")" ;;
+    esac
     out="$(timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty -- "$@" 2>&1 || true)"
-    if grep -q "^PROBE $want" <<<"$out"; then
-        pass "$desc ($want)"
-    else
-        fail "$desc: expected $want"
-        echo "  Got: $(tr '\n' ' ' <<<"$out" | cut -c1-240)"
+    case "$want" in
+        DENIED)
+            shape="$(sed -n 's/^PROBE BLOCKED \([a-z0-9-]*\).*/\1/p' <<<"$out" | head -1)"
+            if [[ -n "$shape" ]] && denial_logged "$mark" "$PY_CALLER" "$host" >/dev/null; then
+                pass "$desc (DENIED: $shape, logged)"
+                return
+            fi
+            ;;
+        L7DENIED)
+            grep -q "^PROBE L7DENIED" <<<"$out" && shape=policy_denied
+            if [[ -n "$shape" ]] && denial_logged "$mark" "" "$host" "$method" >/dev/null; then
+                pass "$desc (L7DENIED, logged)"
+                return
+            fi
+            ;;
+        *)
+            if grep -q "^PROBE $want" <<<"$out"; then
+                pass "$desc ($want)"
+                return
+            fi
+            ;;
+    esac
+    fail "$desc: expected $want"
+    echo "  Got: $(tr '\n' ' ' <<<"$out" | cut -c1-240)"
+    if [[ -n "$shape" ]]; then
+        echo "  Sandbox log: no matching DENIED line for $host after $mark"
     fi
 }
 
@@ -184,11 +282,15 @@ cat > "$WORKDIR/probe.py" <<'PROBE'
 
 Usage: probe.py URL [METHOD]. A GET asks for the first KiB only; any other
 method sends a small body. The verdict is ALLOWED (the server answered, with
-its status and the host of the final URL after redirects), DENIED (the proxy
-refused the CONNECT), L7DENIED (the proxy answered 403 policy_denied itself
-after inspecting the request) or ERROR.
+its status and the host of the final URL after redirects), BLOCKED proxy-403
+(the proxy refused the CONNECT, OpenShell v0.0.116), BLOCKED eacces (the
+connect failed with EACCES, OpenShell v0.1.x), L7DENIED (the proxy answered
+403 policy_denied itself after inspecting the request) or ERROR. A BLOCKED
+verdict is a denial only with the sandbox log's DENIED line for it, which
+the caller checks.
 """
 
+import errno
 import sys
 import urllib.error
 import urllib.parse
@@ -214,11 +316,66 @@ except urllib.error.HTTPError as exc:
         # The server answered, so the request was allowed.
         print(f"PROBE ALLOWED http={exc.code} host={urllib.parse.urlsplit(exc.url).hostname}")
 except OSError as exc:
+    reason = getattr(exc, "reason", exc)
     if "Tunnel connection failed: 403" in str(exc):
-        print("PROBE DENIED")
+        print("PROBE BLOCKED proxy-403")
+    elif isinstance(reason, OSError) and reason.errno == errno.EACCES:
+        print("PROBE BLOCKED eacces")
     else:
         print(f"PROBE ERROR {type(exc).__name__}: {exc}")
 PROBE
+cat > "$DENIALS" <<'DENIALS_PY'
+"""Find a sandbox log line on stdin that records a denial.
+
+Usage: denials.py MARK CALLER_RE HOST [METHOD] prints the first matching
+line stamped strictly after MARK (epoch seconds) and exits 0, else exits 1.
+denials.py --mark CALLER_RE HOST [METHOD] prints the later of now and the
+stamp of the newest matching line, the MARK for a probe about to run.
+
+Without METHOD a line matches when it records a refused connection from an
+executable matching CALLER_RE to HOST, as OpenShell v0.0.116 and v0.1.x both
+log it:
+
+    [1790609532.256] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED
+        /usr/bin/curl(0) -> api.openai.com:443 [reason:...]
+
+With METHOD it matches an L7 denial of METHOD to HOST ("DENIED PUT
+http://HOST:443/path", the port optional).
+"""
+
+import re
+import sys
+import time
+
+args = sys.argv[1:]
+mark_mode = args[0] == "--mark"
+if not mark_mode:
+    after = float(args.pop(0))
+else:
+    args.pop(0)
+caller, host = args[0], re.escape(args[1])
+method = args[2] if len(args) > 2 else ""
+if method:
+    pattern = re.compile(rf"\bDENIED {re.escape(method)} https?://{host}(?::[0-9]+)?/")
+else:
+    pattern = re.compile(rf"\bDENIED (?:{caller})\([0-9]+\) -> {host}:[0-9]+(?![0-9])")
+stamp = re.compile(r"^\[([0-9]+(?:\.[0-9]+)?)\]")
+newest = time.time()
+for line in sys.stdin:
+    match = stamp.match(line)
+    if not match or not pattern.search(line):
+        continue
+    stamped = float(match.group(1))
+    if mark_mode:
+        newest = max(newest, stamped)
+    elif stamped > after:
+        print(line.strip())
+        sys.exit(0)
+if mark_mode:
+    print(f"{newest:.6f}")
+    sys.exit(0)
+sys.exit(1)
+DENIALS_PY
 cat > "$WORKDIR/procs.py" <<'PROCS'
 """Print "PROCS <n> <pids>" for this user's other processes whose command line contains argv[1]."""
 
@@ -371,6 +528,7 @@ expect DENIED "setup: github.com from codex -> python" -- \
 # from the shim, so it loses the shim's egress once the shim has exited.
 ORPHAN_OUT=/tmp/agentic-ci-e2e-orphan.out
 openshell sandbox exec --name "$SANDBOX" --no-tty -- rm -f "$ORPHAN_OUT" >/dev/null 2>&1 || true
+ORPHAN_MARK="$(denial_mark "$PY_CALLER" registry.npmjs.org)"
 openshell sandbox exec --name "$SANDBOX" --no-tty -- "$SHIM" bash -c \
     'setsid -f sh -c "sleep 3; python3 \"\$0\" \"\$1\" > \"\$2\" 2>&1" "$0" "$1" "$2"' \
     "$PROBE" "$NPM_URL" "$ORPHAN_OUT" >/dev/null 2>&1 || true
@@ -381,10 +539,11 @@ for _ in $(seq 1 20); do
         cat "$ORPHAN_OUT" 2>/dev/null || true)"
     grep -q "^PROBE" <<<"$ORPHAN_RESULT" && break
 done
-if grep -q "^PROBE DENIED" <<<"$ORPHAN_RESULT"; then
-    pass "setup: npm from a process orphaned after the shim exited (DENIED)"
+if grep -q "^PROBE BLOCKED" <<<"$ORPHAN_RESULT" &&
+    denial_logged "$ORPHAN_MARK" "$PY_CALLER" registry.npmjs.org >/dev/null; then
+    pass "setup: npm from a process orphaned after the shim exited (DENIED, logged)"
 else
-    fail "setup: npm from a process orphaned after the shim exited: expected DENIED"
+    fail "setup: npm from a process orphaned after the shim exited: expected DENIED with a log line"
     echo "  Got: ${ORPHAN_RESULT:0:240}"
 fi
 
@@ -651,6 +810,7 @@ fi
 # command line, and a setsid daemon that keeps running the shim to reach npm.
 POLLER_OUT=/tmp/agentic-ci-e2e-poller.out
 sx rm -f "$POLLER_OUT" >/dev/null
+POLLER_MARK="$(denial_mark "$PY_CALLER" registry.npmjs.org)"
 # shellcheck disable=SC2016 # expanded inside the sandbox
 sx "${CODEX_EXEC[@]}" bash -c '
     nohup sleep 3601 >/dev/null 2>&1 &
@@ -696,8 +856,9 @@ fi
 sx rm -f "$PROFILE_HITS" >/dev/null
 
 POLLER_BEFORE="$(sx cat "$POLLER_OUT")"
-if grep -q "^PROBE DENIED" <<<"$POLLER_BEFORE" && ! grep -q "^PROBE ALLOWED" <<<"$POLLER_BEFORE"; then
-    pass "agent: the leftover gets nothing through the shim (DENIED)"
+if grep -q "^PROBE BLOCKED" <<<"$POLLER_BEFORE" && ! grep -q "^PROBE ALLOWED" <<<"$POLLER_BEFORE" &&
+    denial_logged "$POLLER_MARK" "$PY_CALLER" registry.npmjs.org >/dev/null; then
+    pass "agent: the leftover gets nothing through the shim (DENIED, logged)"
 else
     fail "agent: the leftover gets nothing through the shim"
     echo "  Got: ${POLLER_BEFORE:0:240}"
@@ -757,28 +918,45 @@ expect ALLOWED "validate: npm from a new shim exec" -- "$SHIM" "${PY_PROBE[@]}" 
 # key provider, run by sections 8 (openai, codex) and 9 (api-key, claude).
 # Set before calling: HARNESS and HARNESS_IMAGE (for driver), AGENT (label),
 # AGENT_EXEC (runs a command under the agent binary), KEY_VAR (the provider
-# placeholder's variable), KEY_PROBE (calls the API with its first argument
-# or $KEY_VAR) and INJECTED (what the API answers when the proxy injected the
-# fake key).
+# placeholder's variable), KEY_HOST (the API host), KEY_PROBE (calls the API
+# with its first argument or $KEY_VAR) and INJECTED (what the API answers
+# when the proxy injected the fake key).
 #
-# What the proxy answers when no rule admits the caller to the API host.
-# Anything else (a DNS failure, a timeout, curl missing) proves nothing.
+# What curl prints when no rule admits it to the API host: OpenShell v0.0.116
+# answers the CONNECT with 403, v0.1.x refuses the connect. Either counts only
+# with the sandbox log's DENIED line for curl and the host; anything else (a
+# DNS failure, a timeout, curl missing) proves nothing.
 DENIED_403="CONNECT tunnel failed, response 403"
 
 # key_check WANT DESC -- CMD...: WANT is "injected" or "not-injected".
 key_check() {
     local want="$1" desc="$2"; shift 3
-    local out
+    local out mark="" refused="" injected="" logged=""
+    if [[ "$want" == not-injected ]]; then
+        mark="$(denial_mark "$CURL_CALLER" "$KEY_HOST")"
+    fi
     out="$(timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty --no-login-shell -- \
         "$@" 2>&1 || true)"
     out="$(tr '\n' ' ' <<<"$out" | cut -c1-200)"
-    if { [[ "$want" == injected ]] && grep -qF "$INJECTED" <<<"$out"; } ||
-        { [[ "$want" == not-injected ]] && grep -qF "$DENIED_403" <<<"$out" &&
-            ! grep -qF "$INJECTED" <<<"$out"; }; then
-        pass "$desc ($want)"
+    if grep -qF "$DENIED_403" <<<"$out"; then
+        refused=proxy-403
+    elif grep -qF "curl: (7) Failed to connect to $KEY_HOST" <<<"$out"; then
+        refused=connect
+    fi
+    grep -qF "$INJECTED" <<<"$out" && injected=1
+    if [[ "$want" == not-injected && -n "$refused" && -z "$injected" ]] &&
+        denial_logged "$mark" "$CURL_CALLER" "$KEY_HOST" >/dev/null; then
+        logged=1
+    fi
+    if { [[ "$want" == injected && -n "$injected" ]]; } || [[ -n "$logged" ]]; then
+        pass "$desc ($want${logged:+: $refused, logged})"
     else
         fail "$desc: expected $want"
         echo "  Got: $out"
+        # Only a refusal with no injected answer was looked up in the log.
+        if [[ "$want" == not-injected && -n "$refused" && -z "$injected" ]]; then
+            echo "  Sandbox log: no DENIED line for curl -> $KEY_HOST after $mark"
+        fi
     fi
     return 0
 }
@@ -828,7 +1006,7 @@ key_provider_checks() {
         key_check not-injected "$a: $phase: shim -> $a -> curl with the agent-phase placeholder" -- \
             "$SHIM" "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}" "$placeholder"
         if [[ "$phase" == setup ]]; then
-            # Control: the 403s above come from the detach. With the provider
+            # Control: the refusals above come from the detach. With the provider
             # attached in the setup phase (agent rules parked), the rule
             # composed from its profile still admits the agent binary and the
             # key is injected.
@@ -896,6 +1074,7 @@ print_header "=== 8. The OpenAI key provider is detached during setup and valida
 AGENT=codex
 AGENT_EXEC=("${CODEX_EXEC[@]}")
 KEY_VAR=OPENAI_API_KEY
+KEY_HOST=api.openai.com
 # OpenAI's 401 echoes the key masked, which shows the proxy injected it.
 # shellcheck disable=SC2016 # expanded inside the sandbox
 KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.openai.com/v1/models \
@@ -930,6 +1109,7 @@ while pid > 1:
         pid = int(fh.read().rpartition(")")[2].split()[1])
 '
     KEY_VAR=ANTHROPIC_API_KEY
+    KEY_HOST=api.anthropic.com
     # The rules match a caller by its ancestors' binaries, so AGENT_EXEC must
     # put the claude binary in the parent chain, as codex sandbox does.
     assert_ok "claude: the wrapper runs a command under the claude binary" \

@@ -240,12 +240,21 @@ shim gets no agent egress. The `agent` phase strips every shim rule and
 restores the agent's rules unchanged, credential bindings included. The shim
 only gets the profile's presets and raw endpoints, never the default forge
 rules, LLM endpoints or the OTel collector (a preset such as `pypi` can still
-name a host that the defaults also allow): a raw endpoint whose host overlaps an auth endpoint or the collector (wildcards
-included), or that carries a credential option such as
+name a host that the defaults also allow): a raw endpoint whose host overlaps
+an agent-only host, or that carries a credential option such as
 `allow-uninspected-credentials`, is left out of the shim's rules and only
-their count is logged. Each switch replaces the whole policy with `openshell
-policy set` and closes every open proxied connection, so it happens only while
-nothing runs in the sandbox.
+their count is logged. The agent-only hosts are the hosts of every auth
+mode's endpoints, every endpoint host of the provider profiles agentic-ci
+vendors (`src/agentic_ci/backends/openshell/profiles/`, read at import, which
+fails on a malformed profile), `oauth2.googleapis.com` and the OTel collector
+(`host.openshell.internal`). Wildcards on either side are compared as
+patterns, so `*.googleapis.com` overlaps `oauth2.googleapis.com`. Once a
+vendored profile declares a host such as `*-aiplatform.googleapis.com`, it
+also keeps `us-central1-aiplatform.googleapis.com` from the shim; the
+profiles vendored today declare only `api.openai.com` and
+`api.anthropic.com`. Each switch replaces the whole policy with `openshell
+policy set` and closes every open proxied connection, so it happens only
+while nothing runs in the sandbox.
 
 The shim lets setup and validate reach preset hosts without widening the
 agent's egress. It is an extra layer, not isolation: it is not a boundary

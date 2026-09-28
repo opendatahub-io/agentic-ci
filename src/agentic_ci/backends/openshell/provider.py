@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping
 from importlib.resources import as_file, files
@@ -14,6 +15,11 @@ from agentic_ci import log
 from agentic_ci.gcp import adc_path as _adc_path
 from agentic_ci.gcp import ensure_adc
 from agentic_ci.gcp import read_credential_type as _adc_credential_type
+
+if sys.version_info >= (3, 11):
+    from importlib.resources.abc import Traversable
+else:
+    from importlib.abc import Traversable
 
 PROVIDER_NAME = "ci-gcp"
 
@@ -117,6 +123,44 @@ _API_KEY_ENV_VARS = {
     "openai": "OPENAI_API_KEY",
     "api-key": "ANTHROPIC_API_KEY",
 }
+
+
+def profile_endpoint_hosts(directory: Traversable | None = None) -> frozenset[str]:
+    """Return the endpoint hosts every vendored provider profile declares, lower-cased.
+
+    Reads each ``*.yaml`` file in *directory* (default: the packaged
+    ``profiles/`` directory). Wildcard hosts such as
+    ``*-aiplatform.googleapis.com`` are returned as written. A profile with no
+    ``endpoints`` key (an endpointless profile) contributes nothing.
+
+    Raises ``ValueError`` naming the file when a profile is not valid YAML, is
+    not a mapping, has an ``id`` other than its file name, or has an
+    ``endpoints`` value that is not a list of mappings with a non-empty
+    ``host``. Only the file name and the failed rule are in the message.
+    """
+    root = files(_PROFILE_PACKAGE).joinpath(_PROFILE_DIR) if directory is None else directory
+    hosts: set[str] = set()
+    for resource in sorted(root.iterdir(), key=lambda r: r.name):
+        if not resource.name.endswith(".yaml"):
+            continue
+        name = resource.name
+        try:
+            data = yaml.safe_load(resource.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            raise ValueError(f"provider profile {name} is not valid YAML") from None
+        if not isinstance(data, dict):
+            raise ValueError(f"provider profile {name} is not a mapping")
+        if data.get("id") != name.removesuffix(".yaml"):
+            raise ValueError(f"provider profile {name} must have its file name as its id")
+        endpoints = data.get("endpoints", [])
+        if not isinstance(endpoints, list):
+            raise ValueError(f"provider profile {name}: endpoints must be a list")
+        for index, endpoint in enumerate(endpoints):
+            host = endpoint.get("host") if isinstance(endpoint, dict) else None
+            if not isinstance(host, str) or not host.strip():
+                raise ValueError(f"provider profile {name}: endpoint {index} has no host")
+            hosts.add(host.strip().lower())
+    return frozenset(hosts)
 
 
 def requires_provider(auth_mode: str | None) -> bool:

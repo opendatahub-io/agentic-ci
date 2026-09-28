@@ -436,9 +436,10 @@ overlaps an existing rule into that rule (the shim would end up in the agent's
 `allow_pypi_org_443`). A network-only policy is refused on a live sandbox
 (`filesystem policy cannot be removed on a live sandbox`), so the static
 fields are sent back unchanged. No rule is ever left with an empty `binaries`
-list, which OpenShell reads as any binary. Any policy change closes every open
-proxied connection in the sandbox, agent streams included, so switch only
-while nothing runs there.
+list, whose meaning differs across OpenShell versions (depending on the release
+and on `require_binary_identity`, it matches no binary or any binary). Any
+policy change closes every open proxied connection in the sandbox, agent
+streams included, so switch only while nothing runs there.
 
 The shim lets setup and validate reach preset hosts without widening the
 agent's egress. It is an extra layer, not isolation: it is not a boundary

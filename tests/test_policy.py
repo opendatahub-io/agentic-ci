@@ -1,18 +1,29 @@
 """Tests for policy resolution."""
 
+import itertools
+import subprocess
+import sys
+from fnmatch import fnmatchcase
+
 import pytest
 
 from agentic_ci import sandbox_profile
+from agentic_ci.backends.openshell import policy
 from agentic_ci.backends.openshell.policy import (
+    _AGENT_ONLY_HOSTS,
     AUTH_ENDPOINTS,
     DEFAULT_ENDPOINTS,
     EGRESS_PHASES,
     EGRESS_PRESETS,
     EgressPreset,
+    _agent_only,
+    _agent_only_hosts,
+    _hosts_overlap,
     build_credential_binding_patch,
     phase_endpoints,
     resolve_endpoints,
 )
+from agentic_ci.backends.openshell.provider import profile_endpoint_hosts
 from agentic_ci.sandbox_profile import SandboxProfile, parse_profile
 
 NPM = "registry.npmjs.org:443:read-only:rest:enforce"
@@ -512,3 +523,164 @@ class TestPhaseEndpoints:
         endpoint = "api.example.com:443:read-write:::allow-uninspected-credentials"
         result = resolve_endpoints(workdir=str(tmp_path), profile=_profile(endpoint))
         assert endpoint in result
+
+
+# The inference hosts OpenShell's google-vertex-ai provider profile declares
+# (v0.1.2), for when agentic-ci vendors one.
+VERTEX_PROFILE_HOSTS = frozenset(
+    {
+        "*-aiplatform.googleapis.com",
+        "aiplatform.googleapis.com",
+        "aiplatform.us.rep.googleapis.com",
+        "aiplatform.eu.rep.googleapis.com",
+    }
+)
+
+
+class TestAgentOnlyHosts:
+    def test_union_of_auth_profile_oauth_and_otel_hosts(self):
+        auth_hosts = {ep.split(":")[0] for eps in AUTH_ENDPOINTS.values() for ep in eps}
+        assert _AGENT_ONLY_HOSTS == frozenset(
+            auth_hosts
+            | profile_endpoint_hosts()
+            | {"oauth2.googleapis.com", "host.openshell.internal"}
+        )
+        assert {"api.openai.com", "api.anthropic.com"} <= _AGENT_ONLY_HOSTS
+
+    def test_independent_of_auth_endpoints(self):
+        # An inference host a provider profile declares stays agent-only
+        # even if it leaves AUTH_ENDPOINTS (a later OpenShell bump may move
+        # such hosts to provider profiles); the OAuth token endpoint and the
+        # OTel collector stay with no auth mode listing them.
+        hosts = _agent_only_hosts({"vertex": [], "openai": []}, VERTEX_PROFILE_HOSTS)
+        assert hosts == VERTEX_PROFILE_HOSTS | {"oauth2.googleapis.com", "host.openshell.internal"}
+
+    def test_reads_the_vendored_profiles_by_default(self, monkeypatch):
+        monkeypatch.setattr(policy, "profile_endpoint_hosts", lambda: frozenset({"x.example.com"}))
+        assert "x.example.com" in _agent_only_hosts()
+
+    def test_malformed_profile_fails_the_import(self):
+        # A fresh interpreter, so the reload cannot leave this one's policy
+        # module half-built.
+        code = (
+            "import importlib\n"
+            "from agentic_ci.backends.openshell import policy, provider\n"
+            "def broken(directory=None):\n"
+            "    raise ValueError('provider profile bad.yaml is not a mapping')\n"
+            "provider.profile_endpoint_hosts = broken\n"
+            "try:\n"
+            "    importlib.reload(policy)\n"
+            "except ValueError as exc:\n"
+            "    print('IMPORT_FAILED', exc)\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        assert "IMPORT_FAILED provider profile bad.yaml is not a mapping" in result.stdout
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "us-central1-aiplatform.googleapis.com:443:read-only",
+            "US-East5-AIPlatform.googleapis.com:443:read-only",
+            "aiplatform.eu.rep.googleapis.com:443:read-only",
+            "*.rep.googleapis.com:443:read-only",
+            "*.googleapis.com:443:read-only",
+            "oauth2.googleapis.com:443:read-only",
+        ],
+    )
+    def test_vertex_profile_wildcards_are_never_opened(self, monkeypatch, endpoint, capsys):
+        monkeypatch.setattr(
+            policy, "_AGENT_ONLY_HOSTS", _agent_only_hosts({"vertex": []}, VERTEX_PROFILE_HOSTS)
+        )
+        assert phase_endpoints(_profile(endpoint, RAW), "setup") == [RAW]
+        assert "1 egress endpoint(s) not opened in the setup phase" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            # Wildcards a central profile's raw egress cannot hold (only a
+            # leading "*." is accepted there), checked on _agent_only itself.
+            "us-*.googleapis.com:443:read-only",
+            "*-aiplatform.googleapis.com:443:read-only",
+            "aiplatform.*.rep.googleapis.com:443:read-only",
+        ],
+    )
+    def test_any_wildcard_overlapping_a_profile_wildcard_is_agent_only(self, monkeypatch, endpoint):
+        monkeypatch.setattr(
+            policy, "_AGENT_ONLY_HOSTS", _agent_only_hosts({"vertex": []}, VERTEX_PROFILE_HOSTS)
+        )
+        assert _agent_only(endpoint)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "storage.googleapis.com:443:read-only",
+            "aiplatform.example.com:443:read-only",
+            "*.rep.example.com:443:read-only",
+        ],
+    )
+    def test_vertex_profile_wildcards_keep_other_hosts(self, monkeypatch, endpoint):
+        monkeypatch.setattr(
+            policy, "_AGENT_ONLY_HOSTS", _agent_only_hosts({"vertex": []}, VERTEX_PROFILE_HOSTS)
+        )
+        assert phase_endpoints(_profile(endpoint), "validate") == [endpoint]
+
+    def test_no_policy_endpoint_duplicates_a_profile_host(self):
+        # No endpoint this module puts in sandbox policy may repeat an
+        # inference host a vendored provider profile declares, except the
+        # AUTH_ENDPOINTS hosts known to overlap since #450 (the api-key and
+        # openai providers' own hosts, opted in with
+        # allow-uninspected-credentials). Presets are opened to the shim, so
+        # they must not overlap any agent-only host either.
+        known_auth_overlap = {"api.anthropic.com", "api.openai.com"}
+        profile_hosts = profile_endpoint_hosts()
+
+        def profile_overlaps(endpoint):
+            host = endpoint.split(":")[0]
+            return {h for h in profile_hosts if _hosts_overlap(host, h)}
+
+        for preset in EGRESS_PRESETS.values():
+            for endpoint in preset.endpoints:
+                assert not profile_overlaps(endpoint), endpoint
+                assert not _agent_only(endpoint), endpoint
+        for endpoint in DEFAULT_ENDPOINTS:
+            assert not profile_overlaps(endpoint), endpoint
+        auth_overlap = set()
+        for endpoints in AUTH_ENDPOINTS.values():
+            for endpoint in endpoints:
+                auth_overlap |= profile_overlaps(endpoint)
+        assert auth_overlap == known_auth_overlap
+
+
+class TestHostsOverlap:
+    @pytest.mark.parametrize(
+        ("first", "second", "overlap"),
+        [
+            ("api.openai.com", "api.openai.com", True),
+            ("API.OpenAI.com", "api.openai.com", True),
+            ("api.openai.com", "chatgpt.com", False),
+            ("*.googleapis.com", "oauth2.googleapis.com", True),
+            ("us-*.googleapis.com", "*-aiplatform.googleapis.com", True),
+            ("storage.googleapis.com", "*-aiplatform.googleapis.com", False),
+            # The character before "aiplatform" cannot be both "." and "-".
+            ("*.aiplatform.googleapis.com", "*-aiplatform.googleapis.com", False),
+            ("eu-*.example.com", "us-*.example.com", False),
+            ("*", "host.openshell.internal", True),
+        ],
+    )
+    def test_examples(self, first, second, overlap):
+        assert _hosts_overlap(first, second) is overlap
+        assert _hosts_overlap(second, first) is overlap
+
+    def test_matches_brute_force(self):
+        # Every pattern up to 4 characters over {a, b, *}: an overlap exists
+        # exactly when some string up to 8 characters matches both.
+        patterns = ["".join(p) for n in range(5) for p in itertools.product("ab*", repeat=n)]
+        strings = ["".join(p) for n in range(9) for p in itertools.product("ab", repeat=n)]
+        matches = {p: {s for s in strings if fnmatchcase(s, p)} for p in patterns}
+        for first, second in itertools.product(patterns, repeat=2):
+            assert _hosts_overlap(first, second) is bool(matches[first] & matches[second]), (
+                first,
+                second,
+            )

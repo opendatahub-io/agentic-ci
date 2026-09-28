@@ -10,7 +10,7 @@ from types import MappingProxyType
 import yaml
 
 from agentic_ci import log
-from agentic_ci.backends.openshell.provider import PROVIDER_NAME
+from agentic_ci.backends.openshell.provider import PROVIDER_NAME, profile_endpoint_hosts
 from agentic_ci.sandbox_profile import CREDENTIAL_ENDPOINT_OPTIONS, SandboxProfile
 
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
@@ -224,28 +224,96 @@ def _profile_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
 # Host the OTel collector rule uses (see sandbox._apply_policy).
 _OTEL_COLLECTOR_HOST = "host.openshell.internal"
 
-# Hosts that stay bound to the agent binaries in every phase: the LLM and auth
-# endpoints of every auth mode (the provider injects credentials there) and
-# the OTel collector.
-_AGENT_ONLY_HOSTS = frozenset(
-    {ep.split(":", 1)[0].lower() for eps in AUTH_ENDPOINTS.values() for ep in eps}
-    | {_OTEL_COLLECTOR_HOST}
-)
+# Google's OAuth token endpoint. Vertex credentials are exchanged there, and
+# it stays agent-only even when no auth mode lists it (a Vertex provider
+# profile may declare only the inference hosts).
+_GOOGLE_OAUTH_HOST = "oauth2.googleapis.com"
+
+
+def _endpoint_host(endpoint: str) -> str:
+    """Return the host of an ``host:port:...`` endpoint, trimmed and lower-cased."""
+    return endpoint.split(":", 1)[0].strip().lower()
+
+
+def _agent_only_hosts(
+    auth_endpoints: Mapping[str, list[str]] | None = None,
+    profile_hosts: frozenset[str] | None = None,
+) -> frozenset[str]:
+    """Build the hosts that stay bound to the agent binaries in every phase.
+
+    The union of the hosts of every auth mode's endpoints (*auth_endpoints*,
+    default :data:`AUTH_ENDPOINTS`), the endpoint hosts of every vendored
+    provider profile (``profiles/*.yaml``, read with
+    :func:`provider.profile_endpoint_hosts` when *profile_hosts* is None,
+    which raises on a malformed profile), Google's OAuth token endpoint and
+    the OTel collector. It is its own list, not derived from
+    ``AUTH_ENDPOINTS`` alone, so an inference host stays agent-only even if
+    it leaves ``AUTH_ENDPOINTS`` because a provider profile declares it
+    (which a later OpenShell bump may need). Wildcard hosts (such as
+    ``*-aiplatform.googleapis.com``) are kept as written and matched by
+    :func:`_hosts_overlap`.
+    """
+    if auth_endpoints is None:
+        auth_endpoints = AUTH_ENDPOINTS
+    if profile_hosts is None:
+        profile_hosts = profile_endpoint_hosts()
+    return frozenset(
+        {_endpoint_host(ep) for eps in auth_endpoints.values() for ep in eps}
+        | profile_hosts
+        | {_GOOGLE_OAUTH_HOST, _OTEL_COLLECTOR_HOST}
+    )
+
+
+# Built at import so a malformed vendored profile fails loudly before any
+# sandbox is created.
+_AGENT_ONLY_HOSTS = _agent_only_hosts()
+
+
+def _hosts_overlap(first: str, second: str) -> bool:
+    """Whether some host name matches both host patterns.
+
+    ``*`` matches any run of characters, dots included, in either pattern,
+    which is at least as wide as OpenShell's host wildcards, so an overlap is
+    never missed: ``us-*.googleapis.com`` overlaps
+    ``*-aiplatform.googleapis.com`` (both match
+    ``us-central1-aiplatform.googleapis.com``), which checking each pattern
+    against the other as a literal would miss. Case-insensitive.
+    """
+    a, b = first.lower(), second.lower()
+    # reachable[j]: a[:i] and b[:j] can produce the same string, for the
+    # current i. A classic two-pattern DP over prefixes.
+    reachable = [False] * (len(b) + 1)
+    reachable[0] = True
+    for j in range(1, len(b) + 1):
+        reachable[j] = reachable[j - 1] and b[j - 1] == "*"
+    for i in range(1, len(a) + 1):
+        previous = reachable
+        reachable = [False] * (len(b) + 1)
+        reachable[0] = previous[0] and a[i - 1] == "*"
+        for j in range(1, len(b) + 1):
+            if a[i - 1] == "*":
+                # a's star is empty, or it also covers b's j-th element.
+                reachable[j] = previous[j] or reachable[j - 1]
+            elif b[j - 1] == "*":
+                reachable[j] = reachable[j - 1] or previous[j]
+            else:
+                reachable[j] = previous[j - 1] and a[i - 1] == b[j - 1]
+    return reachable[len(b)]
 
 
 def _agent_only(endpoint: str) -> bool:
     """Whether *endpoint* must never be opened to the setup shim.
 
     True when it carries a credential option, or when its host (or wildcard)
-    overlaps an agent-only host in either direction, so ``*.googleapis.com``
-    counts as ``oauth2.googleapis.com``.
+    overlaps an agent-only host (see :func:`_hosts_overlap`), so
+    ``*.googleapis.com`` counts as ``oauth2.googleapis.com``.
     """
     parts = endpoint.split(":")
     options = parts[5].split(",") if len(parts) > 5 else []
     if any(option in CREDENTIAL_ENDPOINT_OPTIONS for option in options):
         return True
-    host = parts[0].lower()
-    return any(fnmatchcase(host, h) or fnmatchcase(h, host) for h in _AGENT_ONLY_HOSTS)
+    host = _endpoint_host(endpoint)
+    return any(_hosts_overlap(host, h) for h in _AGENT_ONLY_HOSTS)
 
 
 def phase_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
@@ -257,8 +325,10 @@ def phase_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
     preset, see :func:`_merge_endpoints`). It never includes the
     built-in defaults, the auth (LLM) endpoints or the OTel collector: those
     stay bound to the agent binaries only. A raw endpoint whose host
-    overlaps an auth endpoint or the collector, or that carries a credential
-    option, is left out as well; only their count is logged.
+    overlaps an agent-only host (see :func:`_agent_only_hosts`: auth and
+    provider profile hosts, Google's OAuth endpoint, the collector), or that
+    carries a credential option, is left out as well; only their count is
+    logged.
     """
     if phase not in _SHIM_PHASES:
         raise ValueError(f"phase must be one of {', '.join(_SHIM_PHASES)}, not {phase!r}")

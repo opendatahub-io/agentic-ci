@@ -287,9 +287,11 @@ def _rebind(rule, park):
     Removes :data:`SANDBOX_SETUP_SHIM`, dropping the rule only when the shim
     was its only binary. With *park*, every agent binary path gets
     :data:`PARKED_BINARY_PREFIX`; without it, parked paths get their original
-    path back (without duplicating one that is already there). An empty
-    ``binaries`` list means any binary to OpenShell, so no rule is ever turned
-    into one; a rule that already had no binaries is left as it is.
+    path back (without duplicating one that is already there). A rule is
+    never turned into one with an empty ``binaries`` list, whose meaning
+    differs across OpenShell versions (it depends on the release and on
+    ``require_binary_identity``: no binary at all, or any binary); a rule
+    that already had no binaries is left as it is.
     """
     binaries = rule.get("binaries") if isinstance(rule, dict) else None
     if not isinstance(binaries, list) or not binaries:
