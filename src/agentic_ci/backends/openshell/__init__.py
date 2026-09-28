@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.backends.openshell.policy import phase_endpoints
 from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
+from agentic_ci.sandbox_profile import profile_hash
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -98,8 +100,19 @@ def _clear_sandbox_identity() -> None:
 
 
 def _sandbox_identity(
-    harness_name: str, image: str | None, auth_mode: str, credential: str | None = None
+    harness_name: str,
+    image: str | None,
+    auth_mode: str,
+    credential: str | None = None,
+    profile: SandboxProfile | None = None,
 ) -> dict:
+    """Describe a sandbox so ``setup()`` can tell whether an existing one fits.
+
+    The key fingerprint and the profile hash are recorded only when set, so
+    without them the identity (and the file it is saved to) is unchanged. A
+    rotated key or a changed profile recreates the sandbox instead of reusing
+    a stale placeholder or old egress.
+    """
     identity = {"auth_mode": auth_mode, "harness": harness_name, "image": image}
     if credential is not None:
         # Fingerprint of a key the agent gets only through the provider. A
@@ -107,7 +120,21 @@ def _sandbox_identity(
         # reaches a running sandbox only after a delay, and a placeholder
         # issued before the update keeps resolving to the old key.
         identity["credential"] = credential
+    if profile is not None:
+        identity["profile_hash"] = profile_hash(profile)
     return identity
+
+
+# Key of the sandbox's main process (sandbox.MainProcess.to_record()) in the
+# saved identity. Recorded only for a profile sandbox, which is the only kind
+# whose phase switches kill leftover processes. It describes the sandbox
+# rather than what it was asked for, so it is left out of identity matching.
+_MAIN_PROCESS_KEY = "main_process"
+
+
+def _identity_fields(identity: dict) -> dict:
+    """*identity* without the recorded main process, for matching."""
+    return {k: v for k, v in identity.items() if k != _MAIN_PROCESS_KEY}
 
 
 class OpenShellBackend(Backend):
@@ -128,9 +155,15 @@ class OpenShellBackend(Backend):
     after the download, so the agent's git config never runs on the host.
 
     ``sandbox_profile`` (see :mod:`agentic_ci.sandbox_profile`) is stored on
-    the backend. In this release only its ``resources`` take effect: they
-    size the sandbox wherever the caller did not pass ``memory``, ``cpu`` or
-    ``gpu`` explicitly.
+    the backend. Its ``resources`` size the sandbox wherever the caller did
+    not pass ``memory``, ``cpu`` or ``gpu`` explicitly, and its ``egress``
+    presets open for the agent when the sandbox is created (the repo's
+    ``.agentic-ci/openshell-policy.yml`` is then ignored).
+    :meth:`_set_egress_phase` switches the egress of the setup shim between
+    the ``setup``, ``validate`` and ``agent`` phases. The shim is an extra
+    layer, not isolation (see :data:`sandbox.SANDBOX_SETUP_SHIM`), so each
+    switch also kills the processes earlier execs left running and, for the
+    setup and validate phases, detaches the API key provider.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -158,6 +191,12 @@ class OpenShellBackend(Backend):
         self.cpu = cpu
         self.gpu = gpu
         self.sandbox_profile = sandbox_profile
+        # Loaded from the saved identity on first use when this backend did
+        # not create the sandbox itself.
+        self._main_process: sandbox.MainProcess | None = None
+        self._explicit_resources = {
+            name: value for name, value in (("memory", memory), ("cpu", cpu), ("gpu", gpu)) if value
+        }
         self._apply_profile_resources()
 
     def _apply_profile_resources(self):
@@ -227,15 +266,30 @@ class OpenShellBackend(Backend):
                         "run agentic-ci stop before switching harnesses"
                     )
             expected_identity = _sandbox_identity(
-                self.harness.name, self.image, auth_mode, credential
+                self.harness.name,
+                self.image,
+                auth_mode,
+                credential=credential,
+                profile=self.sandbox_profile,
             )
-            if existing_auth_mode == auth_mode and identity == expected_identity:
-                log.section("Sandbox already exists")
-                self._warn_unapplied_resources()
+            # A profile sandbox saved without its main process (by an earlier
+            # agentic-ci) cannot have its leftover processes killed, so it is
+            # recreated rather than reused.
+            main_known = self.sandbox_profile is None or (
+                sandbox.MainProcess.from_record(identity.get(_MAIN_PROCESS_KEY)) is not None
+            )
+            identity_matches = (
+                existing_auth_mode == auth_mode and _identity_fields(identity) == expected_identity
+            )
+            if identity_matches and main_known and self._reuse_sandbox():
                 return
 
             if existing_auth_mode != auth_mode:
                 log.section("Auth mode changed; recreating OpenShell sandbox and provider")
+            elif identity_matches and not main_known:
+                log.section("Sandbox has no recorded main process; recreating OpenShell sandbox")
+            elif identity_matches:
+                log.section("Sandbox could not be reused; recreating OpenShell sandbox")
             else:
                 log.section("Sandbox identity changed; recreating OpenShell sandbox")
             sandbox.delete()
@@ -253,6 +307,7 @@ class OpenShellBackend(Backend):
         # It is only saved once setup succeeds, and for provider-less auth modes
         # it is the only record of the sandbox's auth mode.
         _clear_sandbox_identity()
+        self._main_process = None
         sandbox.create(
             image=self.image,
             policy_path=self.policy_path,
@@ -263,7 +318,12 @@ class OpenShellBackend(Backend):
             memory=self.memory,
             cpu=self.cpu,
             gpu=self.gpu,
+            **self._profile_kwargs(),
         )
+        if self.sandbox_profile is not None:
+            # Nothing else runs yet, so this is the process every phase
+            # switch spares when it kills leftovers.
+            self._main_process = sandbox.find_main_process()
 
         self._run_setup_steps()
 
@@ -271,9 +331,128 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
-        _save_sandbox_identity(
-            _sandbox_identity(self.harness.name, self.image, auth_mode, credential)
+        identity = _sandbox_identity(
+            self.harness.name,
+            self.image,
+            auth_mode,
+            credential=credential,
+            profile=self.sandbox_profile,
         )
+        if self._main_process is not None:
+            identity[_MAIN_PROCESS_KEY] = self._main_process.to_record()
+        _save_sandbox_identity(identity)
+
+    def _reuse_sandbox(self) -> bool:
+        """Prepare the existing sandbox for this run; return False if it must be recreated.
+
+        An earlier run may have stopped in the setup or validate phase, with
+        shim rules live, the provider detached or processes still running;
+        the agent must start with none of that. When the switch to the agent
+        phase fails (a survivor, a stale main process record, an attach that
+        is never confirmed), every later run would fail the same way on this
+        sandbox, so it is recreated instead.
+        """
+        log.section("Sandbox already exists")
+        self._warn_unapplied_resources()
+        try:
+            self._set_egress_phase("agent")
+        except RuntimeError as exc:
+            log.info(f"WARNING: could not prepare the existing sandbox: {exc}")
+            return False
+        return True
+
+    def _profile_kwargs(self) -> dict:
+        """``profile=`` for ``sandbox.create``, passed only when a profile is set."""
+        return {} if self.sandbox_profile is None else {"profile": self.sandbox_profile}
+
+    def _sandbox_main_process(self) -> sandbox.MainProcess:
+        """Return the main process recorded when the sandbox was created.
+
+        Loaded from the saved identity when this backend did not create the
+        sandbox. Raises ``RuntimeError`` when there is no usable record.
+        """
+        if self._main_process is None:
+            identity = _load_sandbox_identity() or {}
+            self._main_process = sandbox.MainProcess.from_record(identity.get(_MAIN_PROCESS_KEY))
+        if self._main_process is None:
+            raise RuntimeError(
+                "The OpenShell sandbox's main process was not recorded; "
+                "run agentic-ci stop to recreate the sandbox"
+            )
+        return self._main_process
+
+    def _set_egress_phase(self, phase: str) -> None:
+        """Open the sandbox profile's egress for *phase* to the setup shim.
+
+        ``setup`` and ``validate`` bind the endpoints of the profile's presets
+        open in that phase, plus its raw egress, to the setup shim only, and
+        park the agent's rules so no process matches them; ``agent`` strips
+        every shim-bound rule and restores the agent's rules. No-op without a
+        sandbox profile.
+
+        The shim lets setup and validate reach preset hosts without widening
+        the agent's egress, but it is not a boundary against the agent, which
+        could run it while its rules are live. So every switch, in order:
+
+        - ``setup``/``validate``: kills every process an earlier exec left
+          running (the agent, its daemons, earlier steps); for openai and
+          api-key auth, makes sure a fresh exec gets the key placeholder
+          (attaching the provider first if not) and detaches the provider;
+          applies the phase policy, which, issued after the detach, also
+          confirms the provider's composed rule is gone when the policy
+          changes; then waits until a fresh exec no longer gets the
+          placeholder.
+        - ``agent``: kills leftovers as well, applies the agent policy,
+          attaches the provider again and waits until the placeholder is
+          back, so the agent can authenticate.
+
+        Killing on the way into the agent phase too means every phase starts
+        with only the sandbox's main process running. A setup leftover has
+        already lost the shim's egress by then, but it could still write the
+        workdir while the agent works, and on a reused sandbox the previous
+        run's processes would otherwise run next to this agent. Setup cannot
+        start services for the agent or for validate; validate kills them
+        anyway.
+
+        Every step is idempotent, so switching to the phase already in effect
+        is safe, and a reused sandbox left mid-phase (provider detached) is
+        repaired by the switch to ``agent``; :meth:`setup` recreates one it
+        cannot repair. Raises ``RuntimeError`` when a step fails, and the
+        caller must then not run the phase.
+
+        A policy change closes every open proxied connection in the sandbox,
+        so call this only while nothing runs there. The agent phase must be
+        in effect before the agent starts, because the agent can run the shim.
+        """
+        profile = self.sandbox_profile
+        if profile is None:
+            return
+        endpoints = [] if phase == "agent" else phase_endpoints(profile, phase)
+        key_env_var = provider.api_key_env_var(self.harness.auth_mode_for_env(self._merged_env()))
+        log.section(f"Switching sandbox egress to the {phase} phase")
+        sandbox.stop_leftover_processes(self._sandbox_main_process(), phase)
+        if phase == "agent":
+            sandbox.apply_phase_policy(phase, endpoints)
+            if key_env_var is not None:
+                sandbox.attach_provider(phase)
+                sandbox.wait_for_provider_env(key_env_var, attached=True, phase=phase)
+            return
+        if key_env_var is not None:
+            # A DETACHED probe proves a detach only as a change from an
+            # observed ATTACHED; otherwise a probe that cannot see the
+            # placeholder would confirm it at once. A sandbox not seen
+            # attached (setup straight to validate, or an odd probe) is
+            # attached first; nothing runs in it now, so that is harmless.
+            if sandbox.provider_env_state(key_env_var) != "ATTACHED":
+                sandbox.attach_provider(phase)
+                sandbox.wait_for_provider_env(key_env_var, attached=True, phase=phase)
+            sandbox.detach_provider(phase)
+        # Issued after the detach, so when the policy changes, "policy set
+        # --wait" returns only once the supervisor has loaded a policy the
+        # gateway composed without the provider's rule.
+        sandbox.apply_phase_policy(phase, endpoints)
+        if key_env_var is not None:
+            sandbox.wait_for_provider_env(key_env_var, attached=False, phase=phase)
 
     def _warn_unapplied_resources(self):
         """Say so when a reused sandbox keeps an allocation the caller did not ask for.
@@ -289,9 +468,12 @@ class OpenShellBackend(Backend):
         parsing ``openshell sandbox get`` and comparing units -- ``1``, ``1000m``
         and ``1.0`` are the same CPU -- which is a contract worth adding only once
         something needs to depend on it.
+
+        Values taken from the sandbox profile are not reported: the profile's
+        hash is part of the sandbox identity, so a reused sandbox was created
+        with them.
         """
-        requested = {"memory": self.memory, "cpu": self.cpu, "gpu": self.gpu}
-        asked_for = {k: v for k, v in requested.items() if v}
+        asked_for = self._explicit_resources
         if not asked_for:
             return
         values = ", ".join(f"{k}={v}" for k, v in asked_for.items())

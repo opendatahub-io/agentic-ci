@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping
 from importlib.resources import as_file, files
@@ -14,6 +15,11 @@ from agentic_ci import log
 from agentic_ci.gcp import adc_path as _adc_path
 from agentic_ci.gcp import ensure_adc
 from agentic_ci.gcp import read_credential_type as _adc_credential_type
+
+if sys.version_info >= (3, 11):
+    from importlib.resources.abc import Traversable
+else:
+    from importlib.abc import Traversable
 
 PROVIDER_NAME = "ci-gcp"
 
@@ -101,9 +107,73 @@ def _provider_process_env(credential_key, env: Mapping[str, str]) -> dict[str, s
     return {**os.environ, **env, credential_key: value}
 
 
+# The variable that carries the provider placeholder for each auth mode whose
+# provider injects an API key (the env_vars of the profiles in profiles/).
+# These providers are detached while the setup shim's egress is open: the
+# rule OpenShell composes from the profile lets agent binaries, and so
+# anything a setup or validate step runs under an agent binary, spend the key.
+#
+# Vertex is left attached. Its google-cloud profile is endpointless, so
+# OpenShell composes no rule for it, and its credential is bound only to the
+# aiplatform and oauth2 endpoints of agentic-ci's own agent rules, which the
+# setup and validate phases park and never open to the shim. Its metadata
+# emulator hands out placeholders, which resolve only through such a binding.
+# The oauth mode has no provider at all.
+_API_KEY_ENV_VARS = {
+    "openai": "OPENAI_API_KEY",
+    "api-key": "ANTHROPIC_API_KEY",
+}
+
+
+def profile_endpoint_hosts(directory: Traversable | None = None) -> frozenset[str]:
+    """Return the endpoint hosts every vendored provider profile declares, lower-cased.
+
+    Reads each ``*.yaml`` file in *directory* (default: the packaged
+    ``profiles/`` directory). Wildcard hosts such as
+    ``*-aiplatform.googleapis.com`` are returned as written. A profile with no
+    ``endpoints`` key (an endpointless profile) contributes nothing.
+
+    Raises ``ValueError`` naming the file when a profile is not valid YAML, is
+    not a mapping, has an ``id`` other than its file name, or has an
+    ``endpoints`` value that is not a list of mappings with a non-empty
+    ``host``. Only the file name and the failed rule are in the message.
+    """
+    root = files(_PROFILE_PACKAGE).joinpath(_PROFILE_DIR) if directory is None else directory
+    hosts: set[str] = set()
+    for resource in sorted(root.iterdir(), key=lambda r: r.name):
+        if not resource.name.endswith(".yaml"):
+            continue
+        name = resource.name
+        try:
+            data = yaml.safe_load(resource.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
+            raise ValueError(f"provider profile {name} is not valid YAML") from None
+        if not isinstance(data, dict):
+            raise ValueError(f"provider profile {name} is not a mapping")
+        if data.get("id") != name.removesuffix(".yaml"):
+            raise ValueError(f"provider profile {name} must have its file name as its id")
+        endpoints = data.get("endpoints", [])
+        if not isinstance(endpoints, list):
+            raise ValueError(f"provider profile {name}: endpoints must be a list")
+        for index, endpoint in enumerate(endpoints):
+            host = endpoint.get("host") if isinstance(endpoint, dict) else None
+            if not isinstance(host, str) or not host.strip():
+                raise ValueError(f"provider profile {name}: endpoint {index} has no host")
+            hosts.add(host.strip().lower())
+    return frozenset(hosts)
+
+
 def requires_provider(auth_mode: str | None) -> bool:
     """Return whether *auth_mode* is backed by the CI provider."""
     return auth_mode not in _PROVIDERLESS_AUTH_MODES
+
+
+def api_key_env_var(auth_mode: str | None) -> str | None:
+    """Return the provider placeholder's variable if *auth_mode*'s provider injects an API key.
+
+    None for vertex (see :data:`_API_KEY_ENV_VARS`), oauth and anything else.
+    """
+    return _API_KEY_ENV_VARS.get(auth_mode) if auth_mode is not None else None
 
 
 def _run(args, **kwargs):

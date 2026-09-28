@@ -142,7 +142,10 @@ For Codex, agentic-ci creates an OpenAI provider from its
 script does not carry the key: the provider sets `OPENAI_API_KEY` in the
 sandbox to an OpenShell placeholder, Codex's `login --with-api-key` stores
 that placeholder, and the proxy swaps it for the real key only on requests
-to `api.openai.com`. The endpoint is L4, but the proxy still terminates TLS
+to `api.openai.com`, for any caller the provider's rule admits (a descendant
+of an agent binary included, such as `codex sandbox -- curl`), which is why
+agentic-ci detaches the provider while the setup shim's egress is open. The
+endpoint is L4, but the proxy still terminates TLS
 and replaces the placeholder in the headers of every request on the tunnel,
 including the WebSocket upgrade that carries Codex's `Authorization`
 header. The `websocket-credential-rewrite` and
@@ -264,7 +267,8 @@ openshell sandbox create \
 
 # Apply network policy and wait for the supervisor to compile and load it.
 # Built-in defaults are always included. If .agentic-ci/openshell-policy.yml
-# exists in the workdir, its endpoints are merged in automatically.
+# exists in the workdir, its endpoints are merged in automatically, unless a
+# sandbox profile is set (its agent-phase egress is added instead).
 openshell policy update --wait \
   --binary /usr/local/bin/claude \
   --binary /usr/bin/opencode \
@@ -395,6 +399,120 @@ Projects can declare additional endpoints in
 `.agentic-ci/openshell-policy.yml`. See
 [Project Configuration](../configuration.md#network-policy-openshell)
 for details.
+
+With a [sandbox profile](../sandbox-profiles.md#egress), the repo policy file
+is ignored and the profile's egress presets and raw endpoints are added
+instead. Preset endpoints are L7 (`host:443:read-only:rest:enforce`): the
+proxy terminates TLS and allows only `GET`, `HEAD` and `OPTIONS`, and a
+preset endpoint replaces every other endpoint on port 443 for the same host,
+wildcards included (such as the default L4 PyPI endpoints).
+
+### Egress phases
+
+A sandbox profile's egress has three phases: `setup`, `agent` and `validate`.
+The rules applied at creation (defaults, auth endpoints, the profile's
+agent-phase presets and central `raw_egress`, plus any endpoints from an
+explicit `--policy` file, bound to the agent binaries) are the `agent` phase.
+`OpenShellBackend._set_egress_phase("setup")` or `("validate")` adds rules
+bound only to the setup shim, `/usr/local/bin/agentic-ci-sandbox-setup`, and
+parks the agent's rules (each agent binary path is prefixed with
+`/proc/agentic-ci-parked`, which no process can match), so running an agent
+binary under the shim gains nothing. `("agent")` removes the shim rules and
+restores the agent's rules. Without a profile it does nothing; a reused
+profile sandbox is switched to `agent` in `setup()`.
+
+The switch (`sandbox.apply_phase_policy()`) reads
+`openshell policy get --base -o json`, rewrites only `network_policies`
+(drops `agentic_ci_phase_*` and `_provider_*` rules, removes the shim from
+every other rule, parks or restores the agent binaries, adds one shim rule per
+endpoint) and applies the whole object:
+
+```bash
+openshell policy get --base -o json ci
+openshell policy set --wait --policy <phase-policy.yaml> ci
+```
+
+It never uses `openshell policy update`, which folds an endpoint whose host
+overlaps an existing rule into that rule (the shim would end up in the agent's
+`allow_pypi_org_443`). A network-only policy is refused on a live sandbox
+(`filesystem policy cannot be removed on a live sandbox`), so the static
+fields are sent back unchanged. No rule is ever left with an empty `binaries`
+list, whose meaning differs across OpenShell versions (depending on the release
+and on `require_binary_identity`, it matches no binary or any binary). Any
+policy change closes every open proxied connection in the sandbox, agent
+streams included, so switch only while nothing runs there.
+
+The shim lets setup and validate reach preset hosts without widening the
+agent's egress. It is an extra layer, not isolation: it is not a boundary
+against the agent, which could run it if shim rules were live while one of its
+processes still ran. OpenShell does not kill the processes an exec leaves
+behind and has no per-exec cgroup or network profile (upstream suggests
+separate sandboxes or an in-sandbox supervisor instead), so each switch also
+does the following, and fails (`RuntimeError`) rather than open a phase it
+could not prepare:
+
+1. **Kill leftovers** (`sandbox.stop_leftover_processes()`, every phase).
+   `openshell sandbox exec --no-login-shell` runs `/usr/bin/python3 -I -S -c
+   <process scan>` as the sandbox user. It SIGKILLs every process of that
+   user, one by one (exec'd commands share the supervisor's process group 1,
+   so a group kill would be `kill(-1)`), except the scan and its ancestors
+   and the sandbox's main process, then scans again until nothing is left or
+   10 s pass. A `/proc` entry it cannot read for any reason but "gone" counts
+   as a survivor. The main process (`sleep infinity`) is recorded by
+   `sandbox.find_main_process()` right after `sandbox create`, as the only
+   sandbox-user child of the supervisor (waiting up to 10 s for it to
+   appear, and refusing a second candidate or anything but `sleep
+   infinity`), and saved as `main_process` (PID and start time) in the
+   sandbox identity file; a process that only looks like it, or reuses its
+   PID, is killed. The supervisor exits when its entrypoint does, so if the
+   recorded process is not running the record is stale: the scan then kills
+   nothing and the switch fails. A profile sandbox without that record is
+   recreated, and so is a reused one whose switch to `agent` fails.
+2. **Detach or attach the API key provider** (openai and api-key auth only).
+   Entering `setup` or `validate` first probes a fresh exec: unless
+   `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` holds an `openshell:resolve:env:`
+   placeholder, it runs `openshell sandbox provider attach ci ci-gcp` and
+   waits for one, so that a detach is only ever confirmed as a change from
+   an observed attach. Then it runs `openshell sandbox provider detach ci
+   ci-gcp` before the policy switch and polls a fresh exec (up to 30 s in
+   total) until the placeholder is gone. The supervisor installs a
+   sandbox's provider environment and its credential bindings in one step,
+   so from then on the proxy resolves no placeholder for the key, old ones
+   included. It polls the gateway every 10 s, which is why the wait is
+   needed. That probe covers injection only. The rule OpenShell composes
+   from the provider profile (API host bound to the agent binaries) leaves
+   with the policy the supervisor reloads in the same poll, right after the
+   environment; because `policy set --wait` is issued after the detach, it
+   returns only once a policy the gateway composed without that rule is
+   loaded, whenever the phase policy changes (always when leaving `agent`).
+   Entering `agent` applies the policy first, then `openshell sandbox
+   provider attach ci ci-gcp` and waits until the placeholder is back. Both
+   commands are idempotent and time out after 15 s, so a reused sandbox left
+   detached is attached again by the switch to `agent` in `setup()`. Vertex
+   is not detached: its `google-cloud` profile is endpointless (no
+   provider-composed rule), and its credential binding sits only on the
+   agent's aiplatform and oauth2 rules, which are parked.
+   `tests/e2e/e2e-openshell-profile.sh` checks the detach, the placeholder
+   probe and the re-attach end to end for both modes: section 8 with Codex
+   (openai auth), section 9 with Claude Code (api-key auth).
+
+   Detaching closes the provider's route to the API host and its injection,
+   not the key itself. In both modes the agent already holds the real key:
+   the env script exports it (for api-key auth until RHAI-3011 is fixed), and
+   Codex also writes it to `$CODEX_HOME/auth.json`. The agent could leave it
+   in the workdir, where setup or validate code, which it can also write,
+   could send it out through the shim's egress.
+
+Order: `setup`/`validate` kill, probe (attach and wait if not seen
+attached), detach, `policy set`, wait for the detach; `agent` kill, `policy
+set`, attach, wait for the attach.
+
+Every internal exec (the scan, the main process finder, the provider probe)
+passes `--no-login-shell`. Without it OpenShell runs the command as `bash
+-lc`, which first sources the agent-writable `~/.bash_profile`, where a
+shell function named `/usr/bin/python3` could forge the scan's or the
+probe's output, or an `EXIT` trap could start a daemon after the scan. A
+supervisor too old to honor the flag refuses the exec, and the switch fails.
 
 ## OpenShell Artifacts
 

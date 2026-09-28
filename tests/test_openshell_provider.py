@@ -11,10 +11,12 @@ from agentic_ci.backends.openshell.provider import (
     ANTHROPIC_PROFILE_ID,
     OPENAI_PROFILE_ID,
     PROVIDER_NAME,
+    api_key_env_var,
     auth_mode,
     credential_fingerprint,
     delete,
     ensure_profile,
+    profile_endpoint_hosts,
     refresh_credentials,
     rotate_token,
     setup,
@@ -457,3 +459,57 @@ class TestProviderProfiles:
                 ],
             ),
         ]
+
+
+class TestApiKeyEnvVar:
+    @pytest.mark.parametrize(
+        ("mode", "profile_id"), [("openai", OPENAI_PROFILE_ID), ("api-key", ANTHROPIC_PROFILE_ID)]
+    )
+    def test_matches_the_packaged_profile(self, mode, profile_id):
+        (credential,) = _packaged_profile(profile_id)["credentials"]
+        assert credential["env_vars"] == [api_key_env_var(mode)]
+
+    @pytest.mark.parametrize("mode", ["vertex", "oauth", None, "openai-builtin-profile"])
+    def test_other_modes_have_nothing_to_detach(self, mode):
+        assert api_key_env_var(mode) is None
+
+
+class TestProfileEndpointHosts:
+    def test_packaged_profiles(self):
+        assert profile_endpoint_hosts() == frozenset({"api.openai.com", "api.anthropic.com"})
+
+    def test_wildcards_are_kept_and_hosts_normalized(self, tmp_path):
+        (tmp_path / "vertex.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "vertex",
+                    "endpoints": [
+                        {"host": "*-aiplatform.googleapis.com", "port": 443},
+                        {"host": " AIPlatform.us.rep.googleapis.com "},
+                    ],
+                }
+            )
+        )
+        (tmp_path / "endpointless.yaml").write_text("id: endpointless\ncredentials: []\n")
+        (tmp_path / "README.md").write_text("not a profile")
+        assert profile_endpoint_hosts(tmp_path) == frozenset(
+            {"*-aiplatform.googleapis.com", "aiplatform.us.rep.googleapis.com"}
+        )
+
+    @pytest.mark.parametrize(
+        ("text", "message"),
+        [
+            ("id: [unclosed", "is not valid YAML"),
+            ("- a list", "is not a mapping"),
+            ("id: other\n", "must have its file name as its id"),
+            ("endpoints: []\n", "must have its file name as its id"),
+            ("id: bad\nendpoints: {host: x}\n", "endpoints must be a list"),
+            ("id: bad\nendpoints: [{port: 443}]\n", "endpoint 0 has no host"),
+            ("id: bad\nendpoints: [{host: '  '}]\n", "endpoint 0 has no host"),
+            ("id: bad\nendpoints: [{host: a.example.com}, x]\n", "endpoint 1 has no host"),
+        ],
+    )
+    def test_malformed_profile_fails_loudly(self, tmp_path, text, message):
+        (tmp_path / "bad.yaml").write_text(text)
+        with pytest.raises(ValueError, match=f"provider profile bad.yaml.*{message}"):
+            profile_endpoint_hosts(tmp_path)
