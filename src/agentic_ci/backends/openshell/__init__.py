@@ -19,6 +19,7 @@ from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
+    from agentic_ci.sandbox_profile import SandboxProfile
 
 # GCP access tokens minted by the OpenShell gateway live for 3600s. The
 # gateway's refresh worker is supposed to rotate them ahead of expiry, but
@@ -116,6 +117,11 @@ class OpenShellBackend(Backend):
     written elsewhere in the sandbox (e.g. /tmp) are not retrieved. The
     host's git control files (``.git/config``, hooks, ``info/``) are restored
     after the download, so the agent's git config never runs on the host.
+
+    ``sandbox_profile`` (see :mod:`agentic_ci.sandbox_profile`) is stored on
+    the backend. In this release only its ``resources`` take effect: they
+    size the sandbox wherever the caller did not pass ``memory``, ``cpu`` or
+    ``gpu`` explicitly.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -133,6 +139,7 @@ class OpenShellBackend(Backend):
         gpu=None,
         *,
         harness: Harness,
+        sandbox_profile: SandboxProfile | None = None,
     ):
         super().__init__(workdir=workdir, image=image, harness=harness)
         self.policy_path = policy
@@ -141,6 +148,31 @@ class OpenShellBackend(Backend):
         self.memory = memory
         self.cpu = cpu
         self.gpu = gpu
+        self.sandbox_profile = sandbox_profile
+        self._apply_profile_resources()
+
+    def _apply_profile_resources(self):
+        """Fill ``memory``, ``cpu`` and ``gpu`` from the sandbox profile.
+
+        Explicit constructor values win. Logs once where each value came from.
+        A value is "set" by the same truthiness test ``sandbox.create`` uses,
+        so an explicit ``""`` or ``0`` does not hide the profile's value and
+        the log names only limits that are actually applied.
+        """
+        profile = self.sandbox_profile
+        if profile is None or profile.resources is None:
+            return
+        sources = []
+        for name in ("memory", "cpu", "gpu"):
+            explicit = getattr(self, name)
+            from_profile = getattr(profile.resources, name)
+            if explicit:
+                sources.append(f"{name}={explicit} (explicit)")
+            elif from_profile:
+                setattr(self, name, from_profile)
+                sources.append(f"{name}={from_profile} (sandbox profile)")
+        if sources:
+            log.info(f"Sandbox resources: {', '.join(sources)}")
 
     def _merged_env(self):
         return {**os.environ, **self._extra_env}

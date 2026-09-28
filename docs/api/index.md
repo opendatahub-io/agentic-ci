@@ -26,6 +26,7 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 |--------|-------------|
 | [Gates](gates.md) | Pre- and post-agent validation gates |
 | [Skill Runner](skill.md) | Generic skill runner framework |
+| [Sandbox Profile](sandbox_profile.md) | Sandbox profile schema, validation, merge and hashing |
 | [Model Routing](routing.md) | Difficulty-based model tier routing for skill runs |
 | [Model Registry](models.md) | Default model, routing tiers, and effort levels per harness |
 | [Verdict](verdict.md) | Structured verdict JSON validation |

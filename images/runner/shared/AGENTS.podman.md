@@ -12,7 +12,7 @@ You are running inside a CI container. Adjust your behavior to work within these
 
 These tools are pre-installed. Do not attempt to install replacements or alternatives.
 
-`python3`, `uv`, `ruff`, `git`, `gh`, `glab`, `make`, `curl`, `jq`, `shellcheck`, `shfmt`
+`python3`, `uv`, `uvx`, `ruff`, `git`, `gh`, `glab`, `make`, `curl`, `jq`, `shellcheck`, `shfmt`
 
 ## Guidelines
 

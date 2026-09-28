@@ -34,7 +34,7 @@ directory are **not preserved** after the session ends.
 These tools are pre-installed.
 Do not attempt to install replacements or download binaries from the internet.
 
-`python3`, `python3.12`, `uv`, `ruff`, `git`, `gh`, `glab`, `make`, `curl`, `jq`, `shellcheck`, `shfmt`
+`python3`, `python3.12`, `uv`, `uvx`, `ruff`, `git`, `gh`, `glab`, `make`, `curl`, `jq`, `shellcheck`, `shfmt`
 
 ## Guidelines
 

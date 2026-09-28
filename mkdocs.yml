@@ -65,6 +65,7 @@ nav:
   - Sandbox Backends:
       - Podman: backends/podman.md
       - OpenShell: backends/openshell.md
+      - Sandbox Profiles: sandbox-profiles.md
   - API Reference:
       - Overview: api/index.md
       - Core:
@@ -80,6 +81,7 @@ nav:
       - Pipeline:
           - Gates: api/gates.md
           - Skill Runner: api/skill.md
+          - Sandbox Profile: api/sandbox_profile.md
           - Model Routing: api/routing.md
           - Model Registry: api/models.md
           - Verdict: api/verdict.md

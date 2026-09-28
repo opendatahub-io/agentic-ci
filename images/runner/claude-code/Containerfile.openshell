@@ -63,13 +63,14 @@ RUN --mount=type=bind,from=builder,target=/builder \
     && rm -rf /var/cache/dnf /var/cache/yum /var/cache/libdnf5 \
         /var/log/dnf5.log /run/dnf
 
-# uv (pinned)
+# uv and uvx (pinned; both ship in the same release tarball)
 RUN curl -fsSL -o /tmp/uv.tar.gz \
         "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-musl.tar.gz" \
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/uv.tar.gz -C /tmp \
-    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /usr/local/bin/uv \
-    && chmod +x /usr/local/bin/uv \
+    && mv /tmp/uv-x86_64-unknown-linux-musl/uv /tmp/uv-x86_64-unknown-linux-musl/uvx \
+        /usr/local/bin/ \
+    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx \
     && rm -rf /tmp/uv.tar.gz /tmp/uv-x86_64-unknown-linux-musl
 
 # GitHub CLI (pinned)

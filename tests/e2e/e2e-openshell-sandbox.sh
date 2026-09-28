@@ -138,6 +138,11 @@ run_in() {
 print_header "=== shared sandbox: binaries ==="
 
 assert_ok "uv is installed" run_in "$CLAUDE_SANDBOX" uv --version
+assert_ok "uvx is installed" run_in "$CLAUDE_SANDBOX" uvx --version
+assert_ok "uvx is installed in Codex sandbox" \
+    run_in "$CODEX_SANDBOX" uvx --version
+assert_ok "uvx is installed in OpenCode sandbox" \
+    run_in "$OPENCODE_SANDBOX" uvx --version
 assert_ok "gh is installed" run_in "$CLAUDE_SANDBOX" gh --version
 assert_ok "glab is installed" run_in "$CLAUDE_SANDBOX" glab --version
 assert_ok "shellcheck is installed" run_in "$CLAUDE_SANDBOX" shellcheck --version
