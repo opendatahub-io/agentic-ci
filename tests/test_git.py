@@ -4,9 +4,12 @@ import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from agentic_ci.git import (
     _GITHUB_URL_RE,
     _GITLAB_URL_RE,
+    RemoteLease,
     _collect_candidates,
     _dedup_gitlab_prefixes,
     _is_transient_push_error,
@@ -864,3 +867,206 @@ class TestPushBranch:
             logged_delay_2 = warning_calls[1][0][3]
             assert logged_delay_1 == 2.0
             assert logged_delay_2 == 4.0
+
+
+_SHA1 = "0123456789abcdef0123456789abcdef01234567"
+_SHA256 = "0123456789abcdef" * 4
+_STALE = (
+    "To https://example.com/org/repo.git\n"
+    " ! [rejected]        my-branch -> my-branch (stale info)\n"
+    "error: failed to push some refs to 'https://example.com/org/repo.git'\n"
+)
+
+
+class TestPushBranchLease:
+    """RHAI-3020: explicit lease values for push_branch()."""
+
+    def _argv(self, tmp_path: Path, **kwargs) -> list[str]:
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            assert push_branch(tmp_path, **kwargs) is True
+            mock_run.assert_called_once()
+            return mock_run.call_args[0][0]
+
+    def test_default_is_bare_lease(self, tmp_path: Path):
+        assert self._argv(tmp_path, branch="my-branch") == [
+            "git",
+            "push",
+            "--force-with-lease",
+            "--set-upstream",
+            "origin",
+            "my-branch",
+        ]
+
+    def test_tracking_value_is_bare_lease(self, tmp_path: Path):
+        argv = self._argv(tmp_path, branch="my-branch", expected_remote_sha=RemoteLease.TRACKING)
+        assert argv[2] == "--force-with-lease"
+
+    def test_tracking_without_branch_detects_current(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CompletedProcess([], 0, stdout="feature\n"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert push_branch(tmp_path, expected_remote_sha=RemoteLease.TRACKING) is True
+            assert mock_run.call_args[0][0] == [
+                "git",
+                "push",
+                "--force-with-lease",
+                "--set-upstream",
+                "origin",
+                "feature",
+            ]
+
+    @pytest.mark.parametrize("sha", [_SHA1, _SHA256])
+    def test_explicit_sha(self, tmp_path: Path, sha: str):
+        assert self._argv(tmp_path, branch="fix/x", expected_remote_sha=sha) == [
+            "git",
+            "push",
+            f"--force-with-lease=refs/heads/fix/x:{sha}",
+            "--set-upstream",
+            "origin",
+            "refs/heads/fix/x:refs/heads/fix/x",
+        ]
+
+    def test_uppercase_sha_normalized(self, tmp_path: Path):
+        argv = self._argv(tmp_path, branch="b", expected_remote_sha=_SHA1.upper())
+        assert argv[2] == f"--force-with-lease=refs/heads/b:{_SHA1}"
+
+    def test_absent(self, tmp_path: Path):
+        argv = self._argv(
+            tmp_path, remote="upstream", branch="b", expected_remote_sha=RemoteLease.ABSENT
+        )
+        assert argv == [
+            "git",
+            "push",
+            "--force-with-lease=refs/heads/b:",
+            "--set-upstream",
+            "upstream",
+            "refs/heads/b:refs/heads/b",
+        ]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            None,
+            "0123456",  # abbreviated: resolved in the local repo, refs can spoof it
+            _SHA1[:39],
+            _SHA1 + "0",
+            _SHA256 + "0",
+            _SHA1 + "\n",
+            "g" * 40,
+            "HEAD",
+            "origin/main",
+            f"refs/heads/b:{_SHA1}",
+            f"{_SHA1}:x",
+            f" {_SHA1}",
+            40,
+            b"0" * 40,
+            "absent",
+        ],
+    )
+    def test_invalid_expected_fails_closed(self, tmp_path: Path, value):
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            assert push_branch(tmp_path, branch="b", expected_remote_sha=value) is False
+            mock_run.assert_not_called()
+            assert "invalid expected_remote_sha" in mock_log.error.call_args[0][0]
+
+    @pytest.mark.parametrize("value", [_SHA1, RemoteLease.ABSENT])
+    def test_expected_requires_explicit_branch(self, tmp_path: Path, value):
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            assert push_branch(tmp_path, expected_remote_sha=value) is False
+            mock_run.assert_not_called()
+            assert "explicit branch is required" in mock_log.error.call_args[0][0]
+
+    def test_explicit_lease_pushes_full_refspec(self, tmp_path: Path):
+        """The pushed ref and the leased ref are both refs/heads/<branch>."""
+        argv = self._argv(tmp_path, branch="b", expected_remote_sha=RemoteLease.ABSENT)
+        assert argv[-1] == "refs/heads/b:refs/heads/b"
+
+    @pytest.mark.parametrize("value", [_SHA1, RemoteLease.ABSENT])
+    @pytest.mark.parametrize("branch", ["refs/heads/b", "refs/tags/b", "refs/"])
+    def test_explicit_lease_rejects_full_ref_branch(self, tmp_path: Path, branch, value):
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            assert push_branch(tmp_path, branch=branch, expected_remote_sha=value) is False
+            mock_run.assert_not_called()
+            assert "short branch name" in mock_log.error.call_args[0][0]
+
+    def test_tracking_lease_logs_debug(self, tmp_path: Path):
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            mock_run.return_value = subprocess.CompletedProcess([], 0)
+            assert push_branch(tmp_path, branch="b") is True
+            assert "remote-tracking" in mock_log.debug.call_args[0][0]
+
+    def test_invalid_branch_still_rejected_with_sha(self, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            assert push_branch(tmp_path, branch="--evil", expected_remote_sha=_SHA1) is False
+            mock_run.assert_not_called()
+
+    @pytest.mark.parametrize("value", [RemoteLease.TRACKING, _SHA1, RemoteLease.ABSENT])
+    @patch("agentic_ci.git.time.sleep")
+    def test_stale_lease_not_retried_and_logged(self, mock_sleep, tmp_path: Path, value):
+        with (
+            patch("agentic_ci.git.subprocess.run") as mock_run,
+            patch("agentic_ci.git.log") as mock_log,
+        ):
+            mock_run.side_effect = subprocess.CalledProcessError(128, "git", stderr=_STALE)
+            assert (
+                push_branch(tmp_path, branch="my-branch", max_retries=3, expected_remote_sha=value)
+                is False
+            )
+            assert mock_run.call_count == 1
+            mock_sleep.assert_not_called()
+            assert mock_log.error.call_count == 1
+            msg = mock_log.error.call_args[0][0]
+            assert "no longer matches the lease" in msg
+            assert "not overwriting or retrying" in msg
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_stale_lease_wins_over_transient_pattern(self, mock_sleep, tmp_path: Path):
+        """A stale-info rejection is final even if stderr also looks transient."""
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                1, "git", stderr=_STALE + "remote: fatal error in commit_refs\n"
+            )
+            assert (
+                push_branch(tmp_path, branch="my-branch", max_retries=3, expected_remote_sha=_SHA1)
+                is False
+            )
+            assert mock_run.call_count == 1
+            mock_sleep.assert_not_called()
+
+    @patch("agentic_ci.git.time.sleep")
+    def test_transient_error_still_retried_with_sha(self, mock_sleep, tmp_path: Path):
+        with patch("agentic_ci.git.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                subprocess.CalledProcessError(128, "git", stderr="fatal error in commit_refs"),
+                subprocess.CompletedProcess([], 0),
+            ]
+            assert (
+                push_branch(
+                    tmp_path,
+                    branch="b",
+                    max_retries=2,
+                    retry_delay=1.0,
+                    expected_remote_sha=_SHA1,
+                )
+                is True
+            )
+            assert mock_run.call_count == 2
+            for call in mock_run.call_args_list:
+                assert call[0][0][2] == f"--force-with-lease=refs/heads/b:{_SHA1}"
+            mock_sleep.assert_called_once_with(1.0)
