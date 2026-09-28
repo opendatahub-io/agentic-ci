@@ -12,8 +12,10 @@ from agentic_ci.backends.openshell.provider import (
     OPENAI_PROFILE_ID,
     PROVIDER_NAME,
     auth_mode,
+    credential_fingerprint,
     delete,
     ensure_profile,
+    refresh_credentials,
     rotate_token,
     setup,
     validate_credentials,
@@ -171,6 +173,149 @@ class TestProviderSetup:
             setup("openai", {"OPENAI_API_KEY": "extra-key"})
 
         assert mock_run.call_args.kwargs["env"]["OPENAI_API_KEY"] == "extra-key"
+
+    def test_setup_refreshes_key_of_existing_openai_provider(self):
+        # Codex authenticates only through the provider placeholder, so a
+        # reused provider must get the current key, not the one it was
+        # created with.
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=True,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+        ):
+            setup("openai", {"OPENAI_API_KEY": "rotated-key"})
+
+        mock_run.assert_called_once()
+        assert mock_run.call_args.args[0] == [
+            "openshell",
+            "provider",
+            "update",
+            PROVIDER_NAME,
+            "--credential",
+            "OPENAI_API_KEY",
+        ]
+        assert mock_run.call_args.kwargs["check"] is True
+        assert mock_run.call_args.kwargs["env"]["OPENAI_API_KEY"] == "rotated-key"
+
+    @pytest.mark.parametrize("exists", [False, True])
+    @pytest.mark.parametrize("raw_key", ["sk-fake-key\n", "sk-fake-key\r\n", "  sk-fake-key \t"])
+    def test_openai_provider_stores_key_without_surrounding_whitespace(self, raw_key, exists):
+        # OpenShell refuses to inject a secret containing CR or LF and
+        # answers HTTP 500, which Codex reports as "high demand". A CI
+        # secret pasted with a trailing newline must reach the provider
+        # stripped, as `codex login --with-api-key` strips it.
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=exists,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider.ensure_profile"),
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+        ):
+            setup("openai", {"OPENAI_API_KEY": raw_key})
+
+        assert mock_run.call_args.args[0][2] == ("update" if exists else "create")
+        assert mock_run.call_args.kwargs["env"]["OPENAI_API_KEY"] == "sk-fake-key"
+        assert "sk-fake-key" not in mock_run.call_args.args[0]
+
+    @pytest.mark.parametrize("exists", [False, True])
+    @pytest.mark.parametrize("raw_key", ["sk-fake\nkey", "sk-fake\rkey", "sk-fake\0key"])
+    def test_openai_key_with_inner_line_break_is_rejected(self, raw_key, exists):
+        env = {"OPENAI_API_KEY": raw_key}
+        with pytest.raises(RuntimeError, match="line break or NUL"):
+            validate_credentials("openai", env)
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=exists,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider.ensure_profile"),
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+            pytest.raises(RuntimeError, match="line break or NUL"),
+        ):
+            setup("openai", env)
+
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize("exists", [False, True])
+    @pytest.mark.parametrize(
+        ("raw_key", "kind"),
+        [
+            ("sk-fake-key\n", "(a line break)"),
+            ("sk-fake-key\r\n", "(a line break)"),
+            ("  sk-fake-key \t", "(spaces or tabs)"),
+        ],
+    )
+    def test_stripping_the_openai_key_is_reported(self, raw_key, kind, exists, capsys):
+        # The run log must show whether the secret had surrounding
+        # whitespace, without printing the key.
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=exists,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider.ensure_profile"),
+            mock.patch("agentic_ci.backends.openshell.provider._run"),
+        ):
+            setup("openai", {"OPENAI_API_KEY": raw_key})
+
+        out = capsys.readouterr().out
+        assert out.count("Stripped surrounding whitespace") == 1
+        assert f"{kind} from OPENAI_API_KEY" in out
+        assert "sk-fake-key" not in out
+
+    @pytest.mark.parametrize("exists", [False, True])
+    def test_clean_openai_key_is_not_reported_as_stripped(self, exists, capsys):
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists",
+                return_value=exists,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider.ensure_profile"),
+            mock.patch("agentic_ci.backends.openshell.provider._run"),
+        ):
+            setup("openai", {"OPENAI_API_KEY": "sk-fake-key"})
+
+        assert "Stripped" not in capsys.readouterr().out
+
+    def test_blank_openai_key_is_missing(self):
+        with pytest.raises(RuntimeError, match="require OPENAI_API_KEY"):
+            validate_credentials("openai", {"OPENAI_API_KEY": " \n"})
+
+    def test_credential_fingerprint_ignores_surrounding_whitespace(self):
+        assert credential_fingerprint("openai", {"OPENAI_API_KEY": "key-a\n"}) == (
+            credential_fingerprint("openai", {"OPENAI_API_KEY": "key-a"})
+        )
+
+    @pytest.mark.parametrize("mode", ["api-key", "vertex", "oauth"])
+    def test_refresh_credentials_leaves_other_auth_modes_alone(self, mode):
+        with mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run:
+            refresh_credentials(mode, {"ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k"})
+
+        mock_run.assert_not_called()
+
+    def test_refresh_credentials_requires_openai_key(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+            pytest.raises(RuntimeError, match="OPENAI_API_KEY"),
+        ):
+            refresh_credentials("openai")
+
+        mock_run.assert_not_called()
+
+    def test_credential_fingerprint_tracks_openai_key_only(self):
+        first = credential_fingerprint("openai", {"OPENAI_API_KEY": "key-a"})
+
+        assert first == credential_fingerprint("openai", {"OPENAI_API_KEY": "key-a"})
+        assert first != credential_fingerprint("openai", {"OPENAI_API_KEY": "key-b"})
+        assert "key-a" not in first
+        assert len(first) == 16
+        for mode in ("api-key", "vertex", "oauth"):
+            assert credential_fingerprint(mode, {"ANTHROPIC_API_KEY": "k"}) is None
 
     def test_oauth_mode_creates_no_provider(self):
         # The OAuth token reaches the sandbox through the env script only;
