@@ -127,24 +127,39 @@ instead of waiting for the 60-second background sweep.
 #### API Key (direct Anthropic API)
 
 ```bash
+openshell provider profile export agentic-ci-anthropic   # import if missing
+openshell provider profile import \
+  -f src/agentic_ci/backends/openshell/profiles/agentic-ci-anthropic.yaml
 openshell provider get ci-gcp                    # check if exists
 openshell provider create \
   --name ci-gcp \
-  --type anthropic \
+  --type agentic-ci-anthropic \
   --credential ANTHROPIC_API_KEY
 ```
 
-For Codex, agentic-ci creates an OpenAI provider and uses `OPENAI_API_KEY`.
-The current backend follows the same L4 pattern as its existing API-key path:
-the sandbox environment script contains the real key, and Codex's
+For Codex, agentic-ci creates an OpenAI provider from its
+`agentic-ci-openai` profile and uses `OPENAI_API_KEY`. The endpoint is L4,
+so the proxy does not replace the provider placeholder: the sandbox
+environment script contains the real key, and Codex's
 `login --with-api-key` command writes its login state before execution.
 
 ```bash
 openshell provider create \
   --name ci-gcp \
-  --type openai \
+  --type agentic-ci-openai \
   --credential OPENAI_API_KEY
 ```
+
+agentic-ci ships its own provider profiles
+(`src/agentic_ci/backends/openshell/profiles/`) because OpenShell's builtin
+`openai` and `anthropic` profiles add a rule that lets `/usr/bin/curl` and
+`/usr/local/bin/curl` reach the API host with the key injected, and a
+sandbox policy cannot remove that rule. agentic-ci's profiles drop that curl
+rule. The key can still be spent through an agent binary, for example
+`codex sandbox -- curl`, because agentic-ci's own policy lets the agent
+binaries reach the API host. The profiles live in the gateway database, so
+agentic-ci imports them before it creates the provider, and it replaces a
+provider created from a builtin profile by an earlier release.
 
 #### OAuth Token (Claude subscription)
 
