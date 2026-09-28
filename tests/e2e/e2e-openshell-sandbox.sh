@@ -450,10 +450,49 @@ else
         # sources the env script, and the agent wrapper deletes it, so the
         # env script is covered by unit tests instead.)
         print_step "Probing OpenAI credential isolation..."
+        # The curl error text depends on the OpenShell runtime (an HTTP
+        # proxy answering CONNECT with 403, or a transparent proxy refusing
+        # the connection), so the proof of denial is the proxy's own
+        # DENIED line for curl, paired with curl failing. Counting the
+        # lines before and after the probe keeps a denial logged earlier
+        # from standing in for this one. The reason must be the policy
+        # decision, not an identity or resource failure that happens to deny
+        # the same connection, and its text depends on the runtime too: the
+        # HTTP proxy logs the OPA reason ("binary '/usr/bin/curl' not
+        # allowed in policy ..."), the transparent proxy logs
+        # "transparent_tcp_policy_denied".
+        CURL_DENIED_RE=" DENIED /usr/bin/curl\([0-9]+\) -> api\.openai\.com:443 .*\[reason:(binary '/usr/bin/curl' not allowed|transparent_tcp_policy_denied\])"
+        LOG_RC=0
+        PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
+        assert_ok "read the sandbox proxy log before the curl probe" test "$LOG_RC" -eq 0
+        DENIED_BEFORE="$(printf '%s\n' "$PROXY_LOG" | grep -cE "$CURL_DENIED_RE" || true)"
         CURL_OUT="$(openshell sandbox exec --name ci --no-tty -- bash -c \
             'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models' \
             2>&1 || true)"
-        assert_contains "plain curl gets no OpenAI key" "$CURL_OUT" "CONNECT tunnel failed, response 403"
+        # -sS prints "curl: (N) ..." only when the transfer fails, so an
+        # HTTP response of any status (401 included) does not match.
+        assert_contains "plain curl gets no OpenAI key: the request fails" \
+            "$CURL_OUT" "^curl: ([0-9][0-9]*) "
+        # The supervisor ships its log lines to the gateway asynchronously.
+        # A failed log read counts no lines, so it cannot pass the check.
+        DENIED_AFTER=0
+        for _ in $(seq 1 15); do
+            LOG_RC=0
+            PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
+            DENIED_AFTER=0
+            if [[ "$LOG_RC" -eq 0 ]]; then
+                DENIED_AFTER="$(printf '%s\n' "$PROXY_LOG" | grep -cE "$CURL_DENIED_RE" || true)"
+            fi
+            [[ "${DENIED_AFTER:-0}" -gt "${DENIED_BEFORE:-0}" ]] && break
+            sleep 2
+        done
+        assert_ok "plain curl gets no OpenAI key: the proxy logged it DENIED by policy" \
+            test "${DENIED_AFTER:-0}" -gt "${DENIED_BEFORE:-0}"
+        if [[ "${DENIED_AFTER:-0}" -le "${DENIED_BEFORE:-0}" ]]; then
+            echo "  DENIED_BEFORE=${DENIED_BEFORE:-0} DENIED_AFTER=${DENIED_AFTER:-0}" \
+                "last log read rc=$LOG_RC; proxy lines for curl:"
+            printf '%s\n' "$PROXY_LOG" | grep -F "/usr/bin/curl" | tail -5 | cut -c1-300 || true
+        fi
         AUTH_JSON="$(openshell sandbox exec --name ci --no-tty -- bash -c \
             'cat "${CODEX_HOME:-/sandbox/.codex}/auth.json"' 2>&1 || true)"
         # Counts only: assert_contains would print auth.json on failure.
