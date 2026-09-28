@@ -80,7 +80,7 @@ static int shim_failure(const char *what)
 int main(int argc, char **argv)
 {
     sigset_t block, previous;
-    struct sigaction action, old;
+    struct sigaction action, old, chld_default, chld_caller;
     int installed[N_FORWARDED] = {0};
     size_t i;
     pid_t pid;
@@ -116,6 +116,18 @@ int main(int argc, char **argv)
         installed[i] = 1;
     }
 
+    /*
+     * A caller that starts the shim with SIGCHLD ignored (SIG_IGN or
+     * SA_NOCLDWAIT) makes the kernel discard the child's exit status, and
+     * waitpid then fails with ECHILD. Use the default disposition while the
+     * shim waits; the child gets the caller's disposition back before exec.
+     */
+    memset(&chld_default, 0, sizeof(chld_default));
+    chld_default.sa_handler = SIG_DFL;
+    sigemptyset(&chld_default.sa_mask);
+    if (sigaction(SIGCHLD, &chld_default, &chld_caller) != 0)
+        return shim_failure("sigaction");
+
     pid = fork();
     if (pid < 0)
         return shim_failure("fork");
@@ -130,6 +142,7 @@ int main(int argc, char **argv)
             if (installed[i])
                 signal(forwarded[i], SIG_DFL);
         }
+        sigaction(SIGCHLD, &chld_caller, NULL);
         sigprocmask(SIG_SETMASK, &previous, NULL);
         execvp(argv[1], &argv[1]);
         err = errno;

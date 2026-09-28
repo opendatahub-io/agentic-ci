@@ -211,6 +211,8 @@ for image in "$CLAUDE_SANDBOX" "$OPENCODE_SANDBOX" "$CODEX_SANDBOX"; do
         run_in "$image" sh -c "$SHIM false; test \$? -eq 1"
     assert_ok "$name: setup shim forwards an exit status (exit 7)" \
         run_in "$image" sh -c "$SHIM sh -c 'exit 7'; test \$? -eq 7"
+    assert_ok "$name: setup shim keeps the exit status when started with SIGCHLD ignored" \
+        run_in "$image" sh -c "python3 -c 'import os, signal, sys; signal.signal(signal.SIGCHLD, signal.SIG_IGN); os.execv(sys.argv[1], sys.argv[1:])' $SHIM sh -c 'exit 7'; test \$? -eq 7"
     assert_ok "$name: setup shim prints usage and exits 2 without a command" \
         run_in "$image" sh -c "$SHIM 2>&1 | grep -q '^usage: agentic-ci-sandbox-setup'; $SHIM; test \$? -eq 2"
     assert_ok "$name: setup shim stays the parent of the command (no exec)" \

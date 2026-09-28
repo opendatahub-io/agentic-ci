@@ -378,6 +378,13 @@ def _log_stderr(result):
         log.detail("openshell stderr", stderr)
 
 
+# Bounds for the gateway calls of a phase switch, so a gateway that stops
+# answering fails the switch instead of hanging the run. `policy set --wait`
+# waits up to its own 60 s default for the supervisor to load the policy.
+_POLICY_GET_TIMEOUT_SECONDS = 30
+_POLICY_SET_TIMEOUT_SECONDS = 90
+
+
 def apply_phase_policy(phase, endpoints):
     """Switch the sandbox's setup-shim egress to *phase*.
 
@@ -406,11 +413,18 @@ def apply_phase_policy(phase, endpoints):
     if phase == "agent" and endpoints:
         raise ValueError("the agent phase opens no setup-shim endpoints")
 
-    result = _run(
-        ["openshell", "policy", "get", "--base", "-o", "json", SANDBOX_NAME],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = _run(
+            ["openshell", "policy", "get", "--base", "-o", "json", SANDBOX_NAME],
+            capture_output=True,
+            text=True,
+            timeout=_POLICY_GET_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Could not switch to the {phase} egress phase: openshell policy get "
+            f"timed out ({type(exc).__name__}); see the job log"
+        ) from exc
     if result.returncode != 0:
         _log_stderr(result)
         raise RuntimeError(
@@ -438,7 +452,13 @@ def apply_phase_policy(phase, endpoints):
             ["openshell", "policy", "set", "--wait", "--policy", policy_file, SANDBOX_NAME],
             capture_output=True,
             text=True,
+            timeout=_POLICY_SET_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Could not switch to the {phase} egress phase: openshell policy set "
+            f"timed out ({type(exc).__name__}); see the job log"
+        ) from exc
     finally:
         os.unlink(policy_file)
     if result.returncode != 0:

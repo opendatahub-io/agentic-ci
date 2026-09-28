@@ -724,6 +724,28 @@ class _FakeOpenShell:
 
 
 class TestApplyPhasePolicy:
+    @pytest.mark.parametrize("command", ["get", "set"])
+    def test_gateway_timeout_fails_closed_and_cleans_up(self, command):
+        fake = _FakeOpenShell()
+        kwargs_seen = {}
+
+        def run(args, **kwargs):
+            if args[:3] == ["openshell", "policy", command]:
+                kwargs_seen.update(kwargs)
+                if command == "set":
+                    fake.policy_file = args[args.index("--policy") + 1]
+                raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+            return fake(args, **kwargs)
+
+        with mock.patch.object(sandbox, "_run", run):
+            with pytest.raises(RuntimeError, match=f"policy {command} timed out") as err:
+                sandbox.apply_phase_policy("setup", [NPM])
+
+        assert kwargs_seen["timeout"] > 0
+        assert "openshell" not in str(err.value).split(":")[0]
+        if command == "set":
+            assert not os.path.exists(fake.policy_file)
+
     def test_gets_the_base_policy_and_sets_the_whole_object(self):
         fake = _FakeOpenShell()
         with mock.patch.object(sandbox, "_run", fake):

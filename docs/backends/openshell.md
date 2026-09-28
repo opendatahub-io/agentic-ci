@@ -410,8 +410,9 @@ wildcards included (such as the default L4 PyPI endpoints).
 ### Egress phases
 
 A sandbox profile's egress has three phases: `setup`, `agent` and `validate`.
-The rules applied at creation (defaults, auth endpoints and the profile's
-agent-phase presets, bound to the agent binaries) are the `agent` phase.
+The rules applied at creation (defaults, auth endpoints, the profile's
+agent-phase presets and central `raw_egress`, plus any endpoints from an
+explicit `--policy` file, bound to the agent binaries) are the `agent` phase.
 `OpenShellBackend._set_egress_phase("setup")` or `("validate")` adds rules
 bound only to the setup shim, `/usr/local/bin/agentic-ci-sandbox-setup`, and
 parks the agent's rules (each agent binary path is prefixed with
