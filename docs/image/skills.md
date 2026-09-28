@@ -215,6 +215,30 @@ Matched: odh-git
 ERROR: unknown plugin(s) in AGENT_ENABLED_PLUGINS: nonexistent-plugin
 ```
 
+Under OpenCode and the Codex skills compatibility layer, a plugin that
+installed no skills is unknown too, since skills are all they install.
+Claude Code and native Codex plugins can also carry MCP servers, hooks or
+agents, so there an enabled plugin with no skills in the manifest only
+prints a warning:
+
+```text
+WARNING: enabled plugin(s) provide no skills: odh-ai-helpers
+```
+
+### Plugins without skills
+
+The image build ends with one line naming every marketplace plugin that
+installed no skills, whether its install failed, its skills path no longer
+exists, or (OpenCode) its skill names collide with a plugin installed
+earlier:
+
+```text
+WARN: 3 plugin(s) provide no skills: patternfly, pf-mcp, spike-executor
+```
+
+MCP-only plugins and bundles such as `pf-mcp` and `patternfly` are expected
+here. Anything else usually means the skills-registry entry needs fixing.
+
 ## CLI subcommands
 
 Plugin installation and filtering are `agentic-ci` subcommands

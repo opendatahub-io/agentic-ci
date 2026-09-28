@@ -221,6 +221,23 @@ class TestInstallClaudePlugins:
         ]
         assert json.loads(manifest.read_text()) == {"member": ["shared"], "umbrella": ["shared"]}
 
+    def test_warns_about_plugins_without_skills(self, tmp_path, capsys):
+        seed = tmp_path / "seed"
+        _write_json(
+            seed / "marketplaces" / "test-mkt" / ".claude-plugin" / "marketplace.json",
+            {"name": "test-mkt", "plugins": [{"name": "good"}, {"name": "empty"}, {"name": "bad"}]},
+        )
+        _make_skill(seed / "cache" / "test-mkt" / "good" / "0.1.0" / "skills" / "review")
+        (seed / "cache" / "test-mkt" / "empty" / "0.1.0").mkdir(parents=True)
+
+        def fake_install(args, capture_output):
+            return subprocess.CompletedProcess(args, 1 if args[-1] == "bad@test-mkt" else 0)
+
+        with mock.patch("agentic_ci.plugins.subprocess.run", side_effect=fake_install):
+            install_claude_plugins(seed, manifest_path=tmp_path / "manifest.json")
+
+        assert "WARN: 2 plugin(s) provide no skills: bad, empty" in capsys.readouterr().out
+
 
 # -- enable_plugins: Claude Code filtering ------------------------------------
 
@@ -300,6 +317,36 @@ class TestEnablePluginsClaude:
         monkeypatch.setenv("AGENT_TOOL", "claude")
         with pytest.raises(SystemExit):
             enable_plugins()
+
+    def test_warns_when_enabled_plugin_has_no_skills(self, monkeypatch, tmp_path, capsys):
+        settings = tmp_path / "settings.json"
+        self._write_settings(
+            settings, {"alpha@mkt": True, "mcp-only@mkt": True, "emptied@mkt": True}
+        )
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text(json.dumps({"alpha": ["review"], "emptied": []}))
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha,mcp-only,emptied")
+        monkeypatch.setenv("AGENT_TOOL", "claude")
+        enable_plugins()
+        err = capsys.readouterr().err
+        assert "WARNING: enabled plugin(s) provide no skills: emptied, mcp-only" in err
+        assert self._read_enabled(settings) == {
+            "alpha@mkt": True,
+            "mcp-only@mkt": True,
+            "emptied@mkt": True,
+        }
+
+    def test_no_skills_warning_needs_manifest(self, monkeypatch, tmp_path, capsys):
+        settings = tmp_path / "settings.json"
+        self._write_settings(settings, {"alpha@mkt": True})
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(tmp_path / "missing.json"))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha")
+        monkeypatch.setenv("AGENT_TOOL", "claude")
+        enable_plugins()
+        assert "provide no skills" not in capsys.readouterr().err
 
     def test_malformed_json_returns_ok(self, monkeypatch, tmp_path):
         settings = tmp_path / "settings.json"
@@ -439,6 +486,23 @@ class TestEnablePluginsCodex:
         assert (skills_dir / "skill-a").is_dir()
         assert not (skills_dir / "skill-b").exists()
         assert (skills_dir / "personal-skill").is_dir()
+
+    def test_warns_when_enabled_native_plugin_has_no_skills(self, monkeypatch, tmp_path, capsys):
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text(json.dumps({"plugin-a": ["skill-a"]}))
+        installed = {
+            "installed": [
+                {"name": "plugin-a", "pluginId": "plugin-a@test"},
+                {"name": "umbrella", "pluginId": "umbrella@test"},
+            ]
+        }
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+        monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest))
+
+        with mock.patch("agentic_ci.plugins._run_codex_json", return_value=installed):
+            _filter_codex({"plugin-a", "umbrella"})
+
+        assert "WARNING: enabled plugin(s) provide no skills: umbrella" in capsys.readouterr().err
 
     def test_unknown_plugin_exits(self, monkeypatch, tmp_path):
         monkeypatch.setenv("AGENT_TOOL", "codex")
@@ -599,7 +663,7 @@ class TestInstallOpencodeSkills:
         assert "mock-greet" in data
         assert "greet" in data["mock-greet"]
 
-    def test_clone_failure_skips_plugin(self, tmp_path):
+    def test_clone_failure_skips_plugin(self, tmp_path, capsys):
         mkt = self._make_marketplace(tmp_path)
         skills_dir = tmp_path / "skills"
         manifest = tmp_path / "manifest.json"
@@ -608,6 +672,7 @@ class TestInstallOpencodeSkills:
             install_opencode_skills(mkt, skills_dir=skills_dir, manifest_path=manifest)
 
         assert json.loads(manifest.read_text()) == {}
+        assert "WARN: 1 plugin(s) provide no skills: mock-greet" in capsys.readouterr().out
 
     def test_installs_skills_from_git_subdir_source(self, tmp_path):
         repo = tmp_path / "mock-repo"
@@ -768,7 +833,7 @@ class TestInstallOpencodeSkills:
         assert not (skills_dir / "safe-skill" / "linked-secret").exists()
         assert "safe-skill" in json.loads(manifest.read_text())["mock-greet"]
 
-    def test_skips_plugin_with_colliding_skill_name(self, tmp_path):
+    def test_skips_plugin_with_colliding_skill_name(self, tmp_path, capsys):
         first_repo = tmp_path / "first-repo"
         first_skill = first_repo / "skills" / "shared"
         first_skill.mkdir(parents=True)
@@ -806,6 +871,9 @@ class TestInstallOpencodeSkills:
 
         assert (skills_dir / "shared" / "SKILL.md").read_text() == "first\n"
         assert json.loads(manifest.read_text()) == {"first": ["shared"]}
+        out = capsys.readouterr().out
+        assert "collision(s): shared (already installed by first)" in out
+        assert "WARN: 1 plugin(s) provide no skills: second" in out
 
     def test_skips_unowned_files_outside_complete_skill_dirs(self, tmp_path):
         first_repo = tmp_path / "first-repo"
@@ -1119,7 +1187,9 @@ class TestInstallCodexPlugins:
         with mock.patch("agentic_ci.plugins._run_codex_json", side_effect=responses):
             install_codex_plugins(marketplace, manifest_path=manifest)
 
-        assert "WARN: failed to install review-plugin@test-marketplace" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "WARN: failed to install review-plugin@test-marketplace" in out
+        assert "WARN: 1 plugin(s) provide no skills: review-plugin" in out
 
 
 @pytest.mark.parametrize("error", [FileNotFoundError(), OSError("exec failed")])

@@ -228,6 +228,29 @@ def _check_unmatched(wanted: set[str], matched: set[str]) -> None:
     sys.exit(1)
 
 
+def _warn_enabled_without_skills(enabled: set[str], manifest: dict[str, list[str]] | None) -> None:
+    """Warn about enabled plugins that the manifest lists no skills for.
+
+    Such a plugin is installed but contributes no skills, which is expected
+    for MCP-only plugins and otherwise a sign of a broken registry entry.
+    """
+    if manifest is None:
+        return
+    empty = sorted(name for name in enabled if not manifest.get(name))
+    if empty:
+        print(
+            f"WARNING: enabled plugin(s) provide no skills: {', '.join(empty)}",
+            file=sys.stderr,
+        )
+
+
+def _warn_plugins_without_skills(names: list[str], manifest: dict[str, list[str]]) -> None:
+    """Print one build-log line naming the plugins that provide no skills."""
+    empty = sorted({name for name in names if name not in manifest})
+    if empty:
+        print(f"WARN: {len(empty)} plugin(s) provide no skills: {', '.join(empty)}")
+
+
 # ---------------------------------------------------------------------------
 # Build-time: install plugins
 # ---------------------------------------------------------------------------
@@ -245,6 +268,7 @@ def install_claude_plugins(
     manifest_path = manifest_path or _manifest_path()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, list[str]] = {}
+    names: list[str] = []
 
     for mkt_json in sorted(seed_dir.glob("marketplaces/*/.claude-plugin/marketplace.json")):
         data = json.loads(mkt_json.read_text())
@@ -252,6 +276,7 @@ def install_claude_plugins(
 
         for entry in data.get("plugins", []):
             name = entry["name"]
+            names.append(name)
             plugin_id = f"{name}@{mkt_name}"
             print(f"==> Installing {plugin_id}")
 
@@ -271,6 +296,7 @@ def install_claude_plugins(
                     if skill_names:
                         manifest[name] = skill_names
 
+    _warn_plugins_without_skills(names, manifest)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"==> Manifest written to {manifest_path}")
 
@@ -376,8 +402,13 @@ def install_opencode_skills(
             }
             collisions = sorted(duplicate_skill_names | (set(skill_dirs) & owned_skill_names))
             if collisions:
+                owners = sorted(
+                    plugin for plugin, skills in manifest.items() if set(skills) & set(collisions)
+                )
+                owned_by = f" (already installed by {', '.join(owners)})" if owners else ""
                 print(
-                    f"WARN: skipping {name}; destination path collision(s): {', '.join(collisions)}"
+                    f"WARN: skipping {name}; destination path collision(s): "
+                    f"{', '.join(collisions)}{owned_by}"
                 )
                 continue
 
@@ -386,6 +417,7 @@ def install_opencode_skills(
             if skill_dirs:
                 manifest[name] = sorted(skill_dirs)
 
+    _warn_plugins_without_skills([entry["name"] for entry in data.get("plugins", [])], manifest)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"==> Skills installed to {skills_dir}")
     print(f"==> Manifest written to {manifest_path}")
@@ -540,6 +572,9 @@ def install_codex_plugins(
         if skill_names:
             manifest[name] = skill_names
 
+    _warn_plugins_without_skills(
+        [entry["name"] for entry in available if isinstance(entry.get("name"), str)], manifest
+    )
     manifest_path = manifest_path or _manifest_path()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -586,6 +621,7 @@ def _filter_claude(wanted: set[str]) -> None:
             enabled[key] = False
 
     _check_unmatched(wanted, matched)
+    _warn_enabled_without_skills(matched, _load_plugin_manifest())
 
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=2)
@@ -659,13 +695,15 @@ def _load_plugin_manifest(warn_if_missing: bool = False) -> dict[str, list[str]]
 def _filter_codex(wanted: set[str]) -> None:
     installed = _run_codex_json(["plugin", "list"])
     native_plugins = installed.get("installed", []) if installed else []
-    manifest = _load_plugin_manifest() or {}
+    loaded_manifest = _load_plugin_manifest()
+    manifest = loaded_manifest or {}
 
     native_names = {
         entry.get("name") for entry in native_plugins if isinstance(entry.get("name"), str)
     }
     matched = wanted & (native_names | set(manifest))
     _check_unmatched(wanted, matched)
+    _warn_enabled_without_skills(matched, loaded_manifest)
 
     remove_failures: list[str] = []
     for entry in native_plugins:
