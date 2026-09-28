@@ -371,7 +371,7 @@ Verify:
 
 Verifies that a plugin skill loads and executes correctly inside the
 runner container. Uses the `git-shallow-clone` skill from the
-`odh-ai-helpers` plugin to clone a repo into `/tmp` and confirm the
+`odh-git` plugin to clone a repo into `/tmp` and confirm the
 result.
 
 Requires GCP ADC credentials and `ANTHROPIC_VERTEX_PROJECT_ID`.
@@ -389,13 +389,13 @@ podman exec \
     agentic-ci run \
       --image "$CLAUDE_IMAGE" \
       --model claude-haiku-4-5 --no-otel \
-      "Use the /odh-ai-helpers:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
+      "Use the /odh-git:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
   '
 ```
 
 Verify:
-- `Plugins:` line includes `odh-ai-helpers`
-- Output shows `Skill` tool invocation for `odh-ai-helpers:git-shallow-clone`
+- `Plugins:` line includes `odh-git`
+- Output shows `Skill` tool invocation for `odh-git:git-shallow-clone`
 - Output shows a `Bash` tool call running `git clone`
 - Output shows `ls /tmp/agentic-ci` with repo contents (e.g. `src`, `pyproject.toml`, `Makefile`)
 - Agent response contains `SKILL_OK`
@@ -429,14 +429,14 @@ podman exec \
     agentic-ci run \
       --image "$CLAUDE_IMAGE" \
       --model claude-haiku-4-5 --no-otel \
-      "Use the /odh-ai-helpers:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
+      "Use the /odh-git:git-shallow-clone skill to shallow-clone https://github.com/opendatahub-io/agentic-ci.git into /tmp/agentic-ci. After the clone completes, run: ls /tmp/agentic-ci and print the output, then respond with exactly: SKILL_OK"
   '
 ```
 
 Verify:
 - Output shows `Auth: API key`
-- `Plugins:` line includes `odh-ai-helpers`
-- Output shows `Skill` tool invocation for `odh-ai-helpers:git-shallow-clone`
+- `Plugins:` line includes `odh-git`
+- Output shows `Skill` tool invocation for `odh-git:git-shallow-clone`
 - Output shows `ls /tmp/agentic-ci` with repo contents (e.g. `src`, `pyproject.toml`, `Makefile`)
 - Agent response contains `SKILL_OK`
 - `Agent exit code: 0`
