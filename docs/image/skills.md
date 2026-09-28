@@ -148,6 +148,19 @@ plugin names to the skills they contain:
 }
 ```
 
+Each entry lists the skills the harness actually loads from that plugin,
+not every `SKILL.md` in its repository:
+
+- **Claude Code**: the direct children of the plugin's `skills/` directory,
+  plus the paths declared by the marketplace entry or
+  `.claude-plugin/plugin.json`. Symlinks are followed inside the plugin.
+- **Codex native plugins**: the `skills` paths from the plugin manifest, or
+  `skills/` when it declares none, searched recursively.
+- **OpenCode and the Codex compatibility layer**: the skills copied into the
+  skills directory.
+
+Plugins that provide no skills are left out.
+
 For Claude Code, the manifest is informational (debugging, auditing).
 For OpenCode and Codex, the manifest is functional — `enable-plugins` uses it
 to apply per-skill filtering at runtime (see below).
