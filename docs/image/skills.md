@@ -57,9 +57,9 @@ Two environment variables control plugin loading:
         marketplace.json
   cache/
     opendatahub-skills/
-      odh-ai-helpers/0.1.0/       # full git clone of plugin repo
-        helpers/skills/
-        helpers/agents/
+      odh-git/0.1.0/              # plugins/odh-git subdirectory (git-subdir source)
+        skills/git-shallow-clone/
+          SKILL.md
       code-review-skills/0.1.0/
         skills/gitlab-code-review/
           SKILL.md
@@ -87,7 +87,7 @@ RUN git clone --depth 1 --quiet https://github.com/opendatahub-io/skills-registr
 1. Clones the plugin's source repo.
 2. Copies skill directories to `~/.config/opencode/skills/`.
    Uses explicit `skills` paths from the marketplace entry when present
-   (e.g. `"skills": ["./helpers/skills"]` for `odh-ai-helpers`), otherwise
+   (e.g. `"skills": ["./.claude/skills"]` for `rhoai-security-reviewer`), otherwise
    falls back to standard paths (`.claude/skills/`, `.agents/skills/`,
    `.opencode/skills/`, `skills/`). The `.agents/skills/` fallback applies
    to OpenCode installs as well as Codex compatibility installs.
@@ -142,11 +142,24 @@ plugin names to the skills they contain:
 
 ```json
 {
-  "odh-ai-helpers": ["git-shallow-clone", "code-review", "cve-scan", ...],
+  "odh-git": ["aipcc-commit-suggest", "gist-upload", "git-shallow-clone", ...],
   "code-review-skills": ["gitlab-code-review"],
   "rfe-creator": ["rfe.create", "rfe.review", ...]
 }
 ```
+
+Each entry lists the skills the harness actually loads from that plugin,
+not every `SKILL.md` in its repository:
+
+- **Claude Code**: the direct children of the plugin's `skills/` directory,
+  plus the paths declared by the marketplace entry or
+  `.claude-plugin/plugin.json`. Symlinks are followed inside the plugin.
+- **Codex native plugins**: the `skills` paths from the plugin manifest, or
+  `skills/` when it declares none, searched recursively.
+- **OpenCode and the Codex compatibility layer**: the skills copied into the
+  skills directory.
+
+Plugins that provide no skills are left out.
 
 For Claude Code, the manifest is informational (debugging, auditing).
 For OpenCode and Codex, the manifest is functional — `enable-plugins` uses it
@@ -159,12 +172,18 @@ are active. If unset, all plugins are enabled. If set to a
 comma-separated list of plugin names, only those plugins are active.
 
 ```bash
-# Enable only odh-ai-helpers — all other plugins are disabled
-AGENT_ENABLED_PLUGINS=odh-ai-helpers agentic-ci run "do something" ...
+# Enable only odh-git — all other plugins are disabled
+AGENT_ENABLED_PLUGINS=odh-git agentic-ci run "do something" ...
 
 # Enable two plugins
-AGENT_ENABLED_PLUGINS=odh-ai-helpers,code-review-skills agentic-ci run ...
+AGENT_ENABLED_PLUGINS=odh-git,code-review-skills agentic-ci run ...
 ```
+
+The ODH AI Helpers skills ship as focused `odh-*` plugins (`odh-git`,
+`odh-jira`, `odh-python-packaging`, ...). The deprecated `odh-ai-helpers`
+umbrella that re-exports them under the old `odh-ai-helpers:*` names only
+works under Claude Code: its skills are symlinks, which the OpenCode and
+Codex installs skip. Enable the `odh-*` plugins you need instead.
 
 ### How filtering works
 
@@ -192,9 +211,33 @@ If a requested plugin name doesn't match any installed plugin, the script
 exits with an error and reports which names were unmatched:
 
 ```text
-Matched: odh-ai-helpers
+Matched: odh-git
 ERROR: unknown plugin(s) in AGENT_ENABLED_PLUGINS: nonexistent-plugin
 ```
+
+Under OpenCode and the Codex skills compatibility layer, a plugin that
+installed no skills is unknown too, since skills are all they install.
+Claude Code and native Codex plugins can also carry MCP servers, hooks or
+agents, so there an enabled plugin with no skills in the manifest only
+prints a warning:
+
+```text
+WARNING: enabled plugin(s) provide no skills: odh-ai-helpers
+```
+
+### Plugins without skills
+
+The image build ends with one line naming every marketplace plugin that
+installed no skills, whether its install failed, its skills path no longer
+exists, or (OpenCode) its skill names collide with a plugin installed
+earlier:
+
+```text
+WARN: 3 plugin(s) provide no skills: patternfly, pf-mcp, spike-executor
+```
+
+MCP-only plugins and bundles such as `pf-mcp` and `patternfly` are expected
+here. Anything else usually means the skills-registry entry needs fixing.
 
 ## CLI subcommands
 

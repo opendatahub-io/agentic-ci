@@ -36,31 +36,163 @@ DEFAULT_MANIFEST_PATH = "/usr/local/share/agentic-ci/plugin-skills.manifest.json
 
 _FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".opencode/skills", "skills"]
 
+# Plugin manifests Codex reads ``skills`` paths from, first match wins.
+_CODEX_MANIFEST_PATHS = [
+    ".codex-plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+    ".cursor-plugin/plugin.json",
+]
+
+# Directory levels below a skills root that Codex's skill loader walks.
+_CODEX_SKILL_SCAN_DEPTH = 6
+
 
 def _manifest_path() -> Path:
     return Path(os.environ.get("PLUGIN_SKILLS_MANIFEST", DEFAULT_MANIFEST_PATH))
 
 
-def _find_skill_names(root: Path) -> list[str]:
+def _find_skill_names(
+    root: Path, max_depth: int | None = None, skip_hidden: bool = False
+) -> list[str]:
     """Return sorted skill names found under a directory tree.
 
     A skill name is the parent directory name of each SKILL.md file.
     """
-    return sorted({path.name for path in _find_skill_dirs(root)})
+    return sorted({path.name for path in _find_skill_dirs(root, max_depth, skip_hidden)})
 
 
-def _find_skill_dirs(root: Path) -> list[Path]:
-    """Return directories containing a non-symlink ``SKILL.md``."""
+def _find_skill_dirs(
+    root: Path, max_depth: int | None = None, skip_hidden: bool = False
+) -> list[Path]:
+    """Return directories containing a non-symlink ``SKILL.md``.
+
+    *max_depth* stops the walk that many directory levels below *root*, and
+    *skip_hidden* skips dot-directories below it.
+    """
     skill_dirs: list[Path] = []
     if root.is_symlink():
         return skill_dirs
     for current_root, dir_names, file_names in os.walk(root, followlinks=False):
         current_path = Path(current_root)
-        dir_names[:] = [name for name in dir_names if not (current_path / name).is_symlink()]
+        if max_depth is not None and len(current_path.relative_to(root).parts) >= max_depth:
+            dir_names.clear()
+        dir_names[:] = [
+            name
+            for name in dir_names
+            if not (current_path / name).is_symlink() and not (skip_hidden and name.startswith("."))
+        ]
         skill_md = current_path / "SKILL.md"
         if "SKILL.md" in file_names and not skill_md.is_symlink():
             skill_dirs.append(current_path)
     return skill_dirs
+
+
+def _declared_skill_paths(value: object) -> list[str]:
+    """Return a ``skills`` field (one path or a list of paths) as a list."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [path for path in value if isinstance(path, str)]
+    return []
+
+
+def _plugin_json_skill_paths(manifest: Path) -> list[str]:
+    """Return the ``skills`` paths a plugin manifest declares, if any."""
+    try:
+        data = json.loads(manifest.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    return _declared_skill_paths(data.get("skills"))
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_claude_skill(path: Path, root: Path) -> bool:
+    # os.path.realpath, unlike Path.resolve() before Python 3.13, does not
+    # raise on symlink loops; is_file() then rejects the result.
+    skill_md = Path(os.path.realpath(path / "SKILL.md"))
+    return _is_within(skill_md, root) and skill_md.is_file()
+
+
+def _claude_skill_names(plugin_root: Path, entry: dict) -> list[str]:
+    """Return the skills Claude Code loads from an installed plugin.
+
+    Claude Code loads the direct children of the plugin's ``skills/``
+    directory plus the paths declared by the marketplace *entry* and by
+    ``.claude-plugin/plugin.json``; a declared path that holds a
+    ``SKILL.md`` is a skill itself. Claude Code follows symlinks, which
+    some plugins use to re-export skills from sibling plugins, so this
+    does too, but only to targets inside the plugin root.
+    """
+    root = Path(os.path.realpath(plugin_root))
+    declared = _declared_skill_paths(entry.get("skills"))
+    declared += _plugin_json_skill_paths(root / ".claude-plugin" / "plugin.json")
+    names: set[str] = set()
+    for path in ["skills", *declared]:
+        skills_root = Path(os.path.realpath(root / path.removeprefix("./")))
+        if not _is_within(skills_root, root) or not skills_root.is_dir():
+            continue
+        if _is_claude_skill(skills_root, root):
+            names.add(skills_root.name)
+            continue
+        for child in skills_root.iterdir():
+            if _is_claude_skill(child, root):
+                names.add(child.name)
+    return sorted(names)
+
+
+def _codex_skill_root(plugin_root: Path, path: str) -> Path | None:
+    """Return a manifest ``skills`` path if Codex accepts it, else ``None``.
+
+    Codex only accepts non-empty ``./``-relative paths without ``..``.
+    """
+    relative = path.removeprefix("./")
+    if relative == path or not relative or relative.startswith("/"):
+        return None
+    if ".." in relative.split("/"):
+        return None
+    return plugin_root / relative
+
+
+def _codex_skill_names(plugin_root: Path) -> list[str]:
+    """Return the skills Codex loads from an installed native plugin.
+
+    Codex takes ``skills`` paths from the first manifest in
+    ``_CODEX_MANIFEST_PATHS``. They replace the default ``skills/``
+    directory, ``.codex-plugin/migrated-command-skills`` is always added,
+    and each root is searched ``_CODEX_SKILL_SCAN_DEPTH`` levels deep,
+    skipping hidden directories below it. Codex drops symlinks when it
+    installs a plugin, so :func:`_find_skill_names` skipping them matches.
+    These rules follow ``codex-rs/core-plugins/src/loader.rs`` and
+    ``codex-rs/ext/skills/src/loader/discovery.rs`` in openai/codex.
+    """
+    declared: list[str] = []
+    for manifest in _CODEX_MANIFEST_PATHS:
+        if (plugin_root / manifest).is_file():
+            declared = _plugin_json_skill_paths(plugin_root / manifest)
+            break
+    roots: list[Path] = []
+    for path in declared:
+        skills_root = _codex_skill_root(plugin_root, path)
+        if skills_root is not None:
+            roots.append(skills_root)
+    if not roots:
+        roots.append(plugin_root / "skills")
+    roots.append(plugin_root / ".codex-plugin" / "migrated-command-skills")
+    names: set[str] = set()
+    for skills_root in roots:
+        names.update(
+            _find_skill_names(skills_root, max_depth=_CODEX_SKILL_SCAN_DEPTH, skip_hidden=True)
+        )
+    return sorted(names)
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
@@ -96,6 +228,29 @@ def _check_unmatched(wanted: set[str], matched: set[str]) -> None:
     sys.exit(1)
 
 
+def _warn_enabled_without_skills(enabled: set[str], manifest: dict[str, list[str]] | None) -> None:
+    """Warn about enabled plugins that the manifest lists no skills for.
+
+    Such a plugin is installed but contributes no skills, which is expected
+    for MCP-only plugins and otherwise a sign of a broken registry entry.
+    """
+    if manifest is None:
+        return
+    empty = sorted(name for name in enabled if not manifest.get(name))
+    if empty:
+        print(
+            f"WARNING: enabled plugin(s) provide no skills: {', '.join(empty)}",
+            file=sys.stderr,
+        )
+
+
+def _warn_plugins_without_skills(names: list[str], manifest: dict[str, list[str]]) -> None:
+    """Print one build-log line naming the plugins that provide no skills."""
+    empty = sorted({name for name in names if name not in manifest})
+    if empty:
+        print(f"WARN: {len(empty)} plugin(s) provide no skills: {', '.join(empty)}")
+
+
 # ---------------------------------------------------------------------------
 # Build-time: install plugins
 # ---------------------------------------------------------------------------
@@ -113,6 +268,7 @@ def install_claude_plugins(
     manifest_path = manifest_path or _manifest_path()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, list[str]] = {}
+    names: list[str] = []
 
     for mkt_json in sorted(seed_dir.glob("marketplaces/*/.claude-plugin/marketplace.json")):
         data = json.loads(mkt_json.read_text())
@@ -120,6 +276,7 @@ def install_claude_plugins(
 
         for entry in data.get("plugins", []):
             name = entry["name"]
+            names.append(name)
             plugin_id = f"{name}@{mkt_name}"
             print(f"==> Installing {plugin_id}")
 
@@ -135,10 +292,11 @@ def install_claude_plugins(
             if cache_dir.is_dir():
                 version_dirs = sorted(d for d in cache_dir.iterdir() if d.is_dir())
                 if version_dirs:
-                    skill_names = _find_skill_names(version_dirs[-1])
+                    skill_names = _claude_skill_names(version_dirs[-1], entry)
                     if skill_names:
                         manifest[name] = skill_names
 
+    _warn_plugins_without_skills(names, manifest)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"==> Manifest written to {manifest_path}")
 
@@ -244,8 +402,13 @@ def install_opencode_skills(
             }
             collisions = sorted(duplicate_skill_names | (set(skill_dirs) & owned_skill_names))
             if collisions:
+                owners = sorted(
+                    plugin for plugin, skills in manifest.items() if set(skills) & set(collisions)
+                )
+                owned_by = f" (already installed by {', '.join(owners)})" if owners else ""
                 print(
-                    f"WARN: skipping {name}; destination path collision(s): {', '.join(collisions)}"
+                    f"WARN: skipping {name}; destination path collision(s): "
+                    f"{', '.join(collisions)}{owned_by}"
                 )
                 continue
 
@@ -254,6 +417,7 @@ def install_opencode_skills(
             if skill_dirs:
                 manifest[name] = sorted(skill_dirs)
 
+    _warn_plugins_without_skills([entry["name"] for entry in data.get("plugins", [])], manifest)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"==> Skills installed to {skills_dir}")
     print(f"==> Manifest written to {manifest_path}")
@@ -404,10 +568,13 @@ def install_codex_plugins(
         if installed_path is None:
             print(f"  WARN: no install path known for {name}; skipping in manifest")
             continue
-        skill_names = _find_skill_names(installed_path)
+        skill_names = _codex_skill_names(installed_path)
         if skill_names:
             manifest[name] = skill_names
 
+    _warn_plugins_without_skills(
+        [entry["name"] for entry in available if isinstance(entry.get("name"), str)], manifest
+    )
     manifest_path = manifest_path or _manifest_path()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -454,6 +621,7 @@ def _filter_claude(wanted: set[str]) -> None:
             enabled[key] = False
 
     _check_unmatched(wanted, matched)
+    _warn_enabled_without_skills(matched, _load_plugin_manifest())
 
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=2)
@@ -527,13 +695,15 @@ def _load_plugin_manifest(warn_if_missing: bool = False) -> dict[str, list[str]]
 def _filter_codex(wanted: set[str]) -> None:
     installed = _run_codex_json(["plugin", "list"])
     native_plugins = installed.get("installed", []) if installed else []
-    manifest = _load_plugin_manifest() or {}
+    loaded_manifest = _load_plugin_manifest()
+    manifest = loaded_manifest or {}
 
     native_names = {
         entry.get("name") for entry in native_plugins if isinstance(entry.get("name"), str)
     }
     matched = wanted & (native_names | set(manifest))
     _check_unmatched(wanted, matched)
+    _warn_enabled_without_skills(matched, loaded_manifest)
 
     remove_failures: list[str] = []
     for entry in native_plugins:

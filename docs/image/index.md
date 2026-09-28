@@ -75,7 +75,7 @@ are pre-installed:
 
 | Plugin | Description |
 |--------|-------------|
-| odh-ai-helpers | Python packaging, CI/CD debugging, Jira, ADR review |
+| odh-* (odh-git, odh-jira, odh-python-packaging, ...) | ODH AI Helpers: Git and CI debugging, Jira, Python packaging, ADR review |
 | rfe-creator | RFE creation, review, and submission pipeline |
 | assess-rfe | RFE quality assessment with structured rubric |
 | rhoai-security-reviewer | Consensus-based security review for STRATs |
