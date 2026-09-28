@@ -6,6 +6,7 @@ All operations use subprocess calls to git.
 
 from __future__ import annotations
 
+import enum
 import fnmatch
 import logging
 import math
@@ -458,8 +459,31 @@ def _is_transient_push_error(stderr: str) -> bool:
     return any(pat.lower() in lower for pat in _TRANSIENT_PUSH_PATTERNS)
 
 
+def _is_stale_lease_rejection(stderr: str) -> bool:
+    """Check whether git rejected a push because the lease did not hold."""
+    return "(stale info)" in stderr
+
+
 class _TransientPushError(Exception):
     """Transient push failure that may succeed on retry."""
+
+
+class RemoteLease(enum.Enum):
+    """Special values for ``push_branch(expected_remote_sha=...)``."""
+
+    TRACKING = "tracking"
+    """Bare ``--force-with-lease``: git reads the expected value from the
+    local remote-tracking ref (the default, and the behavior before
+    RHAI-3020)."""
+
+    ABSENT = "absent"
+    """The remote branch must not exist yet: ``--force-with-lease=refs/heads/<branch>:``."""
+
+
+# Full object names only. git resolves an abbreviated <expect> in the
+# local repository, where a ref named after the abbreviation wins, so a
+# short value would let whoever can write .git choose the lease.
+_FULL_OID_RE = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
 
 
 def push_branch(
@@ -469,12 +493,49 @@ def push_branch(
     *,
     max_retries: int = GIT_PUSH_MAX_RETRIES,
     retry_delay: float = GIT_PUSH_RETRY_DELAY,
+    expected_remote_sha: str | RemoteLease = RemoteLease.TRACKING,
 ) -> bool:
-    """Push the current branch to remote. Returns True on success.
+    """Push a branch to *remote* with a force-with-lease. Returns True on success.
 
     Retries up to *max_retries* times on transient errors (server 5xx,
     ``commit_refs`` failures, lock contention, network resets) with
-    exponential backoff starting at *retry_delay* seconds.
+    exponential backoff starting at *retry_delay* seconds. A lease
+    rejection (git reports ``stale info``) is never retried and is
+    logged as such: someone else moved the remote branch.
+
+    Args:
+        repo_dir: Local repository to push from.
+        remote: Remote name (not a URL).
+        branch: Branch to push. Defaults to the checked-out branch.
+            Required when *expected_remote_sha* is given, and then it
+            must be a short name (not starting with ``refs/``) and is
+            pushed as ``refs/heads/<branch>:refs/heads/<branch>``, so
+            the pushed ref is the leased ref even when a tag has the
+            same name.
+        max_retries: Retries after the first attempt on transient errors.
+        retry_delay: Initial backoff in seconds.
+        expected_remote_sha: What the remote branch must point at for
+            the push to go through. The default,
+            ``RemoteLease.TRACKING``, runs a bare ``--force-with-lease``,
+            whose expected value comes from the local remote-tracking
+            ref; anyone who can write ``.git`` (for example an agent run
+            on the working copy) can move that ref or remap it through
+            ``remote.<name>.fetch``. A full commit SHA (40 or 64 hex
+            characters, recorded before untrusted code ran) runs
+            ``--force-with-lease=refs/heads/<branch>:<sha>``, and
+            ``RemoteLease.ABSENT`` runs
+            ``--force-with-lease=refs/heads/<branch>:``, which only
+            creates the branch. Both are checked by the remote against
+            the given value, independent of local refs and config. Any
+            other value fails closed: nothing is pushed, an error is
+            logged and False is returned. Abbreviated SHAs are rejected
+            because git would resolve them in the local repository.
+            The name says "sha" because a commit SHA is the usual
+            value; the two ``RemoteLease`` members are the only
+            non-SHA values, one keeping the old default and one
+            meaning "no such branch". The default is kept for
+            compatibility and logs at debug level so unpinned callers
+            can be found.
     """
     if not remote or remote.startswith("-") or ".." in remote or "@{" in remote:
         log.error("push_branch: invalid remote name: %s", remote)
@@ -484,6 +545,32 @@ def push_branch(
         return False
     if branch and not _validate_ref(branch):
         log.error("push_branch: invalid branch name: %s", branch)
+        return False
+    if expected_remote_sha is RemoteLease.TRACKING:
+        lease = "--force-with-lease"
+        lease_desc = "the remote-tracking ref"
+    elif not branch:
+        log.error("push_branch: an explicit branch is required with expected_remote_sha")
+        return False
+    elif branch.startswith("refs/"):
+        log.error(
+            "push_branch: expected_remote_sha needs a short branch name, not a full ref: %s",
+            branch,
+        )
+        return False
+    elif expected_remote_sha is RemoteLease.ABSENT:
+        lease = f"--force-with-lease=refs/heads/{branch}:"
+        lease_desc = "no remote branch"
+    elif isinstance(expected_remote_sha, str) and _FULL_OID_RE.fullmatch(expected_remote_sha):
+        sha = expected_remote_sha.lower()
+        lease = f"--force-with-lease=refs/heads/{branch}:{sha}"
+        lease_desc = sha
+    else:
+        log.error(
+            "push_branch: invalid expected_remote_sha %r: need a full commit SHA "
+            "(40 or 64 hex characters) or a RemoteLease value",
+            expected_remote_sha,
+        )
         return False
     if not branch:
         try:
@@ -506,7 +593,22 @@ def push_branch(
     if not math.isfinite(retry_delay) or retry_delay < 0:
         retry_delay = 5.0
 
-    cmd = ["git", "push", "--force-with-lease", "--set-upstream", remote, branch]
+    if expected_remote_sha is RemoteLease.TRACKING:
+        log.debug(
+            "push_branch: %s/%s uses a bare --force-with-lease (lease from the "
+            "remote-tracking ref); pass expected_remote_sha to pin it",
+            remote,
+            branch,
+        )
+        refspec = branch
+    else:
+        # Push exactly the ref the lease names. A bare <branch> would
+        # resolve to refs/tags/<branch> when no such local branch exists
+        # and push that tag, which the refs/heads/<branch> lease does not
+        # cover.
+        refspec = f"refs/heads/{branch}:refs/heads/{branch}"
+
+    cmd = ["git", "push", lease, "--set-upstream", remote, refspec]
     total_attempts = 1 + max_retries
 
     @retry(
@@ -538,6 +640,16 @@ def push_branch(
             raise _TransientPushError("git push timed out")
         except subprocess.CalledProcessError as exc:
             stderr = exc.stderr or ""
+            if _is_stale_lease_rejection(stderr):
+                log.error(
+                    "git push rejected: %s/%s no longer matches the lease (expected %s); "
+                    "someone else updated it, not overwriting or retrying: %s",
+                    remote,
+                    branch,
+                    lease_desc,
+                    stderr.strip(),
+                )
+                raise
             if _is_transient_push_error(stderr):
                 raise _TransientPushError(stderr.strip()) from exc
             log.error("git push failed: %s", stderr.strip())
