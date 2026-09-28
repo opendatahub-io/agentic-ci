@@ -1,5 +1,6 @@
 """OpenShell credential provider setup."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -47,6 +48,58 @@ _PROVIDER_AUTH_MODES = {
 # token, so no provider is created or attached for these modes.
 _PROVIDERLESS_AUTH_MODES = frozenset({"oauth"})
 
+# Credentials that reach the agent only through the provider, keyed by auth
+# mode. A provider kept from an earlier run still holds the value captured
+# when it was created, so these are stored again whenever an existing
+# provider is reused, and their fingerprint is part of the sandbox identity
+# so a rotated key recreates the sandbox. The Anthropic key is not listed:
+# the sandbox env script still exports it on every run.
+_PROVIDER_ONLY_CREDENTIALS = {"openai": "OPENAI_API_KEY"}
+
+# OpenShell refuses to inject a secret that contains CR, LF or NUL (header
+# injection guard) and answers the request with HTTP 500
+# "credential_unavailable", which Codex reports as "high demand". A key
+# pasted into a CI secret often ends with a newline, and `codex login`
+# strips it, so a real key in auth.json hides the problem. Provider-only
+# credentials are therefore stripped before they reach the provider.
+_PROHIBITED_CREDENTIAL_CHARS = frozenset("\r\n\0")
+
+
+def _provider_credential(credential_key, env: Mapping[str, str]) -> str:
+    """Return *credential_key* from *env* as the provider should store it.
+
+    Surrounding whitespace is removed, as ``codex login --with-api-key``
+    does. A value that still contains CR, LF or NUL is rejected here with a
+    clear error, because OpenShell would refuse to inject it on every request.
+    Returns an empty string when the variable is unset or blank.
+    """
+    value = env.get(credential_key, "").strip()
+    if any(char in _PROHIBITED_CREDENTIAL_CHARS for char in value):
+        raise RuntimeError(
+            f"{credential_key} contains a line break or NUL character; "
+            "OpenShell cannot inject it into requests"
+        )
+    return value
+
+
+def _provider_process_env(credential_key, env: Mapping[str, str]) -> dict[str, str]:
+    """Return the environment for an ``openshell provider`` call.
+
+    The credential is passed by name (``--credential KEY``) so it never
+    appears in the process arguments; this sets it to the stripped value.
+    When stripping changed the value, one line says so (never the value),
+    so a run log shows whether the secret had surrounding whitespace.
+    """
+    value = _provider_credential(credential_key, env)
+    raw = env.get(credential_key, "")
+    if value != raw:
+        kind = "a line break" if any(c in raw for c in "\r\n") else "spaces or tabs"
+        print(
+            f"  Stripped surrounding whitespace ({kind}) from {credential_key}",
+            flush=True,
+        )
+    return {**os.environ, **env, credential_key: value}
+
 
 def requires_provider(auth_mode: str | None) -> bool:
     """Return whether *auth_mode* is backed by the CI provider."""
@@ -92,6 +145,7 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
         # is not supported. The existing provider is reused regardless of
         # its type. To switch, tear down the environment and start fresh.
         print(f"  Provider '{PROVIDER_NAME}' already exists", flush=True)
+        refresh_credentials(auth_mode, credential_env)
     elif auth_mode == "api-key":
         _create_anthropic_provider(credential_env)
     elif auth_mode == "openai":
@@ -100,10 +154,50 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
         _create_gcp_provider(credential_env)
 
 
+def credential_fingerprint(auth_mode, env: Mapping[str, str] | None = None):
+    """Return a short digest of the provider-only credential for *auth_mode*.
+
+    Returns None for auth modes whose credential also reaches the sandbox
+    through the env script. The digest is stored in the local sandbox
+    identity file, so it is truncated and never the key itself.
+    """
+    credential_key = _PROVIDER_ONLY_CREDENTIALS.get(auth_mode)
+    if credential_key is None:
+        return None
+    credential_env = env if env is not None else os.environ
+    value = _provider_credential(credential_key, credential_env)
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def refresh_credentials(auth_mode, env: Mapping[str, str] | None = None):
+    """Store the current credential in the existing provider for *auth_mode*.
+
+    Only auth modes whose credential the agent gets solely through the
+    provider placeholder are refreshed; the others return without a call.
+    Without this, a provider kept across runs on a running gateway keeps
+    sending the key it was created with after the caller rotates it. A
+    sandbox that already exists picks the update up only after a delay, so
+    the caller recreates the sandbox when the key changed (see
+    credential_fingerprint).
+    """
+    credential_key = _PROVIDER_ONLY_CREDENTIALS.get(auth_mode)
+    if credential_key is None:
+        return
+    credential_env = env if env is not None else os.environ
+    if not _provider_credential(credential_key, credential_env):
+        raise RuntimeError(f"OpenShell {auth_mode} runs require {credential_key}")
+    print(f"  Refreshing {credential_key} in provider '{PROVIDER_NAME}'", flush=True)
+    _run(
+        ["openshell", "provider", "update", PROVIDER_NAME, "--credential", credential_key],
+        check=True,
+        env=_provider_process_env(credential_key, credential_env),
+    )
+
+
 def validate_credentials(auth_mode, env: Mapping[str, str] | None = None):
     """Validate credentials supported by the OpenShell provider."""
     credential_env = env if env is not None else os.environ
-    if auth_mode == "openai" and not credential_env.get("OPENAI_API_KEY"):
+    if auth_mode == "openai" and not _provider_credential("OPENAI_API_KEY", credential_env):
         raise RuntimeError("OpenShell Codex runs require OPENAI_API_KEY")
 
 
@@ -244,13 +338,12 @@ def _create_anthropic_provider(env: Mapping[str, str] | None = None):
 
 def _create_openai_provider(env: Mapping[str, str] | None = None):
     credential_env = env if env is not None else os.environ
-    api_key = credential_env.get("OPENAI_API_KEY")
-    if not api_key:
+    if not _provider_credential("OPENAI_API_KEY", credential_env):
         raise RuntimeError("OpenShell Codex runs require OPENAI_API_KEY")
 
     ensure_profile(OPENAI_PROFILE_ID)
     print("  Creating OpenAI API key provider", flush=True)
-    process_env = {**os.environ, **credential_env}
+    process_env = _provider_process_env("OPENAI_API_KEY", credential_env)
     _run(
         [
             "openshell",
