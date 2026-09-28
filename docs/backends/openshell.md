@@ -138,10 +138,26 @@ openshell provider create \
 ```
 
 For Codex, agentic-ci creates an OpenAI provider from its
-`agentic-ci-openai` profile and uses `OPENAI_API_KEY`. The endpoint is L4,
-so the proxy does not replace the provider placeholder: the sandbox
-environment script contains the real key, and Codex's
-`login --with-api-key` command writes its login state before execution.
+`agentic-ci-openai` profile and uses `OPENAI_API_KEY`. The sandbox env
+script does not carry the key: the provider sets `OPENAI_API_KEY` in the
+sandbox to an OpenShell placeholder, Codex's `login --with-api-key` stores
+that placeholder, and the proxy swaps it for the real key only on requests
+to `api.openai.com`. The endpoint is L4, but the proxy still terminates TLS
+and replaces the placeholder in the headers of every request on the tunnel,
+including the WebSocket upgrade that carries Codex's `Authorization`
+header. The `websocket-credential-rewrite` and
+`request-body-credential-rewrite` endpoint options are not needed, and
+OpenShell accepts them only on L7 (`rest` or `websocket`) endpoints.
+
+OpenShell refuses to inject a key that contains a line break or NUL and
+answers the request with HTTP 500 (`credential_unavailable`), which Codex
+reports as "We're currently experiencing high demand". A key copied into a
+CI secret often ends with a newline, so agentic-ci strips surrounding
+whitespace from `OPENAI_API_KEY` before it stores the key in the provider,
+the same way `codex login --with-api-key` does, and stops with an error if
+a line break remains inside the key. When it strips anything, the run log
+shows `Stripped surrounding whitespace (a line break) from OPENAI_API_KEY`
+(or `spaces or tabs`), never the key itself.
 
 ```bash
 openshell provider create \
@@ -155,11 +171,18 @@ agentic-ci ships its own provider profiles
 `openai` and `anthropic` profiles add a rule that lets `/usr/bin/curl` and
 `/usr/local/bin/curl` reach the API host with the key injected, and a
 sandbox policy cannot remove that rule. agentic-ci's profiles drop that curl
-rule. The key can still be spent through an agent binary, for example
+rule, and for Codex the raw OpenAI key no longer enters the sandbox. The key
+can still be spent through an agent binary, for example
 `codex sandbox -- curl`, because agentic-ci's own policy lets the agent
-binaries reach the API host. The profiles live in the gateway database, so
-agentic-ci imports them before it creates the provider, and it replaces a
-provider created from a builtin profile by an earlier release.
+binaries reach the API host and the proxy injects the key for any of them.
+The profiles live in the gateway database, so agentic-ci imports them
+before it creates the provider, and it replaces a provider created from a
+builtin profile by an earlier release. The sandbox identity file records a
+short SHA-256 fingerprint of `OPENAI_API_KEY` (never the key), so after a key
+rotation agentic-ci recreates the sandbox and stores the new key in the
+existing provider. Updating the provider alone would not be enough: a running
+sandbox picks the update up only after about ten seconds, and a placeholder
+issued before the update keeps resolving to the old key.
 
 #### OAuth Token (Claude subscription)
 
@@ -172,14 +195,12 @@ the `oauth` auth mode is recorded only in the sandbox identity file
 (`~/.config/agentic-ci/openshell-sandbox.json`).
 
 <!-- markdownlint-disable MD046 -->
-!!! warning "L4 API-key exposure"
+!!! warning "API-key exposure"
 
-    L4 CONNECT policy cannot replace credentials at the HTTP layer, so the
-    real API key, or the Claude subscription OAuth token, is available
-    inside the sandbox. This preserves the backend's
-    existing behavior but does not provide OpenShell's L7 credential-isolation
-    benefit. API-key providers should be migrated together to profile-backed
-    L7 inspection in a follow-up rather than changing only Codex here.
+    With the Anthropic API key, or the Claude subscription OAuth token, the
+    sandbox env script still exports the real credential, so the agent and
+    its child processes can read it. Only Codex's OpenAI key is kept out of
+    the sandbox so far.
 <!-- markdownlint-enable MD046 -->
 
 ### Sandbox Resources
