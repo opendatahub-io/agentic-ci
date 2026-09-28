@@ -81,6 +81,10 @@ RUN --mount=type=bind,from=builder,target=/builder \
 
 # Setup and validate steps run under this shim, so network rules bound to its
 # path apply to them and to nothing else (see agentic_ci.backends.openshell).
+# It is an extra layer, not isolation: any sandbox process can run it, so the
+# backend also kills leftover processes and detaches the API key provider
+# around the setup and validate phases, running /usr/bin/python3 in the
+# sandbox to do so (keep python3 installed above).
 COPY --from=setup-shim --chown=root:root --chmod=0755 \
     /out/agentic-ci-sandbox-setup /usr/local/bin/agentic-ci-sandbox-setup
 

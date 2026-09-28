@@ -6,18 +6,38 @@
 # pypi presets (plus two raw endpoints for preset hosts, which must give way to
 # the presets in every phase), switches the setup shim's egress between the setup, agent and
 # validate phases, and probes the network from inside the sandbox after each
-# step with python urllib. Never curl: the OpenAI provider binds api.openai.com
-# to curl and would confound the probes (RHAI-2936). Section 6 checks that the
-# presets are read-only at L7: GETs (and the Go proxy's redirect to Cloud
-# Storage) pass, PUT and POST get the proxy's own 403, and npm and uv work
-# through the shim.
+# step with python urllib. Section 6 checks that the presets are read-only at
+# L7: GETs (and the Go proxy's redirect to Cloud Storage) pass, PUT and POST
+# get the proxy's own 403, and npm and uv work through the shim.
 #
-# No agent runs and no LLM call is made. The OpenAI provider needs a key to be
-# created, so a fake one is used and a real OPENAI_API_KEY is never read.
+# The shim is an extra layer, not isolation, so sections 7 to 9 check what
+# keeps the agent out of the setup and validate phases: processes the agent
+# left running (a nohup job, setsid daemons, one named like the sandbox's main
+# process, one that keeps trying the shim, and a planted ~/.bash_profile that
+# would forge the switch's own execs under a login shell) are gone once
+# validate opens, while the main process and the sandbox stay usable; and the
+# OpenAI provider is detached, so curl gets the proxy's 403 instead of an
+# injected key, even from under codex or with a placeholder issued in the
+# agent phase, until the agent phase attaches it again. A control attaches the
+# provider by hand in the setup phase to show that codex -> curl is injected
+# then. Section 9 repeats those provider checks for api-key auth: a Claude
+# Code sandbox (the harness and auth mode change recreates it) with the
+# agentic-ci-anthropic provider, ANTHROPIC_API_KEY and the claude binary.
+# Only the provider checks use curl.
+#
+# No agent runs and no LLM call is made. The API key providers need a key to
+# be created, so fake ones are used and a real OPENAI_API_KEY or
+# ANTHROPIC_API_KEY is never read. The key checks send the fake key to the
+# API: OpenAI's 401 echoes it masked ("Incorrect API key provided:
+# sk-e2e-o***"), and Anthropic answers a key-shaped value with "API key is
+# invalid." but an unresolved placeholder with "invalid x-api-key", which
+# shows the proxy injected it. Section 9 runs commands under the claude binary
+# from a SessionStart hook that stops claude before it sends its prompt.
 #
 # Requires: podman, openshell, openshell-gateway, agentic-ci (the ci-openshell
 # image provides all of them), network access to the probed registries.
-# Image: CODEX_SANDBOX_IMAGE, or built from the repo when unset.
+# Images: CODEX_SANDBOX_IMAGE and CLAUDE_SANDBOX_IMAGE, each built from the
+# repo when unset.
 #
 # Destructive: the run deletes the OpenShell sandbox named "ci" and stops the
 # gateway, before it starts and again when it exits. Outside CI (CI unset) it
@@ -46,8 +66,12 @@ PROFILE='{"egress": ["npm", "goproxy", "pypi", "registry.npmjs.org:443:full", "*
 NPM_URL=https://registry.npmjs.org/
 GOPROXY_URL=https://proxy.golang.org/
 
-# The provider stores this value; nothing in this script sends it anywhere.
+# The providers store these values; only the key checks send them, to the
+# API they are for. Section 9 exports ANTHROPIC_API_KEY, which selects
+# api-key auth for the Claude Code harness.
 export OPENAI_API_KEY=sk-e2e-openshell-profile-fake-000000000000
+FAKE_ANTHROPIC_API_KEY=sk-ant-e2e-openshell-profile-fake-000000000000
+unset ANTHROPIC_API_KEY
 # Keep the sandbox identity file inside this run.
 export AGENTIC_CI_OPENSHELL_STATE="$TMPDIR_E2E/openshell-sandbox.json"
 
@@ -108,9 +132,11 @@ expect() {
     fi
 }
 
+# driver ARGS...: run the driver for HARNESS in HARNESS_IMAGE (codex until
+# section 9 switches to claude-code).
 driver() {
     "$(agentic_python)" "$SCRIPT_DIR/openshell_profile_driver.py" "$@" \
-        --image "$CODEX_SANDBOX" --workdir "$WORKDIR"
+        --harness "$HARNESS" --image "$HARNESS_IMAGE" --workdir "$WORKDIR"
 }
 
 policy_snapshot() {
@@ -127,6 +153,17 @@ else
     CODEX_SANDBOX="localhost/codex-sandbox:latest"
 fi
 print_step "codex-sandbox: $CODEX_SANDBOX"
+if [[ -n "${CLAUDE_SANDBOX_IMAGE:-}" ]]; then
+    CLAUDE_SANDBOX="$CLAUDE_SANDBOX_IMAGE"
+else
+    print_step "Building claude-sandbox..."
+    podman build -t localhost/claude-sandbox:latest \
+        -f "$REPO_ROOT/images/runner/claude-code/Containerfile.openshell" "$REPO_ROOT"
+    CLAUDE_SANDBOX="localhost/claude-sandbox:latest"
+fi
+print_step "claude-sandbox: $CLAUDE_SANDBOX"
+HARNESS=codex
+HARNESS_IMAGE="$CODEX_SANDBOX"
 
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
@@ -182,7 +219,76 @@ except OSError as exc:
     else:
         print(f"PROBE ERROR {type(exc).__name__}: {exc}")
 PROBE
+cat > "$WORKDIR/procs.py" <<'PROCS'
+"""Print "PROCS <n> <pids>" for this user's other processes whose command line contains argv[1]."""
+
+import os
+import sys
+
+pattern, me, uid = sys.argv[1], os.getpid(), os.getuid()
+pids = []
+for name in os.listdir("/proc"):
+    if not name.isdigit() or int(name) == me:
+        continue
+    try:
+        with open(f"/proc/{name}/status") as fh:
+            owner = [int(u) for line in fh if line.startswith("Uid:") for u in line.split()[1:]]
+        with open(f"/proc/{name}/stat", "rb") as fh:
+            state = fh.read().rpartition(b")")[2].split()[0]
+        with open(f"/proc/{name}/cmdline", "rb") as fh:
+            cmdline = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        continue
+    if uid in owner and state not in (b"Z", b"X") and pattern in cmdline:
+        pids.append(int(name))
+print(f"PROCS {len(pids)} {','.join(map(str, sorted(pids)))}")
+PROCS
+cat > "$WORKDIR/under_claude.sh" <<'UNDER'
+#!/bin/bash
+# under_claude.sh CMD...: run CMD as a descendant of the claude binary and
+# print its output, as "codex sandbox -- CMD" does for codex. Claude Code has
+# no such subcommand, so CMD runs from a SessionStart hook, which stops
+# claude once CMD is done, while claude still waits for the hook and before
+# it sends its prompt.
+set -u
+if [[ "${1:-}" == --hook ]]; then
+    mapfile -d '' args < "$2"
+    "${args[@]}" > "$3.part" 2>&1
+    mv "$3.part" "$3"
+    pid=$$
+    while [[ "$pid" -gt 1 ]]; do
+        stat="$(< "/proc/$pid/stat")"
+        read -r _ pid _ <<<"${stat##*) }"
+        if [[ "$(readlink "/proc/$pid/exe")" == /usr/local/bin/claude ]]; then
+            kill -TERM "$pid"
+            break
+        fi
+    done
+    exit 0
+fi
+dir="$(mktemp -d)"
+printf '%s\0' "$@" > "$dir/args"
+settings="$(python3 -c '
+import json, sys
+hook = {"type": "command", "command": sys.argv[1]}
+print(json.dumps({"hooks": {"SessionStart": [{"hooks": [hook]}]}}))
+' "bash $0 --hook $dir/args $dir/out")"
+# A scratch config dir and no plugin seed or sync, so claude starts no
+# plugin MCP servers that would outlive it.
+env -u CLAUDE_CODE_PLUGIN_SEED_DIR -u CLAUDE_CODE_SYNC_PLUGIN_INSTALL \
+    CLAUDE_CONFIG_DIR="$dir/config" CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+    timeout 60 claude -p --strict-mcp-config --settings "$settings" "Reply with OK." \
+    >/dev/null 2>&1 || true
+if [[ -f "$dir/out" ]]; then
+    cat "$dir/out"
+else
+    echo "UNDER_CLAUDE: the SessionStart hook did not run"
+fi
+rm -rf "$dir"
+UNDER
 PROBE="/sandbox/$(basename "$WORKDIR")/probe.py"
+PROCS="/sandbox/$(basename "$WORKDIR")/procs.py"
+UNDER_CLAUDE="/sandbox/$(basename "$WORKDIR")/under_claude.sh"
 PY_PROBE=(python3 "$PROBE")
 CODEX_EXEC=(codex sandbox -c 'sandbox_mode="danger-full-access"' --)
 GITHUB_URL=https://github.com/
@@ -514,6 +620,333 @@ expect_output 'policy_denied' "setup: npm publish through the shim is refused by
 
 assert_ok "switch back to the agent phase after the L7 checks" \
     driver phase agent --profile-json "$PROFILE"
+
+# ============================================================================
+print_header "=== 7. Leftover processes are killed before a shim phase ==="
+# sx CMD...: run CMD in the sandbox and print its output. --no-login-shell,
+# as the backend's own execs use, so the ~/.bash_profile planted below only
+# runs where a check wants it to.
+sx() {
+    timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty --no-login-shell -- "$@" 2>&1 ||
+        true
+}
+# procs PATTERN: "<count> <pids>" of sandbox-user processes whose command line has PATTERN.
+procs() { sx python3 "$PROCS" "$1" | sed -n 's/^PROCS //p'; }
+
+MAIN_PID="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["main_process"]["pid"])' \
+    "$AGENTIC_CI_OPENSHELL_STATE" 2>/dev/null || true)"
+if [[ "$MAIN_PID" =~ ^[0-9]+$ ]]; then
+    pass "identity records the sandbox's main process (pid $MAIN_PID)"
+else
+    fail "identity records the sandbox's main process"
+fi
+if [[ "$(procs "sleep infinity")" == "1 $MAIN_PID" ]]; then
+    pass "the recorded main process is the sandbox's sleep infinity"
+else
+    fail "the recorded main process is the sandbox's sleep infinity: got $(procs "sleep infinity")"
+fi
+
+# What an agent could leave behind, started from a codex descendant: a nohup
+# background job, a setsid daemon, a process with the main process's exact
+# command line, and a setsid daemon that keeps running the shim to reach npm.
+POLLER_OUT=/tmp/agentic-ci-e2e-poller.out
+sx rm -f "$POLLER_OUT" >/dev/null
+# shellcheck disable=SC2016 # expanded inside the sandbox
+sx "${CODEX_EXEC[@]}" bash -c '
+    nohup sleep 3601 >/dev/null 2>&1 &
+    setsid -f sleep 3602 >/dev/null 2>&1
+    nohup sleep infinity >/dev/null 2>&1 &
+    setsid -f bash -c "while :; do \"\$1\" python3 \"\$2\" \"\$3\" >> \"\$4\" 2>&1; sleep 1; done" \
+        agentic-ci-e2e-poller "$0" "$1" "$2" "$3" >/dev/null 2>&1
+    echo LEFT_BEHIND' "$SHIM" "$PROBE" "$NPM_URL" "$POLLER_OUT" >/dev/null
+sleep 4
+assert_ok "agent: the nohup job outlives its exec" test "$(procs "sleep 3601" | cut -d' ' -f1)" = 1
+assert_ok "agent: the setsid daemon outlives its exec" test "$(procs "sleep 3602" | cut -d' ' -f1)" = 1
+assert_ok "agent: the shim poller outlives its exec" \
+    test "$(procs agentic-ci-e2e-poller | cut -d' ' -f1)" = 1
+assert_ok "agent: a second process has the main process's command line" \
+    test "$(procs "sleep infinity" | cut -d' ' -f1)" = 2
+# An agent can also write ~/.bash_profile, which a login-shell exec ("bash
+# -lc", OpenShell's default) sources before its command: a shell function
+# named /usr/bin/python3 forges the leftover scan's and the provider probe's
+# output, and an EXIT trap starts a daemon once the command is done. The
+# backend's execs pass --no-login-shell, so neither may ever run in a switch.
+PROFILE_HITS=/tmp/agentic-ci-e2e-profile-hits
+# shellcheck disable=SC2016 # expanded inside the sandbox
+sx "${CODEX_EXEC[@]}" bash -c '
+    rm -f "$0"
+    if [ -e ~/.bash_profile ]; then cp -p ~/.bash_profile ~/.agentic-ci-e2e-bash_profile.orig; fi
+    cat >> ~/.bash_profile <<EOF
+function /usr/bin/python3 { echo PROFILE_FUNCTION >> $0; printf "CANDIDATES 1\nMAIN 1 1\nLEFT 0\nDETACHED\n"; }
+trap "echo PROFILE_TRAP >> $0; setsid -f sleep 3605 >/dev/null 2>&1" EXIT
+EOF
+    echo PLANTED' "$PROFILE_HITS" >/dev/null
+# Control: a login-shell exec runs the planted function and trap.
+FORGED="$(timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty -- \
+    /usr/bin/python3 -I -S -c 'print("REAL")' 2>&1 || true)"
+sleep 1
+if grep -q "^LEFT 0" <<<"$FORGED" && ! grep -q REAL <<<"$FORGED" &&
+    [[ "$(sx cat "$PROFILE_HITS" | tr '\n' ' ')" == "PROFILE_FUNCTION PROFILE_TRAP " ]] &&
+    [[ "$(procs "sleep 3605" | cut -d' ' -f1)" == 1 ]]; then
+    pass "agent: control: a login-shell exec runs the planted python3 function and EXIT trap"
+else
+    fail "agent: control: a login-shell exec runs the planted python3 function and EXIT trap"
+    echo "  Got: $(tr '\n' ' ' <<<"$FORGED" | cut -c1-200) hits: $(sx cat "$PROFILE_HITS" | tr '\n' ' ')"
+fi
+sx rm -f "$PROFILE_HITS" >/dev/null
+
+POLLER_BEFORE="$(sx cat "$POLLER_OUT")"
+if grep -q "^PROBE DENIED" <<<"$POLLER_BEFORE" && ! grep -q "^PROBE ALLOWED" <<<"$POLLER_BEFORE"; then
+    pass "agent: the leftover gets nothing through the shim (DENIED)"
+else
+    fail "agent: the leftover gets nothing through the shim"
+    echo "  Got: ${POLLER_BEFORE:0:240}"
+fi
+
+VALIDATE_LOG="$TMPDIR_E2E/phase-validate-leftovers.log"
+if driver phase validate --profile-json "$PROFILE" > "$VALIDATE_LOG" 2>&1; then
+    pass "switch to the validate phase with leftovers running"
+else
+    fail "switch to the validate phase with leftovers running"
+    cat "$VALIDATE_LOG"
+fi
+assert_ok "validate: the switch reports the killed leftovers" \
+    grep -qE "Stopped ([5-9]|[1-9][0-9]+) leftover sandbox process\(es\) before the validate phase" \
+    "$VALIDATE_LOG"
+if [[ "$(sx sh -c "test -e $PROFILE_HITS && cat $PROFILE_HITS || echo NONE")" == NONE ]]; then
+    pass "validate: the planted ~/.bash_profile never ran in the switch's execs"
+else
+    fail "validate: the planted ~/.bash_profile never ran in the switch's execs"
+    echo "  Got: $(sx cat "$PROFILE_HITS" | tr '\n' ' ')"
+fi
+assert_ok "validate: the switch confirmed the detach with the real probe" \
+    grep -q "API key provider detached for the validate phase" "$VALIDATE_LOG"
+for marker in "sleep 3601" "sleep 3602" "sleep 3605" agentic-ci-e2e-poller; do
+    got="$(procs "$marker")"
+    if [[ "$got" == "0 " ]]; then pass "validate: '$marker' is gone"; else
+        fail "validate: '$marker' is gone: got $got"; fi
+done
+got="$(procs "sleep infinity")"
+if [[ "$got" == "1 $MAIN_PID" ]]; then
+    pass "validate: only the recorded main process is left, the look-alike is gone"
+else
+    fail "validate: only the recorded main process is left: got $got"
+fi
+POLLER_AFTER="$(sx cat "$POLLER_OUT")"
+sleep 5
+POLLER_LATER="$(sx cat "$POLLER_OUT")"
+if [[ "$POLLER_LATER" == "$POLLER_AFTER" ]] && ! grep -q "^PROBE ALLOWED" <<<"$POLLER_LATER"; then
+    pass "validate: the leftover never reached npm through the shim, and stopped"
+else
+    fail "validate: the leftover never reached npm through the shim, and stopped"
+    echo "  Got: $(tail -3 <<<"$POLLER_LATER" | tr '\n' ' ' | cut -c1-240)"
+fi
+# Put ~/.bash_profile back, so the plain execs below run as before.
+# shellcheck disable=SC2016 # expanded inside the sandbox
+sx bash -c 'if [ -e ~/.agentic-ci-e2e-bash_profile.orig ]; then
+        mv ~/.agentic-ci-e2e-bash_profile.orig ~/.bash_profile; else rm -f ~/.bash_profile; fi' \
+    >/dev/null
+assert_ok "validate: the planted ~/.bash_profile is removed again" \
+    test -z "$(sx sh -c 'grep -l agentic-ci-e2e-profile-hits ~/.bash_profile 2>/dev/null')"
+assert_ok "validate: the sandbox still runs a new exec" \
+    openshell sandbox exec --name "$SANDBOX" --no-tty -- true
+expect ALLOWED "validate: npm from a new shim exec" -- "$SHIM" "${PY_PROBE[@]}" "$NPM_URL"
+
+# ============================================================================
+# key_provider_checks: detach, placeholder and re-attach checks for one API
+# key provider, run by sections 8 (openai, codex) and 9 (api-key, claude).
+# Set before calling: HARNESS and HARNESS_IMAGE (for driver), AGENT (label),
+# AGENT_EXEC (runs a command under the agent binary), KEY_VAR (the provider
+# placeholder's variable), KEY_PROBE (calls the API with its first argument
+# or $KEY_VAR) and INJECTED (what the API answers when the proxy injected the
+# fake key).
+#
+# What the proxy answers when no rule admits the caller to the API host.
+# Anything else (a DNS failure, a timeout, curl missing) proves nothing.
+DENIED_403="CONNECT tunnel failed, response 403"
+
+# key_check WANT DESC -- CMD...: WANT is "injected" or "not-injected".
+key_check() {
+    local want="$1" desc="$2"; shift 3
+    local out
+    out="$(timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty --no-login-shell -- \
+        "$@" 2>&1 || true)"
+    out="$(tr '\n' ' ' <<<"$out" | cut -c1-200)"
+    if { [[ "$want" == injected ]] && grep -qF "$INJECTED" <<<"$out"; } ||
+        { [[ "$want" == not-injected ]] && grep -qF "$DENIED_403" <<<"$out" &&
+            ! grep -qF "$INJECTED" <<<"$out"; }; then
+        pass "$desc ($want)"
+    else
+        fail "$desc: expected $want"
+        echo "  Got: $out"
+    fi
+    return 0
+}
+
+# wait_key_env attached|detached: poll a fresh exec (30 s at most) until
+# $KEY_VAR holds a provider placeholder, or none.
+wait_key_env() {
+    local value
+    for _ in $(seq 15); do
+        value="$(sx printenv "$KEY_VAR" | tr -d '\r\n')"
+        if [[ "$1" == attached && "$value" == openshell:resolve:env:* ]] ||
+            [[ "$1" == detached && -z "$value" ]]; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+key_provider_checks() {
+    local phase placeholder phase_log control_log agent_log reattach_log
+    local a="$AGENT"
+    assert_ok "$a: switch to the agent phase" driver phase agent --profile-json "$PROFILE"
+    placeholder="$(sx printenv "$KEY_VAR" | tr -d '\r\n')"
+    assert_ok "$a: agent: a new exec gets the $KEY_VAR placeholder" \
+        grep -q '^openshell:resolve:env:' <<<"$placeholder"
+    key_check injected "$a: agent: $a -> curl" -- "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+
+    for phase in setup validate; do
+        phase_log="$TMPDIR_E2E/phase-$phase-provider-$HARNESS.log"
+        if driver phase "$phase" --profile-json "$PROFILE" > "$phase_log" 2>&1; then
+            pass "$a: switch to the $phase phase"
+        else
+            fail "$a: switch to the $phase phase"
+            cat "$phase_log"
+        fi
+        assert_ok "$a: $phase: the switch confirmed the detach" \
+            grep -q "API key provider detached for the $phase phase" "$phase_log"
+        assert_ok "$a: $phase: a new exec gets no provider placeholder" \
+            test -z "$(sx printenv "$KEY_VAR" | tr -d '\r\n')"
+        key_check not-injected "$a: $phase: plain curl" -- "${KEY_PROBE[@]}"
+        key_check not-injected "$a: $phase: plain curl with the agent-phase placeholder" -- \
+            "${KEY_PROBE[@]}" "$placeholder"
+        key_check not-injected "$a: $phase: $a -> curl" -- "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+        key_check not-injected "$a: $phase: $a -> curl with the agent-phase placeholder" -- \
+            "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}" "$placeholder"
+        key_check not-injected "$a: $phase: shim -> $a -> curl with the agent-phase placeholder" -- \
+            "$SHIM" "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}" "$placeholder"
+        if [[ "$phase" == setup ]]; then
+            # Control: the 403s above come from the detach. With the provider
+            # attached in the setup phase (agent rules parked), the rule
+            # composed from its profile still admits the agent binary and the
+            # key is injected.
+            assert_ok "$a: setup control: attach the provider by hand" \
+                openshell sandbox provider attach "$SANDBOX" ci-gcp
+            assert_ok "$a: setup control: a new exec gets the placeholder again" \
+                wait_key_env attached
+            key_check injected "$a: setup control: $a -> curl with the provider attached" -- \
+                "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+            control_log="$TMPDIR_E2E/phase-setup-control-$HARNESS.log"
+            if driver phase setup --profile-json "$PROFILE" > "$control_log" 2>&1; then
+                pass "$a: setup control: switch to the setup phase again"
+            else
+                fail "$a: setup control: switch to the setup phase again"
+                cat "$control_log"
+            fi
+            assert_ok "$a: setup control: the switch detached the provider it saw attached" \
+                grep -q "API key provider detached for the setup phase" "$control_log"
+            key_check not-injected "$a: setup control: $a -> curl after the switch" -- \
+                "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+        else
+            # From setup the provider is detached; the switch attaches it
+            # first, so the detach it confirms is a change it observed.
+            assert_ok "$a: $phase: the provider not seen attached was attached before the detach" \
+                grep -q "API key provider attached for the $phase phase" "$phase_log"
+        fi
+    done
+
+    agent_log="$TMPDIR_E2E/phase-agent-provider-$HARNESS.log"
+    if driver phase agent --profile-json "$PROFILE" > "$agent_log" 2>&1; then
+        pass "$a: switch back to the agent phase"
+    else
+        fail "$a: switch back to the agent phase"
+        cat "$agent_log"
+    fi
+    assert_ok "$a: agent again: the switch confirmed the attach" \
+        grep -q "API key provider attached for the agent phase" "$agent_log"
+    key_check injected "$a: agent again: $a -> curl authenticates after the re-attach" -- \
+        "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+
+    # A run that died in a shim phase leaves the provider detached; reusing
+    # the sandbox attaches it again before the agent starts.
+    assert_ok "$a: reuse: detach the provider by hand, as a run that died in validate leaves it" \
+        openshell sandbox provider detach "$SANDBOX" ci-gcp
+    # The supervisor picks the detach up within about 10 s; the reuse must
+    # start from a sandbox that is really detached, or it proves nothing.
+    assert_ok "$a: reuse: a new exec no longer gets the placeholder" wait_key_env detached
+    reattach_log="$TMPDIR_E2E/setup-reuse-detached-$HARNESS.log"
+    if driver setup --profile-json "$PROFILE" > "$reattach_log" 2>&1; then
+        pass "$a: reuse a sandbox left with the provider detached"
+    else
+        fail "$a: reuse a sandbox left with the provider detached"
+        cat "$reattach_log"
+    fi
+    assert_ok "$a: reuse: the existing sandbox is kept" \
+        grep -q "Sandbox already exists" "$reattach_log"
+    assert_ok "$a: reuse: the provider is attached again" \
+        grep -q "API key provider attached for the agent phase" "$reattach_log"
+    key_check injected "$a: reuse: $a -> curl authenticates" -- \
+        "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
+}
+
+# ============================================================================
+print_header "=== 8. The OpenAI key provider is detached during setup and validate ==="
+AGENT=codex
+AGENT_EXEC=("${CODEX_EXEC[@]}")
+KEY_VAR=OPENAI_API_KEY
+# OpenAI's 401 echoes the key masked, which shows the proxy injected it.
+# shellcheck disable=SC2016 # expanded inside the sandbox
+KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.openai.com/v1/models \
+    -H "Authorization: Bearer ${1:-$OPENAI_API_KEY}" 2>&1 | head -c 200' key-probe)
+INJECTED="Incorrect API key provided: sk-e2e"
+key_provider_checks
+
+# ============================================================================
+print_header "=== 9. The Anthropic key provider (api-key auth) is detached too ==="
+# The same checks for the Claude Code harness with an Anthropic API key: the
+# agentic-ci-anthropic provider, ANTHROPIC_API_KEY in the exec env and the
+# claude binary. Switching harness and auth mode recreates the sandbox and
+# the provider.
+HARNESS=claude-code
+HARNESS_IMAGE="$CLAUDE_SANDBOX"
+export ANTHROPIC_API_KEY="$FAKE_ANTHROPIC_API_KEY"
+CLAUDE_LOG="$TMPDIR_E2E/setup-claude.log"
+if driver setup --profile-json "$PROFILE" > "$CLAUDE_LOG" 2>&1; then
+    pass "claude: sandbox created with api-key auth and the profile"
+    assert_ok "claude: the auth mode change recreated the sandbox and provider" \
+        grep -q "Auth mode changed; recreating OpenShell sandbox and provider" "$CLAUDE_LOG"
+    AGENT=claude
+    AGENT_EXEC=(bash "$UNDER_CLAUDE")
+    ANCESTOR_SCRIPT='
+import os
+pid = os.getppid()
+while pid > 1:
+    if os.readlink(f"/proc/{pid}/exe") == "/usr/local/bin/claude":
+        print("UNDER_CLAUDE_BINARY")
+        break
+    with open(f"/proc/{pid}/stat") as fh:
+        pid = int(fh.read().rpartition(")")[2].split()[1])
+'
+    KEY_VAR=ANTHROPIC_API_KEY
+    # The rules match a caller by its ancestors' binaries, so AGENT_EXEC must
+    # put the claude binary in the parent chain, as codex sandbox does.
+    assert_ok "claude: the wrapper runs a command under the claude binary" \
+        grep -q UNDER_CLAUDE_BINARY <<<"$(sx "${AGENT_EXEC[@]}" python3 -c "$ANCESTOR_SCRIPT")"
+    # Anthropic's 401 never echoes the key. The fake key, which is key-shaped,
+    # gets "API key is invalid."; an unresolved placeholder gets "invalid
+    # x-api-key" instead, so only an injected key gives INJECTED.
+    # shellcheck disable=SC2016 # expanded inside the sandbox
+    KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.anthropic.com/v1/models \
+        -H "x-api-key: ${1:-$ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" 2>&1 |
+        head -c 200' key-probe)
+    INJECTED="API key is invalid."
+    key_provider_checks
+else
+    fail "claude: sandbox created with api-key auth and the profile"
+    cat "$CLAUDE_LOG"
+fi
 
 echo ""
 print_header "=== All test sections complete ==="

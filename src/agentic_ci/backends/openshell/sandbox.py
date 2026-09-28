@@ -1,11 +1,15 @@
 """OpenShell sandbox lifecycle management."""
 
+from __future__ import annotations
+
 import copy
 import json
 import os
 import subprocess
 import tempfile
+import time
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import yaml
 
@@ -34,6 +38,15 @@ AGENT_BINARY_PATHS = (
 # parent chain, so rules bound to the shim apply to a step and everything it
 # starts, and to nothing else. The shim forks and waits instead of exec-ing,
 # so it stays in the parent chain.
+#
+# The shim lets setup and validate reach preset hosts without widening the
+# agent's egress. It is an extra layer, not isolation: any sandbox process can
+# run it, including one the agent left behind, and it would get the shim's
+# egress whenever shim rules are live. What keeps the agent out is that shim
+# rules exist only in the setup and validate phases, the agent's rules are
+# parked then, every process left from an earlier exec is killed before a
+# shim phase opens (stop_leftover_processes), and the API key provider is
+# detached while it is open (detach_provider).
 SANDBOX_SETUP_SHIM = "/usr/local/bin/agentic-ci-sandbox-setup"
 
 # Rules the phase switch adds are named PHASE_RULE_PREFIX + index. Any rule
@@ -434,6 +447,486 @@ def apply_phase_policy(phase, endpoints):
         )
     opened = len(dict.fromkeys(endpoints))
     log.info(f"Egress phase {phase}: {opened} setup-shim endpoint(s) open")
+
+
+# In-sandbox helpers run with the image's own interpreter, by absolute path:
+# PATH starts with /sandbox/.local/bin, which the agent can write. -I ignores
+# PYTHON* variables, the user site and the working directory; -S skips site.
+_SANDBOX_PYTHON = ("/usr/bin/python3", "-I", "-S", "-c")
+
+# Every internal exec passes --no-login-shell. Without it OpenShell runs the
+# command as "bash -lc", which sources the agent-writable ~/.bash_profile
+# first: code the agent left there could define a shell function named
+# /usr/bin/python3 that forges the scan's or the probe's output, or set an
+# EXIT trap that starts a daemon once the scan is done. With it the command
+# runs under "bash -c", which reads no startup file. A supervisor too old to
+# honor the flag refuses the exec (non-zero exit), which fails closed. Setup
+# and validate steps, once they run through the shim, need it as well.
+_INTERNAL_EXEC = ("openshell", "sandbox", "exec", "--name", SANDBOX_NAME, "--no-tty")
+_NO_LOGIN_SHELL = "--no-login-shell"
+
+# Finds or kills the sandbox user's processes from inside the sandbox.
+# OpenShell has no per-exec kill: a process an exec leaves running (a
+# "nohup ... &", a setsid daemon) survives the exec, reparented to the
+# supervisor. Run as the sandbox user, this sees exactly the processes that
+# user can signal.
+#
+#   main          print "MAIN <pid> <start_time>" for the sandbox's main
+#                 process: the only process of this user whose parent is
+#                 this exec's parent (the supervisor), which must be
+#                 "sleep infinity" (its command line is printed for the job
+#                 log; no agent code has run yet). Exits 3 when there is
+#                 none yet, 5 when there is more than one, 6 when it is
+#                 something else.
+#   kill PID START DEADLINE
+#                 SIGKILL every other process of this user, except this one
+#                 and its ancestors, then scan again until none is left or
+#                 DEADLINE seconds pass (exit 4). PID is spared only while
+#                 its start time is START. When it is not, the record is
+#                 stale (the supervisor exits with its entrypoint, so a live
+#                 sandbox still has it), and the scan kills nothing and
+#                 exits 7: killing the real main process would take the
+#                 sandbox down.
+#
+# Processes are signalled one by one, never by process group or session:
+# exec'd commands share the supervisor's process group and session (1), and
+# kill(-1) would signal every process, the main one included. Stopping each
+# round's processes before killing them keeps a watcher from respawning the
+# ones it sees die. A zombie (every thread exited) counts as gone. Only
+# ENOENT and ESRCH mean a process is gone; a /proc entry that cannot be read
+# for any other reason counts as a live process of this user, so the scan
+# fails closed. Process names are printed with ascii() for the job log only.
+# The definitions are kept apart so tests can load them without running the
+# scan.
+_PROCESS_HELPERS = r"""
+import errno
+import os
+import signal
+import sys
+import time
+
+UID = os.getuid()
+SELF = os.getpid()
+GONE = (errno.ENOENT, errno.ESRCH)
+UNREADABLE = "?"
+
+
+def stat(path):
+    try:
+        with open(f"/proc/{path}/stat", "rb") as fh:
+            data = fh.read()
+    except OSError as exc:
+        return None if exc.errno in GONE else UNREADABLE
+    head, _, tail = data.rpartition(b")")
+    fields = tail.split()
+    if not head or len(fields) < 20:
+        return UNREADABLE
+    comm = head.partition(b"(")[2].decode("utf-8", "replace")
+    return fields[0].decode(), int(fields[1]), int(fields[19]), comm
+
+
+def owned(pid):
+    try:
+        with open(f"/proc/{pid}/status") as fh:
+            for line in fh:
+                if line.startswith("Uid:"):
+                    return UID in [int(u) for u in line.split()[1:]]
+    except OSError as exc:
+        if exc.errno in GONE:
+            return False
+    except ValueError:
+        pass
+    return True
+
+
+def alive(pid):
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError as exc:
+        return exc.errno not in GONE
+    for tid in tids:
+        info = stat(f"{pid}/task/{tid}")
+        if info == UNREADABLE or (info is not None and info[0] not in ("Z", "X")):
+            return True
+    return False
+
+
+def lineage():
+    seen = set()
+    pid = SELF
+    while pid > 0 and pid not in seen:
+        seen.add(pid)
+        info = stat(pid)
+        if not isinstance(info, tuple):
+            break
+        pid = info[1]
+    return seen
+
+
+def others(spared):
+    for name in os.listdir("/proc"):
+        if name.isdigit() and int(name) not in spared and owned(int(name)):
+            yield int(name)
+
+
+def cmdline(pid):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return fh.read()
+    except OSError:
+        return b""
+
+
+def is_sleep_infinity(data):
+    argv = data.split(b"\0")
+    if argv and argv[-1] == b"":
+        argv.pop()
+    name = [os.path.basename(arg) for arg in argv]
+    if len(argv) == 2:
+        return name[0] == b"sleep" and argv[1] == b"infinity"
+    # A multi-call coreutils (the Hummingbird images) installs sleep as a
+    # "#!/usr/bin/coreutils --coreutils-prog-shebang=sleep" script.
+    return (
+        len(argv) == 4
+        and name[0] == b"coreutils"
+        and argv[1] == b"--coreutils-prog-shebang=sleep"
+        and name[2] == b"sleep"
+        and argv[3] == b"infinity"
+    )
+"""
+
+_PROCESS_SCRIPT = (
+    _PROCESS_HELPERS
+    + r"""
+
+spared = lineage()
+if sys.argv[1] == "main":
+    parent = stat(SELF)[1]
+    found = []
+    for pid in others(spared):
+        info = stat(pid)
+        if isinstance(info, tuple) and info[1] == parent and alive(pid):
+            found.append((info[2], pid))
+    print(f"CANDIDATES {len(found)}")
+    if not found:
+        print("NO_MAIN")
+        sys.exit(3)
+    if len(found) > 1:
+        print("AMBIGUOUS")
+        sys.exit(5)
+    start, pid = found[0]
+    data = cmdline(pid)
+    print(f"CMDLINE {ascii(data)}")
+    if not is_sleep_infinity(data):
+        print("NOT_SLEEP")
+        sys.exit(6)
+    print(f"MAIN {pid} {start}")
+    sys.exit(0)
+
+main_pid, main_start = int(sys.argv[2]), int(sys.argv[3])
+info = stat(main_pid)
+if not (isinstance(info, tuple) and info[2] == main_start and alive(main_pid)):
+    print("MAIN_GONE")
+    sys.exit(7)
+spared.add(main_pid)
+killed = {}
+deadline = time.monotonic() + float(sys.argv[4])
+while True:
+    left = [pid for pid in others(spared) if alive(pid)]
+    if not left or time.monotonic() > deadline:
+        break
+    for pid in left:
+        info = stat(pid)
+        killed.setdefault(pid, info[3] if isinstance(info, tuple) else "?")
+    for sig in (signal.SIGSTOP, signal.SIGKILL):
+        for pid in left:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+    time.sleep(0.1)
+for pid, comm in sorted(killed.items()):
+    print(f"KILLED pid={pid} comm={ascii(comm)}")
+print(f"LEFT {len(left)}")
+sys.exit(4 if left else 0)
+"""
+)
+
+# Exit statuses of _PROCESS_SCRIPT, and what each means for the error text.
+_SCAN_NO_MAIN = 3
+_SCAN_SURVIVORS = 4
+_SCAN_MAIN_GONE = 7
+_SCAN_FAILURES = {
+    _SCAN_NO_MAIN: "no process was found",
+    5: "more than one candidate process was found",
+    6: "the only candidate is not the sandbox's sleep infinity",
+    _SCAN_MAIN_GONE: (
+        "the recorded main process is not running, so the record is stale; "
+        "run agentic-ci stop to recreate the sandbox"
+    ),
+}
+
+# How long the in-sandbox scan keeps killing before it gives up, and how long
+# the host waits for the exec as a whole. A leftover can stop or kill the
+# scan itself (same user), which then fails closed on the timeout.
+_KILL_DEADLINE_SECONDS = 10
+_PROCESS_EXEC_TIMEOUT_SECONDS = 60
+
+# How long find_main_process() waits for the entrypoint to be spawned after
+# ``sandbox create --detach`` returns, and how often it looks.
+_MAIN_WAIT_SECONDS = 10
+_MAIN_POLL_SECONDS = 1
+
+
+@dataclass(frozen=True)
+class MainProcess:
+    """The sandbox's canonical main process (``sleep infinity`` from :func:`create`).
+
+    ``start_time`` is field 22 of ``/proc/<pid>/stat`` (clock ticks after
+    boot). Together with the PID it identifies the process even if the agent
+    names another process ``sleep infinity`` or the PID is reused.
+    """
+
+    pid: int
+    start_time: int
+
+    def to_record(self) -> dict[str, int]:
+        return {"pid": self.pid, "start_time": self.start_time}
+
+    @classmethod
+    def from_record(cls, record: object) -> MainProcess | None:
+        """Read a :meth:`to_record` mapping, or return None if it is not one."""
+        if not isinstance(record, dict):
+            return None
+        pid, start_time = record.get("pid"), record.get("start_time")
+        if type(pid) is not int or type(start_time) is not int or pid <= 0 or start_time < 0:
+            return None
+        return cls(pid=pid, start_time=start_time)
+
+
+def _exec_python(label, script, args, timeout=_PROCESS_EXEC_TIMEOUT_SECONDS):
+    """Run *script* with the sandbox's python as the sandbox user, with no login shell.
+
+    Logs *label* in place of the script text. Returns the CompletedProcess;
+    raises ``subprocess.TimeoutExpired`` after *timeout* seconds.
+    """
+    prefix = [*_INTERNAL_EXEC, _NO_LOGIN_SHELL, "--"]
+    log.detail("exec", " ".join([*prefix, *_SANDBOX_PYTHON, f"<{label}>", *args]))
+    return subprocess.run(
+        [*prefix, *_SANDBOX_PYTHON, script, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _process_script(args, what):
+    """Run :data:`_PROCESS_SCRIPT` in the sandbox; return its exit status and stdout lines.
+
+    Raises ``RuntimeError`` naming *what* and the failure class only when the
+    exec times out; the output (which can hold process names) goes to the job
+    log.
+    """
+    try:
+        result = _exec_python("process scan", _PROCESS_SCRIPT, args)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Could not {what}: the in-sandbox process scan timed out ({type(exc).__name__})"
+        ) from exc
+    lines = (result.stdout or "").splitlines()
+    for line in lines:
+        log.detail("sandbox processes", line)
+    _log_stderr(result)
+    return result.returncode, lines
+
+
+def _scan_failed(what, returncode):
+    """The ``RuntimeError`` for a scan that exited with *returncode*: a class, no output."""
+    reason = _SCAN_FAILURES.get(
+        returncode, f"the in-sandbox process scan exited with status {returncode}"
+    )
+    return RuntimeError(f"Could not {what}: {reason}; see the job log")
+
+
+def find_main_process() -> MainProcess:
+    """Identify the sandbox's main process, right after :func:`create`.
+
+    Call it before anything else runs in the sandbox: the main process is the
+    only sandbox-user child of the supervisor, and it must be ``sleep
+    infinity``. Waits up to :data:`_MAIN_WAIT_SECONDS` for it to appear.
+    Raises ``RuntimeError`` when there is none, more than one, or it is
+    something else.
+    """
+    what = "identify the sandbox's main process"
+    deadline = time.monotonic() + _MAIN_WAIT_SECONDS
+    while True:
+        returncode, lines = _process_script(["main"], what)
+        if returncode != _SCAN_NO_MAIN or time.monotonic() >= deadline:
+            break
+        time.sleep(_MAIN_POLL_SECONDS)
+    if returncode != 0:
+        raise _scan_failed(what, returncode)
+    for line in lines:
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == "MAIN" and parts[1].isdigit() and parts[2].isdigit():
+            main = MainProcess(pid=int(parts[1]), start_time=int(parts[2]))
+            log.info(f"Sandbox main process: pid {main.pid}")
+            return main
+    raise RuntimeError(f"Could not {what}: unusable scan output; see the job log")
+
+
+def stop_leftover_processes(main: MainProcess, phase: str) -> None:
+    """Kill every sandbox-user process except *main* before *phase* opens.
+
+    Processes started by earlier execs (the agent, earlier setup or validate
+    steps, and whatever they started, daemons included) are still running
+    after their exec ends. The setup shim is not a boundary against them:
+    once the setup or validate phase opens, any of them could run it. So
+    every one of them is killed first; the main process (matched by PID and
+    start time), the supervisor (root) and the killing exec itself survive.
+
+    Raises ``RuntimeError`` (a class and a count, never a process name or
+    command line) when a process is still alive afterwards, or when *main* is
+    not running: the record is then stale, nothing is killed, and the sandbox
+    must be recreated. The caller must not run the phase. Details go to the
+    job log.
+    """
+    what = f"stop the processes left in the sandbox before the {phase} phase"
+    returncode, lines = _process_script(
+        ["kill", str(main.pid), str(main.start_time), str(_KILL_DEADLINE_SECONDS)], what
+    )
+    if returncode == _SCAN_SURVIVORS:
+        left = next((line.split()[1] for line in lines if line.startswith("LEFT ")), "?")
+        raise RuntimeError(
+            f"Could not {what}: {left if left.isdigit() else 'some'} process(es) survived; "
+            "see the job log"
+        )
+    if returncode != 0:
+        raise _scan_failed(what, returncode)
+    if "LEFT 0" not in lines:
+        raise RuntimeError(f"Could not {what}: unusable scan output; see the job log")
+    killed = sum(1 for line in lines if line.startswith("KILLED "))
+    log.info(f"Stopped {killed} leftover sandbox process(es) before the {phase} phase")
+
+
+# How long a switch waits for the supervisor to pick up an attach or detach.
+# OpenShell's supervisor polls the gateway every 10 s, so a running sandbox
+# keeps injecting a detached provider's key for up to about that long.
+_PROVIDER_WAIT_SECONDS = 30
+_PROVIDER_POLL_SECONDS = 2
+# A probe exec gets the time left before the deadline, but at least this.
+_PROVIDER_PROBE_MIN_TIMEOUT_SECONDS = 5
+# openshell sandbox provider attach/detach return in milliseconds when the
+# gateway answers; this only bounds a gateway that does not.
+_PROVIDER_COMMAND_TIMEOUT_SECONDS = 15
+
+# Prefix of the placeholder OpenShell puts in a provider credential's
+# variable. Only the prefix is ever compared; the value is not printed.
+_PLACEHOLDER_PREFIX = "openshell:resolve:env:"
+
+# Prints ATTACHED when the variable holds a provider placeholder, else
+# DETACHED, and nothing else.
+_PROVIDER_ENV_SCRIPT = (
+    "import os, sys; "
+    f"print('ATTACHED' if os.environ.get(sys.argv[1], '').startswith({_PLACEHOLDER_PREFIX!r}) "
+    "else 'DETACHED')"
+)
+
+
+def _provider_command(action: str, phase: str) -> None:
+    what = f"Could not {action} the API key provider for the {phase} phase"
+    try:
+        result = _run(
+            ["openshell", "sandbox", "provider", action, SANDBOX_NAME, PROVIDER_NAME],
+            capture_output=True,
+            text=True,
+            timeout=_PROVIDER_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"{what}: openshell sandbox provider {action} timed out ({type(exc).__name__})"
+        ) from exc
+    if result.returncode != 0:
+        _log_stderr(result)
+        raise RuntimeError(
+            f"{what}: openshell sandbox provider {action} exited with status "
+            f"{result.returncode}; see the job log"
+        )
+
+
+def detach_provider(phase: str) -> None:
+    """Detach the CI provider from the sandbox for a setup or validate *phase*.
+
+    The rule OpenShell composes from an API key provider profile binds the API
+    host to the agent binaries and is not part of ``policy get --base``, so
+    parking the agent's rules cannot remove it: a step running an agent
+    binary under the shim could still spend the key. Detaching is the only
+    lever. Idempotent: detaching a detached provider succeeds. Follow it with
+    :func:`wait_for_provider_env` before any step runs.
+    """
+    _provider_command("detach", phase)
+
+
+def attach_provider(phase: str) -> None:
+    """Attach the CI provider again, idempotently."""
+    _provider_command("attach", phase)
+
+
+def provider_env_state(env_var: str, timeout: float = _PROCESS_EXEC_TIMEOUT_SECONDS) -> str | None:
+    """Return ``ATTACHED`` or ``DETACHED`` as a fresh exec sees *env_var*, or None.
+
+    None means the probe failed (a timeout, a refused exec, odd output) and
+    says nothing about the provider.
+    """
+    try:
+        result = _exec_python("provider probe", _PROVIDER_ENV_SCRIPT, [env_var], timeout=timeout)
+    except subprocess.TimeoutExpired:
+        log.detail("provider probe", "timed out")
+        return None
+    if result.returncode != 0:
+        _log_stderr(result)
+        return None
+    state = (result.stdout or "").strip()
+    return state if state in ("ATTACHED", "DETACHED") else None
+
+
+def wait_for_provider_env(env_var: str, *, attached: bool, phase: str) -> None:
+    """Wait until the supervisor has applied an attach or detach of the provider.
+
+    A new exec gets the provider's variables from the supervisor's current
+    provider snapshot, which OpenShell replaces together with the credential
+    bindings the proxy injects from. So a fresh exec whose *env_var* holds a
+    provider placeholder proves the key is injected again, and one without it
+    proves the proxy no longer resolves any placeholder for the key, including
+    one issued before the detach. It proves nothing about the network rule
+    composed from the provider profile: the supervisor reloads the policy
+    right after the environment, in the same poll, and a ``policy set
+    --wait`` issued after the detach confirms it (see
+    ``OpenShellBackend._set_egress_phase``). The probe needs no network.
+
+    A DETACHED result only counts when the probe has been seen to report
+    ATTACHED for this sandbox: call it with ``attached=False`` only after an
+    ``attached=True`` wait or an ATTACHED :func:`provider_env_state`.
+
+    Polls for up to :data:`_PROVIDER_WAIT_SECONDS` in total, probe execs
+    included, and raises ``RuntimeError`` when the state cannot be confirmed,
+    so the caller does not run the phase.
+    """
+    want = "ATTACHED" if attached else "DETACHED"
+    deadline = time.monotonic() + _PROVIDER_WAIT_SECONDS
+    while True:
+        left = max(_PROVIDER_PROBE_MIN_TIMEOUT_SECONDS, deadline - time.monotonic())
+        if provider_env_state(env_var, timeout=left) == want:
+            log.info(f"API key provider {want.lower()} for the {phase} phase")
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(_PROVIDER_POLL_SECONDS)
+    action = "resume" if attached else "stop"
+    raise RuntimeError(
+        f"Could not confirm that API key injection {action}s for the {phase} phase "
+        f"within {_PROVIDER_WAIT_SECONDS}s; see the job log"
+    )
 
 
 def upload(local_path):

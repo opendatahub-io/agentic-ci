@@ -3,18 +3,25 @@
 ``tests/e2e/e2e-openshell-profile.sh`` probes the network from inside the
 sandbox; this driver does the parts that are Python API only. It builds an
 :class:`~agentic_ci.backends.openshell.OpenShellBackend` for the Codex
-harness, optionally with a central sandbox profile, and then either creates
-the sandbox (``setup``) or switches the setup shim's egress (``phase``).
+harness (OpenAI key) or the Claude Code harness (Anthropic API key),
+optionally with a central sandbox profile, and then either creates the
+sandbox (``setup``) or switches the setup shim's egress (``phase``). A
+switch also kills the processes earlier execs left running and detaches the
+API key provider for the setup and validate phases (attaches it for agent).
 
-No agent runs, so no LLM call is made. The OpenAI provider still needs a
+No agent runs, so no LLM call is made. The API key provider still needs a
 key to be created; the shell script passes a fake one.
 
 Usage::
 
     python3 tests/e2e/openshell_profile_driver.py setup --image IMG --workdir DIR \\
-        [--profile-json '{"egress": ["npm", "goproxy"]}']
+        [--harness {codex,claude-code}] [--profile-json '{"egress": ["npm", "goproxy"]}']
     python3 tests/e2e/openshell_profile_driver.py phase {setup,validate,agent} \\
-        --image IMG --workdir DIR --profile-json '{"egress": ["npm", "goproxy"]}'
+        --image IMG --workdir DIR [--harness {codex,claude-code}] \\
+        --profile-json '{"egress": ["npm", "goproxy"]}'
+
+The Claude Code harness selects api-key auth only when ANTHROPIC_API_KEY is
+set in the environment.
 """
 
 from __future__ import annotations
@@ -25,8 +32,10 @@ import sys
 from pathlib import Path
 
 from agentic_ci.backends.openshell import OpenShellBackend
-from agentic_ci.harness import CodexHarness
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, Harness
 from agentic_ci.sandbox_profile import parse_profile
+
+_HARNESSES: dict[str, type[Harness]] = {"codex": CodexHarness, "claude-code": ClaudeCodeHarness}
 
 
 def _backend(args: argparse.Namespace) -> OpenShellBackend:
@@ -36,7 +45,7 @@ def _backend(args: argparse.Namespace) -> OpenShellBackend:
     return OpenShellBackend(
         workdir=str(args.workdir),
         image=args.image,
-        harness=CodexHarness(),
+        harness=_HARNESSES[args.harness](),
         sandbox_profile=profile,
     )
 
@@ -47,6 +56,7 @@ def main() -> int:
     parser.add_argument("phase", nargs="?", choices=["setup", "validate", "agent"])
     parser.add_argument("--image", required=True)
     parser.add_argument("--workdir", required=True, type=Path)
+    parser.add_argument("--harness", choices=sorted(_HARNESSES), default="codex")
     parser.add_argument("--profile-json", default=None)
     args = parser.parse_args()
 

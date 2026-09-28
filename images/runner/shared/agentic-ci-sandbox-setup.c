@@ -12,6 +12,14 @@
  * never replaces itself with exec, because after an exec it would no longer
  * be the executable or an ancestor.
  *
+ * This is an extra layer, not isolation. Any process in the sandbox can run
+ * the shim and get its egress while setup or validate rules are live, so it
+ * is no boundary against the agent. agentic-ci keeps the agent out by other
+ * means: shim rules exist only in the setup and validate phases, the agent's
+ * rules are parked then, every process an earlier exec left running is
+ * killed before either phase opens, and the API key provider is detached
+ * while it is open (agentic_ci.backends.openshell.sandbox).
+ *
  * - The command runs in its own process group. SIGTERM, SIGINT, SIGHUP and
  *   SIGQUIT sent to the shim are forwarded to that whole group, so a step
  *   killed on timeout takes the processes it started (bash -> npm -> node)

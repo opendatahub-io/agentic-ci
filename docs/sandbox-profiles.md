@@ -247,12 +247,63 @@ their count is logged. Each switch replaces the whole policy with `openshell
 policy set` and closes every open proxied connection, so it happens only while
 nothing runs in the sandbox.
 
-One gap is accepted: the OpenShell `openai` and `anthropic` provider profiles
-bind the API host to `/usr/bin/curl` and `/usr/local/bin/curl` and inject the
-real key into those requests. Those rules are composed by the server, are not
-part of `policy get --base`, and so stay live in every phase: setup and
-validate code cannot read the key but can spend it through curl, as the agent
-already can.
+The shim lets setup and validate reach preset hosts without widening the
+agent's egress. It is an extra layer, not isolation: it is not a boundary
+against the agent, and any sandbox process that ran it while shim rules are
+live would get the shim's egress. OpenShell has no per-exec kill (a process an
+exec leaves running survives the exec) and no per-exec network profile, so the
+protections are, on every switch:
+
+- **Shim rules exist only in `setup` and `validate`.** The `agent` phase
+  strips them, and it must be in effect before the agent starts.
+- **The agent's rules are parked** while shim rules are live (see above).
+- **Leftover processes are killed.** Before any phase opens, a scan run as the
+  sandbox user inside the sandbox SIGKILLs every process of that user except
+  the sandbox's main process (`sleep infinity`, identified by the PID and start
+  time recorded right after `sandbox create` and saved with the sandbox
+  identity) and the scan itself: the agent's background jobs and `setsid`
+  daemons, earlier setup or validate steps, and what they started. Processes
+  are killed one by one, never by process group, since exec'd commands share
+  the supervisor's group. If anything survives, or the recorded main process
+  is not running (a stale record: nothing is killed then), the switch fails
+  and the phase does not run; a reused sandbox that cannot be switched to
+  `agent` is recreated. The scan, like every internal exec, runs with
+  `--no-login-shell`, so an agent-written `~/.bash_profile` cannot replace
+  it or start anything after it. The kill also runs on the way into `agent`,
+  so every phase starts with only the main process: a setup leftover could
+  otherwise write the workdir while the agent works, and on a reused sandbox
+  the previous run's processes would run next to the new agent. Setup
+  therefore cannot start a service for the agent or for validate.
+- **The API key provider is detached** while `setup` or `validate` is open,
+  for openai and api-key (Anthropic) auth. The rule OpenShell composes from
+  agentic-ci's provider profile binds the API host to the agent binaries and is
+  not part of `policy get --base`, so parking cannot remove it, and a step
+  could otherwise spend the key by running an agent binary under the shim. A
+  running sandbox keeps injecting for up to about 10 s after `openshell sandbox
+  provider detach`, so the switch first makes sure a fresh exec gets the
+  provider placeholder (attaching the provider if not), detaches, and then
+  waits (up to 30 s) until a fresh exec no longer gets it: the supervisor
+  swaps a sandbox's environment and its credential bindings together, and
+  after the swap no placeholder resolves, including one issued before the
+  detach. That probe covers injection only; the provider's composed rule
+  leaves with the policy the supervisor reloads in the same poll, and the
+  phase's `policy set --wait`, issued after the detach, confirms it whenever
+  the policy changes. Detaching closes the provider's route to the API host,
+  not the key: the agent already holds the real key (the env script exports
+  it, for api-key auth until RHAI-3011 is fixed, and Codex also keeps it in
+  `$CODEX_HOME/auth.json`), and could leave it in the workdir for setup or
+  validate code it also wrote to send out through the shim's egress. The
+  `agent` switch attaches the provider again and waits for the placeholder,
+  so the agent can authenticate; this also repairs a reused sandbox a run
+  left detached. Vertex stays attached: its `google-cloud` profile is endpointless,
+  so OpenShell composes no rule for it, and its credential is bound only to
+  the aiplatform and oauth2 endpoints of the agent's own rules, which are
+  parked and never opened to the shim. The `oauth` mode has no provider.
+
+While the agent phase is in effect, the agent can still spend its own key
+through an agent binary wrapper such as `codex sandbox -- curl` (see
+[API Key](backends/openshell.md#api-key-direct-anthropic-api)); detaching
+covers only setup and validate.
 
 The shim is a small static binary in the OpenShell sandbox images. It runs its
 arguments as a child process in a new process group, waits, forwards
@@ -262,5 +313,6 @@ status (`128+N` for a signal).
 OpenShell matches a connection by the caller's executable and its parent
 chain, so a command started through the shim, and everything it starts, gets
 the shim's rules; a bare process, or one the shim leaves behind after it
-exits, does not. Running setup and validate steps through the shim lands in a
-following release.
+exits, does not, and a process an earlier exec left running is killed before
+the phase opens anyway. Running setup and validate steps through the shim
+lands in a following release.

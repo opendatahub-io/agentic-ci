@@ -14,7 +14,9 @@
 # (policy.AUTH_ENDPOINTS). OpenShell refuses a CONNECT when any credentialed
 # rule that matches the caller lacks that opt-in, so an L7 rule here would
 # block Codex. The proxy still terminates TLS on the tunnel and replaces the
-# provider placeholder in request headers for this host.
+# provider placeholder in request headers for this host, for any caller this
+# rule admits (a codex descendant included), which is why agentic-ci
+# detaches the provider while the setup shim's egress is open.
 id: agentic-ci-openai
 display_name: agentic-ci OpenAI
 description: OpenAI API key for agentic-ci, with no curl rule

@@ -101,9 +101,35 @@ def _provider_process_env(credential_key, env: Mapping[str, str]) -> dict[str, s
     return {**os.environ, **env, credential_key: value}
 
 
+# The variable that carries the provider placeholder for each auth mode whose
+# provider injects an API key (the env_vars of the profiles in profiles/).
+# These providers are detached while the setup shim's egress is open: the
+# rule OpenShell composes from the profile lets agent binaries, and so
+# anything a setup or validate step runs under an agent binary, spend the key.
+#
+# Vertex is left attached. Its google-cloud profile is endpointless, so
+# OpenShell composes no rule for it, and its credential is bound only to the
+# aiplatform and oauth2 endpoints of agentic-ci's own agent rules, which the
+# setup and validate phases park and never open to the shim. Its metadata
+# emulator hands out placeholders, which resolve only through such a binding.
+# The oauth mode has no provider at all.
+_API_KEY_ENV_VARS = {
+    "openai": "OPENAI_API_KEY",
+    "api-key": "ANTHROPIC_API_KEY",
+}
+
+
 def requires_provider(auth_mode: str | None) -> bool:
     """Return whether *auth_mode* is backed by the CI provider."""
     return auth_mode not in _PROVIDERLESS_AUTH_MODES
+
+
+def api_key_env_var(auth_mode: str | None) -> str | None:
+    """Return the provider placeholder's variable if *auth_mode*'s provider injects an API key.
+
+    None for vertex (see :data:`_API_KEY_ENV_VARS`), oauth and anything else.
+    """
+    return _API_KEY_ENV_VARS.get(auth_mode) if auth_mode is not None else None
 
 
 def _run(args, **kwargs):

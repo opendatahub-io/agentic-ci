@@ -11,6 +11,7 @@ from agentic_ci.backends.openshell.provider import (
     ANTHROPIC_PROFILE_ID,
     OPENAI_PROFILE_ID,
     PROVIDER_NAME,
+    api_key_env_var,
     auth_mode,
     credential_fingerprint,
     delete,
@@ -457,3 +458,16 @@ class TestProviderProfiles:
                 ],
             ),
         ]
+
+
+class TestApiKeyEnvVar:
+    @pytest.mark.parametrize(
+        ("mode", "profile_id"), [("openai", OPENAI_PROFILE_ID), ("api-key", ANTHROPIC_PROFILE_ID)]
+    )
+    def test_matches_the_packaged_profile(self, mode, profile_id):
+        (credential,) = _packaged_profile(profile_id)["credentials"]
+        assert credential["env_vars"] == [api_key_env_var(mode)]
+
+    @pytest.mark.parametrize("mode", ["vertex", "oauth", None, "openai-builtin-profile"])
+    def test_other_modes_have_nothing_to_detach(self, mode):
+        assert api_key_env_var(mode) is None
