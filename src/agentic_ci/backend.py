@@ -42,6 +42,10 @@ class Backend(ABC):
         # Host directory for run records (the skill session's ``_run``);
         # None writes none.
         self.run_dir: Path | None = None
+        # False skips a sandbox profile's validate commands after the next
+        # run (a classifier run, which changes no code). Backends without
+        # profile steps ignore it.
+        self.validate_after_run = True
         self._host_git: GitControlSnapshot | None = None
 
     @abstractmethod

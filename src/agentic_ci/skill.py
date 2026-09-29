@@ -258,7 +258,15 @@ class _AgentSession:
         return self
 
     def run(
-        self, prompt, *, model, effort=None, extra_args=None, output_file=None, completion_file=None
+        self,
+        prompt,
+        *,
+        model,
+        effort=None,
+        extra_args=None,
+        output_file=None,
+        completion_file=None,
+        validate=True,
     ):
         """Run the agent once with *model* and *effort*; returns the exit code.
 
@@ -271,15 +279,23 @@ class _AgentSession:
         backend promotes that exit code to 0 only if this file exists. The
         classifier uses ``_run/route.json`` here, since it never writes the
         skill's verdict file.
+
+        ``validate=False`` skips the sandbox profile's validate commands after
+        this run (the classifier's), which changes no code.
         """
-        if completion_file is None:
-            return self._run_once(prompt, model, effort, extra_args, output_file)
-        saved = self.backend.verdict_path
-        self.backend.verdict_path = completion_file
+        saved_validate = self.backend.validate_after_run
+        self.backend.validate_after_run = validate
         try:
-            return self._run_once(prompt, model, effort, extra_args, output_file)
+            if completion_file is None:
+                return self._run_once(prompt, model, effort, extra_args, output_file)
+            saved = self.backend.verdict_path
+            self.backend.verdict_path = completion_file
+            try:
+                return self._run_once(prompt, model, effort, extra_args, output_file)
+            finally:
+                self.backend.verdict_path = saved
         finally:
-            self.backend.verdict_path = saved
+            self.backend.validate_after_run = saved_validate
 
     def _run_once(self, prompt, model, effort, extra_args, output_file):
         self.backend.output_file = output_file
@@ -703,8 +719,11 @@ def run_routed_skill(
             else:
                 decision = classify(
                     # The classifier's evidence of completion is its route file,
-                    # not the skill verdict.
-                    functools.partial(session.run, completion_file=route_path(work_dir)),
+                    # not the skill verdict. It changes no code, so the sandbox
+                    # profile's validate commands wait for the skill run.
+                    functools.partial(
+                        session.run, completion_file=route_path(work_dir), validate=False
+                    ),
                     work_dir=work_dir,
                     task_prompt=prompt,
                     tiers=tiers,

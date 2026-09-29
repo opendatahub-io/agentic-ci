@@ -23,7 +23,8 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
         **kwargs: Backend-specific arguments (workdir, image, policy, timeout, etc.).
             ``sandbox_profile`` (a :class:`~agentic_ci.sandbox_profile.SandboxProfile`)
             is passed only to the OpenShell backend; other backends log a
-            warning and ignore it.
+            warning and ignore it, including its toolchains and its setup
+            and validate steps (never run on the host).
 
     Returns:
         A Backend instance.
@@ -38,6 +39,12 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             log.info(
                 f"WARNING: {len(sandbox_profile.toolchains)} sandbox profile toolchain(s) "
                 f"not provisioned: the {name} backend does not provision toolchains"
+            )
+        if sandbox_profile.setup or sandbox_profile.validate:
+            log.info(
+                f"WARNING: {len(sandbox_profile.setup)} sandbox profile setup step(s) and "
+                f"{len(sandbox_profile.validate)} validate command(s) not run: they run only "
+                "inside an OpenShell sandbox"
             )
     if name == "local":
         return LocalBackend(

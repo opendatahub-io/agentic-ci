@@ -26,6 +26,15 @@ writes the env script and runs ``--agent-script`` under ``codex sandbox``
 through it, the way the agent itself is started, in a ``bash -lc`` login
 shell like the one codex's shell tool gives the agent's commands.
 
+``steps-run`` exercises the profile's setup and validate steps: it sets the
+sandbox up (the setup steps run under the setup phase and ENVIRONMENT.md is
+written), then runs ``OpenShellBackend.run()`` with an agent that is
+``--agent-script`` run as ``bash -lc`` under ``codex sandbox`` after
+``codex login`` (so ``$CODEX_HOME/auth.json`` exists, as in a real run).
+After it, ``run()`` wipes the credential files, runs the validate commands,
+discards the ``discard_before_download`` paths and downloads the workdir; the
+records land in ``--run-dir``.
+
 No LLM is called: the credential provider needs a key to be created, and the
 shell script passes a fake one.
 
@@ -40,6 +49,9 @@ Usage::
         --profile-json '{"egress": ["npm"]}' --mock-port PORT --stall-seconds SECONDS
     python3 tests/e2e/openshell_profile_driver.py agent-exec --image IMG --workdir DIR \\
         --profile-json '{"toolchains": {"go": "auto"}}' --agent-script 'go version'
+    python3 tests/e2e/openshell_profile_driver.py steps-run --image IMG --workdir DIR \\
+        --profile-json '{"setup": [...], "validate": [...]}' --run-dir DIR/_run \\
+        --agent-script 'cat /sandbox/.agentic-ci/ENVIRONMENT.md'
 
 The Claude Code harness selects api-key auth only when ANTHROPIC_API_KEY is
 set in the environment, and Vertex auth when neither it nor
@@ -70,15 +82,40 @@ _HARNESSES: dict[str, type[Harness]] = {"codex": CodexHarness, "claude-code": Cl
 OTLP_MODEL = "e2e-mock-model"
 
 
+class _ScriptAgentHarness(CodexHarness):
+    """Codex whose "agent" is a script: ``codex login``, then the script under ``codex sandbox``."""
+
+    def __init__(self, script: str) -> None:
+        self._script = script
+
+    def build_args(
+        self, prompt, model, extra_args=None, otel_endpoint=None, externally_sandboxed=False
+    ):
+        return [
+            "bash",
+            "-c",
+            'printf "%s" "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null 2>&1'
+            " || echo CODEX_LOGIN_FAILED; "
+            'exec codex sandbox -c \'sandbox_mode="danger-full-access"\' -- bash -lc "$1"',
+            "--",
+            self._script,
+        ]
+
+
 def _backend(args: argparse.Namespace, policy: str | None = None) -> OpenShellBackend:
     profile = None
     if args.profile_json:
         profile = parse_profile(json.loads(args.profile_json), source="central").profile
+    harness: Harness
+    if args.command == "steps-run":
+        harness = _ScriptAgentHarness(args.agent_script)
+    else:
+        harness = _HARNESSES[args.harness]()
     backend = OpenShellBackend(
         workdir=str(args.workdir),
         image=args.image,
         policy=policy,
-        harness=_HARNESSES[args.harness](),
+        harness=harness,
         sandbox_profile=profile,
     )
     backend.run_dir = args.run_dir
@@ -188,7 +225,9 @@ def _otlp_run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="E2E driver for sandbox-profile egress.")
-    parser.add_argument("command", choices=["setup", "phase", "otlp-run", "agent-exec"])
+    parser.add_argument(
+        "command", choices=["setup", "phase", "otlp-run", "agent-exec", "steps-run"]
+    )
     parser.add_argument("phase", nargs="?", choices=["setup", "validate", "agent"])
     parser.add_argument("--image", required=True)
     parser.add_argument("--workdir", required=True, type=Path)
@@ -211,6 +250,11 @@ def main() -> int:
         print("DRIVER_OK otlp-run", flush=True)
         return 0
     backend = _backend(args)
+    if args.command == "steps-run":
+        backend.setup()
+        rc = backend.run("unused: the agent is a script", "e2e-model", streaming=False)
+        print(f"DRIVER_{'OK' if rc == 0 else 'FAIL'} steps-run rc={rc}", flush=True)
+        return 0 if rc == 0 else 1
     if args.command == "agent-exec":
         rc = _agent_exec(backend, args)
         print(f"DRIVER_{'OK' if rc == 0 else 'FAIL'} agent-exec rc={rc}", flush=True)

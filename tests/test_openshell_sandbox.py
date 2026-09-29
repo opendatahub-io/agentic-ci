@@ -16,10 +16,12 @@ import pytest
 import yaml
 
 import agentic_ci.backends.openshell as openshell_backend
+from agentic_ci import sandbox_profile as sandbox_profile_module
 from agentic_ci import toolchains
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import provider as openshell_provider
 from agentic_ci.backends.openshell import sandbox
+from agentic_ci.backends.openshell import steps as step_runner
 from agentic_ci.backends.openshell.policy import (
     BASE_POLICY,
     EGRESS_PRESETS,
@@ -27,6 +29,7 @@ from agentic_ci.backends.openshell.policy import (
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
 from agentic_ci.backends.openshell.provision import OpenShellInstaller
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, OpenCodeHarness
 from agentic_ci.sandbox_profile import (
     Resources,
     SandboxProfile,
@@ -1286,6 +1289,8 @@ class TestSandboxIdentityProfileHash:
             _phase_steps() as steps,
             mock.patch.object(backend, "_run_setup_steps") as setup_steps,
             mock.patch.object(backend, "_upload_sandbox_config"),
+            # Not attached: these tests check the phase switches and identity.
+            mock.patch.object(backend, "_write_environment"),
         ):
             steps.attach_mock(setup_steps, "run_setup_steps")
             steps.attach_mock(create, "create")
@@ -1465,6 +1470,7 @@ class TestToolchainProvisioning:
             _phase_steps() as steps,
             mock.patch.object(backend, "_run_setup_steps") as setup_steps,
             mock.patch.object(backend, "_upload_sandbox_config") as upload_config,
+            mock.patch.object(backend, "_write_environment") as write_environment,
         ):
             provision.return_value = toolchains.Provisioned(results=_RESULTS, env=_ENV)
             for name, part in [
@@ -1473,6 +1479,7 @@ class TestToolchainProvisioning:
                 ("run_setup_steps", setup_steps),
                 ("upload", upload),
                 ("provision", provision),
+                ("write_environment", write_environment),
                 ("upload_config", upload_config),
             ]:
                 steps.attach_mock(part, name)
@@ -1495,6 +1502,7 @@ class TestToolchainProvisioning:
             "run_setup_steps",
             "upload",
             "provision",
+            "write_environment",
             "upload_config",
         ]
         args, kwargs = provision.call_args
@@ -1737,30 +1745,69 @@ class TestToolchainResultsAfterRun:
         assert json.loads(path.read_text()) == [r.to_dict() for r in _RESULTS]
         assert outside.read_text() == "keep"
 
-    def test_a_run_dir_left_as_a_file_keeps_the_exit_code(self, tmp_path, capsys):
+    def test_a_run_dir_left_as_a_file_is_replaced_by_a_directory(self, tmp_path, capsys):
         backend = self._backend(tmp_path)
 
         def download(sandbox_path, local_dest):
             (tmp_path / "_run").write_text("not a directory")
 
         assert self._run_with(backend, download) == 7
+        assert "run directory was not a directory after the download" in capsys.readouterr().out
+        assert json.loads((tmp_path / "_run" / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+
+    def test_a_run_dir_left_as_a_symlink_is_replaced_and_its_target_untouched(self, tmp_path):
+        backend = self._backend(tmp_path)
+        forged_dir = tmp_path / "forged"
+        forged_dir.mkdir()
+        for name in ("toolchains.json", "sandbox-validation.json"):
+            (forged_dir / name).write_text("forged")
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").symlink_to(forged_dir)
+
+        assert self._run_with(backend, download) == 7
+        run_dir = tmp_path / "_run"
+        assert run_dir.is_dir() and not run_dir.is_symlink()
+        assert sorted(p.name for p in run_dir.iterdir()) == ["toolchains.json"]
+        assert json.loads((run_dir / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+        # Nothing was written or removed through the link.
+        assert {p.name: p.read_text() for p in forged_dir.iterdir()} == {
+            "toolchains.json": "forged",
+            "sandbox-validation.json": "forged",
+        }
+
+    def test_a_run_dir_that_cannot_be_replaced_writes_nothing(self, tmp_path, capsys):
+        backend = self._backend(tmp_path)
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").write_text("not a directory")
+
+        with mock.patch.object(Path, "mkdir", side_effect=PermissionError("denied")):
+            assert self._run_with(backend, download) == 7
         out = capsys.readouterr().out
-        assert "WARNING: toolchains.json could not be written" in out
-        assert "toolchains.json write error: FileExistsError" in out
-        assert (tmp_path / "_run").read_text() == "not a directory"
+        assert "run directory could not be restored; run records not written" in out
+        assert not (tmp_path / "_run").exists()
 
     def test_a_failed_rewrite_does_not_hide_the_download_error(self, tmp_path, capsys):
         backend = self._backend(tmp_path)
         error = subprocess.CalledProcessError(1, ["openshell"])
 
         def download(sandbox_path, local_dest):
-            (tmp_path / "_run").write_text("not a directory")
             raise error
 
-        with pytest.raises(subprocess.CalledProcessError) as raised:
+        with (
+            mock.patch.object(toolchains, "write_results", side_effect=PermissionError("denied")),
+            pytest.raises(subprocess.CalledProcessError) as raised,
+        ):
             self._run_with(backend, download)
         assert raised.value is error
-        assert "WARNING: toolchains.json could not be written" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "WARNING: toolchains.json could not be written" in out
+        assert "toolchains.json write error: PermissionError" in out
 
     @pytest.mark.parametrize("profile", [None, SandboxProfile(egress=("npm",))])
     def test_without_toolchains_the_download_is_left_alone(self, tmp_path, profile):
@@ -2353,3 +2400,682 @@ class TestWaitForProviderEnv:
         stuck = "DETACHED" if attached else "ATTACHED"
         with pytest.raises(RuntimeError, match=f"injection {verb} for the setup phase within 30s"):
             self._wait([stuck] * 20, attached=attached, clock=range(0, 1000, 10))
+
+
+# --- Setup steps, validate commands, discard and ENVIRONMENT.md ----------------
+
+STEPS_PROFILE = parse_profile(
+    {
+        "egress": ["npm"],
+        "setup": [
+            {"name": "deps", "run": "pnpm install", "timeout": 300},
+            {"name": "broken", "run": "exit 3"},
+            {"name": "after", "run": "true"},
+        ],
+        "validate": [
+            {"name": "unit", "kind": "test", "run": "pnpm test"},
+            {"name": "lint", "kind": "lint", "run": "false"},
+        ],
+        "skips": [{"match": "unshare --net", "reason": "seccomp"}],
+        "env": {"HUSKY": "0"},
+        "discard_before_download": ["node_modules"],
+    },
+    source="central",
+).profile
+_PASSED = step_runner.StepRecord("deps", "passed", 0, 1.0, "ok")
+
+
+def _record_for(name, run, timeout, *, env, cwd, secrets=(), kind=None):
+    """A stand-in for ``steps.run_step``: ``exit N`` fails with N, the rest pass."""
+    rc = int(run.split()[1]) if run.startswith("exit ") else 0
+    status = "passed" if rc == 0 else "failed"
+    return step_runner.StepRecord(name, status, rc, 0.5, f"tail of {name}", kind)
+
+
+class TestSetupSteps:
+    """setup() runs the profile's setup steps under the setup phase, then switches to agent."""
+
+    def _setup(self, backend, tmp_path, monkeypatch, *, exists=False, saved=None, configure=None):
+        state = tmp_path / "state.json"
+        monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state))
+        if saved is not None:
+            state.write_text(json.dumps(saved, sort_keys=True) + "\n")
+        backend.workdir = str(tmp_path / "work")
+        backend.run_dir = tmp_path / "_run"
+        backend.harness.auth_mode_for_env.return_value = "openai"
+        backend.harness.name = "Codex"
+        openshell = "agentic_ci.backends.openshell"
+        with (
+            mock.patch(f"{openshell}.provider") as provider,
+            mock.patch(f"{openshell}.gateway.is_running", return_value=True),
+            mock.patch(f"{openshell}.sandbox.exists", return_value=exists),
+            mock.patch(f"{openshell}.sandbox.create") as create,
+            mock.patch(f"{openshell}.sandbox.delete"),
+            mock.patch(f"{openshell}.sandbox.upload") as upload,
+            mock.patch(f"{openshell}.steps.run_step", side_effect=_record_for) as run_step,
+            _phase_steps() as steps,
+            mock.patch.object(backend, "_run_setup_steps") as host_steps,
+            mock.patch.object(backend, "_upload_sandbox_config") as upload_config,
+            mock.patch.object(backend, "_write_environment") as write_environment,
+        ):
+            for name, part in [
+                ("create", create),
+                ("host_setup_steps", host_steps),
+                ("upload", upload),
+                ("run_step", run_step),
+                ("write_environment", write_environment),
+                ("upload_config", upload_config),
+            ]:
+                steps.attach_mock(part, name)
+            provider.provider_exists.return_value = exists
+            provider.auth_mode.return_value = "openai"
+            provider.requires_provider.return_value = True
+            provider.credential_fingerprint.return_value = None
+            provider.ensure_auth_mode_profile.return_value = False
+            provider.provider_env_vars.side_effect = openshell_provider.provider_env_vars
+            if configure is not None:
+                configure(steps)
+            backend.setup()
+        return steps, state
+
+    def test_order_setup_phase_steps_agent_phase_then_environment(self, tmp_path, monkeypatch):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        steps, _ = self._setup(backend, tmp_path, monkeypatch)
+        names = [c[0] for c in steps.mock_calls]
+        env_vars = ("OPENAI_API_KEY",)
+        assert names == [
+            "create",
+            "find_main_process",
+            "host_setup_steps",
+            "upload",
+            # The setup phase: kill, detach, setup policy.
+            "stop_leftover_processes",
+            "provider_env_state",
+            "detach_provider",
+            "apply_phase_policy",
+            "wait_for_provider_env",
+            "run_step",
+            "run_step",
+            "run_step",
+            # Back to the agent phase before anything else happens.
+            "stop_leftover_processes",
+            "apply_phase_policy",
+            "attach_provider",
+            "wait_for_provider_env",
+            "write_environment",
+            "upload_config",
+        ]
+        assert steps.apply_phase_policy.call_args_list == [
+            mock.call("setup", [NPM]),
+            mock.call("agent", []),
+        ]
+        assert steps.wait_for_provider_env.call_args_list == [
+            mock.call(env_vars, attached=False, phase="setup"),
+            mock.call(env_vars, attached=True, phase="agent"),
+        ]
+
+    def test_each_step_gets_its_timeout_the_workdir_and_the_built_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("BOT_PAT", "glpat-host-secret-000")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-host-openai-000000")
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        backend.toolchain_env = toolchains.ToolchainEnv(
+            path=("/sandbox/.local/toolchains/node-22.1.0/bin",),
+            variables={"npm_config_cache": "/sandbox/.cache/npm"},
+        )
+        with mock.patch.object(backend, "_provision_toolchains", return_value=False):
+            steps, _ = self._setup(backend, tmp_path, monkeypatch)
+        calls = steps.run_step.call_args_list
+        assert [c.args for c in calls] == [
+            ("deps", "pnpm install", 300),
+            ("broken", "exit 3", 600),
+            ("after", "true", 600),
+        ]
+        kwargs = calls[0].kwargs
+        assert kwargs["cwd"] == "/sandbox/work"
+        assert kwargs["env"] == {
+            "HOME": "/sandbox",
+            "LANG": "C.UTF-8",
+            "PATH": "/sandbox/.local/toolchains/node-22.1.0/bin:" + step_runner.STEP_BASE_PATH,
+            "npm_config_cache": "/sandbox/.cache/npm",
+            "HUSKY": "0",
+        }
+        # The host's credentials are only there to be redacted from the tails.
+        assert "glpat-host-secret-000" in kwargs["secrets"]
+        assert "sk-host-openai-000000" in kwargs["secrets"]
+        assert "glpat-host-secret-000" not in json.dumps(kwargs["env"])
+
+    def test_a_failed_step_is_recorded_and_the_later_ones_still_run(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        _, state = self._setup(backend, tmp_path, monkeypatch)
+        assert [(r.name, r.status, r.rc) for r in backend.setup_records] == [
+            ("deps", "passed", 0),
+            ("broken", "failed", 3),
+            ("after", "passed", 0),
+        ]
+        records = json.loads((tmp_path / "_run" / "sandbox-setup.json").read_text())
+        assert records == [r.to_dict() for r in backend.setup_records]
+        assert "WARNING: 1 setup step(s) did not pass; the run continues" in capsys.readouterr().out
+        saved = json.loads(state.read_text())
+        assert saved["setup"] == records
+        # The records describe the sandbox; they are not part of its identity.
+        assert openshell_backend._identity_fields(saved) == openshell_backend._sandbox_identity(
+            "Codex", None, "openai", profile=STEPS_PROFILE
+        )
+
+    def test_a_setup_phase_that_cannot_open_runs_no_step(self, tmp_path, monkeypatch):
+        def configure(steps):
+            steps.detach_provider.side_effect = RuntimeError("detach failed")
+
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        steps, _ = self._setup(backend, tmp_path, monkeypatch, configure=configure)
+        steps.run_step.assert_not_called()
+        assert {r.status for r in backend.setup_records} == {"not_run"}
+        # The agent phase is still switched to, and must succeed.
+        assert steps.apply_phase_policy.call_args_list == [mock.call("agent", [])]
+
+    def test_a_failed_return_to_the_agent_phase_fails_setup(self, tmp_path, monkeypatch):
+        def configure(steps):
+            steps.apply_phase_policy.side_effect = [None, RuntimeError("policy set failed")]
+
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        with pytest.raises(RuntimeError, match="policy set failed"):
+            self._setup(backend, tmp_path, monkeypatch, configure=configure)
+
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            SandboxProfile(egress=("npm",)),
+            SandboxProfile(
+                validate=(sandbox_profile_module.ValidateStep("unit", "test", "pnpm test"),)
+            ),
+        ],
+    )
+    def test_a_profile_without_setup_steps_switches_no_phase(self, tmp_path, monkeypatch, profile):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=profile)
+        steps, state = self._setup(backend, tmp_path, monkeypatch)
+        steps.run_step.assert_not_called()
+        steps.apply_phase_policy.assert_not_called()
+        steps.stop_leftover_processes.assert_not_called()
+        assert "setup" not in json.loads(state.read_text())
+        assert not (tmp_path / "_run" / "sandbox-setup.json").exists()
+        steps.write_environment.assert_called_once_with()
+
+    def test_a_new_sandbox_clears_a_pending_agent_phase(self, tmp_path, monkeypatch):
+        backend = create_backend(
+            "openshell", harness=mock.Mock(), sandbox_profile=SandboxProfile(egress=("npm",))
+        )
+        backend._agent_phase_pending = True
+        self._setup(backend, tmp_path, monkeypatch)
+        assert not backend._agent_phase_pending
+
+    def test_no_profile_runs_no_step_and_writes_no_environment(self, tmp_path, monkeypatch):
+        backend = create_backend("openshell", harness=mock.Mock())
+        steps, state = self._setup(backend, tmp_path, monkeypatch)
+        assert [c[0] for c in steps.mock_calls] == [
+            "create",
+            "host_setup_steps",
+            "upload",
+            "write_environment",
+            "upload_config",
+        ]
+        assert state.read_text() == '{"auth_mode": "openai", "harness": "Codex", "image": null}\n'
+        assert not (tmp_path / "_run").exists()
+
+    def test_a_reused_sandbox_reports_the_saved_records_and_runs_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        saved = _profile_identity("Codex", None, "openai", STEPS_PROFILE)
+        saved["setup"] = [
+            step_runner.StepRecord("deps", "passed", 0, 9.0, "old tail").to_dict(),
+            {"name": 1},
+        ]
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=STEPS_PROFILE)
+        steps, _ = self._setup(backend, tmp_path, monkeypatch, exists=True, saved=saved)
+        steps.run_step.assert_not_called()
+        steps.create.assert_not_called()
+        # Only the agent switch every reuse makes.
+        assert steps.apply_phase_policy.call_args_list == [mock.call("agent", [])]
+        assert backend.setup_records == (
+            step_runner.StepRecord("deps", "passed", 0, 9.0, "old tail"),
+        )
+        assert json.loads((tmp_path / "_run" / "sandbox-setup.json").read_text()) == [
+            saved["setup"][0]
+        ]
+        steps.write_environment.assert_called_once_with()
+
+
+class TestWriteEnvironment:
+    def _backend(self, tmp_path, profile=STEPS_PROFILE):
+        backend = create_backend(
+            "openshell",
+            harness=mock.Mock(),
+            workdir=str(tmp_path / "work"),
+            sandbox_profile=profile,
+        )
+        backend.toolchain_results = _RESULTS
+        backend.setup_records = (_PASSED,)
+        return backend
+
+    def test_uploads_both_files_and_moves_them_outside_the_workdir(self, tmp_path):
+        backend = self._backend(tmp_path)
+        seen = {}
+
+        def upload(local, timeout=None):
+            seen["dir"] = local
+            seen["md"] = Path(local, "ENVIRONMENT.md").read_text()
+            seen["json"] = json.loads(Path(local, "environment.json").read_text())
+
+        with (
+            mock.patch.object(sandbox, "upload", side_effect=upload) as upload_mock,
+            mock.patch.object(step_runner, "install_environment_files", return_value=True) as mv,
+        ):
+            backend._write_environment()
+        assert upload_mock.call_args.kwargs == {"timeout": step_runner.ENVIRONMENT_TIMEOUT_SECONDS}
+        uploaded, target, names = mv.call_args.args
+        assert uploaded == "/sandbox/" + os.path.basename(seen["dir"])
+        assert target == "/sandbox/.agentic-ci"
+        assert names == ["ENVIRONMENT.md", "environment.json"]
+        assert not os.path.exists(seen["dir"])
+        assert seen["json"]["setup"] == [_PASSED.to_dict()]
+        assert seen["json"]["toolchains"]["results"] == [r.to_dict() for r in _RESULTS]
+        assert [v["name"] for v in seen["json"]["validate"]] == ["unit", "lint"]
+        assert seen["json"]["workdir"] == "/sandbox/work"
+        assert "- `deps`: passed, exit 0, 1.0s" in seen["md"]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            subprocess.CalledProcessError(1, ["openshell"]),
+            subprocess.TimeoutExpired(["openshell"], 60),
+        ],
+    )
+    def test_a_failure_is_logged_and_the_run_goes_on(self, tmp_path, capsys, error):
+        backend = self._backend(tmp_path)
+        with mock.patch.object(sandbox, "upload", side_effect=error):
+            backend._write_environment()
+        assert "WARNING: ENVIRONMENT.md could not be written" in capsys.readouterr().out
+
+    def test_nothing_without_a_profile(self, tmp_path):
+        backend = create_backend("openshell", harness=mock.Mock(), workdir=str(tmp_path))
+        with mock.patch.object(sandbox, "upload") as upload:
+            backend._write_environment()
+        upload.assert_not_called()
+
+
+class TestValidationAfterTheAgent:
+    """run() wipes credentials, validates, discards, then downloads; the host writes records."""
+
+    def _backend(self, tmp_path, profile=STEPS_PROFILE, harness=None):
+        harness = harness or _agent_harness()
+        backend = create_backend(
+            "openshell", harness=harness, workdir=str(tmp_path / "work"), sandbox_profile=profile
+        )
+        backend.run_dir = tmp_path / "work" / "_run"
+        backend._main_process = MAIN
+        return backend
+
+    def _run(self, backend, *, download=None, wipe=None, configure=None, rc=0):
+        openshell = "agentic_ci.backends.openshell"
+        with (
+            _phase_steps() as steps,
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch.object(backend, "_process_stream", return_value=(rc, True)) as stream,
+            mock.patch.object(backend, "_wait_for_otel_flush") as flush,
+            mock.patch(f"{openshell}.sandbox.exec_cmd_streaming"),
+            mock.patch(f"{openshell}.sandbox.download", side_effect=download) as dl,
+            mock.patch(f"{openshell}.steps.wipe_files", side_effect=wipe) as wipe_files,
+            mock.patch(f"{openshell}.steps.run_step", side_effect=_record_for) as run_step,
+            mock.patch(
+                f"{openshell}.steps.discard_paths",
+                return_value=[step_runner.DiscardRecord("node_modules", "removed")],
+            ) as discard,
+            mock.patch(f"{openshell}.steps.restore_discarded", return_value=1) as restore,
+        ):
+            for name, part in [
+                ("restore_discarded", restore),
+                ("process_stream", stream),
+                ("otel_flush", flush),
+                ("wipe_files", wipe_files),
+                ("run_step", run_step),
+                ("discard_paths", discard),
+                ("download", dl),
+            ]:
+                steps.attach_mock(part, name)
+            if configure is not None:
+                configure(steps)
+            result = backend.run("prompt", "model")
+        return result, steps
+
+    def test_order_agent_kill_wipe_validate_agent_phase_discard_download(self, tmp_path):
+        backend = self._backend(tmp_path)
+        rc, steps = self._run(backend)
+        assert rc == 0
+        assert [c[0] for c in steps.mock_calls] == [
+            # What the previous run on this sandbox discarded comes back first.
+            "restore_discarded",
+            "process_stream",
+            "otel_flush",
+            # The validate phase: kill first, then the wipe, then detach and policy.
+            "stop_leftover_processes",
+            "wipe_files",
+            "provider_env_state",
+            "detach_provider",
+            "apply_phase_policy",
+            "wait_for_provider_env",
+            "run_step",
+            "run_step",
+            # Back to the agent phase so a reused sandbox starts clean.
+            "stop_leftover_processes",
+            "apply_phase_policy",
+            "attach_provider",
+            "wait_for_provider_env",
+            "discard_paths",
+            "download",
+        ]
+        assert steps.apply_phase_policy.call_args_list == [
+            mock.call("validate", [NPM]),
+            mock.call("agent", []),
+        ]
+        steps.discard_paths.assert_called_once_with("/sandbox/work", ("node_modules",))
+        steps.restore_discarded.assert_called_once_with("/sandbox/work")
+
+    def test_a_classifier_run_skips_validation_but_still_discards(self, tmp_path):
+        backend = self._backend(tmp_path)
+        backend.validate_after_run = False
+        _, steps = self._run(backend)
+        assert [c[0] for c in steps.mock_calls] == [
+            "restore_discarded",
+            "process_stream",
+            "otel_flush",
+            # No phase switch killed the agent's leftovers, so this does.
+            "stop_leftover_processes",
+            "discard_paths",
+            "download",
+        ]
+        assert steps.stop_leftover_processes.call_args == mock.call(MAIN, "discard")
+        assert backend.validation_records == ()
+
+    def test_a_classifier_run_writes_no_validation_record(self, tmp_path):
+        # Neither an earlier run's results nor an empty list: a consumer must
+        # not read "validated, nothing declared" into a run that did not validate.
+        backend = self._backend(tmp_path)
+        self._run(backend)
+        run_dir = tmp_path / "work" / "_run"
+        assert (run_dir / "sandbox-validation.json").exists()
+        backend.validate_after_run = False
+        self._run(backend)
+        assert not (run_dir / "sandbox-validation.json").exists()
+        assert json.loads((run_dir / "sandbox-discard.json").read_text()) == [
+            {"path": "node_modules", "status": "removed"}
+        ]
+
+    def test_each_run_starts_with_no_validation_or_discard_records(self, tmp_path):
+        backend = self._backend(tmp_path)
+        backend.validation_records = (_PASSED,)
+        backend.discard_records = (step_runner.DiscardRecord("old", "removed"),)
+        backend.validate_after_run = False
+        self._run(backend)
+        assert backend.validation_records == ()
+        assert backend.discard_records == (step_runner.DiscardRecord("node_modules", "removed"),)
+
+    def test_a_leftover_kill_failure_before_the_discard_is_not_fatal(self, tmp_path, capsys):
+        def configure(steps):
+            steps.stop_leftover_processes.side_effect = RuntimeError("1 process survived")
+
+        backend = self._backend(
+            tmp_path,
+            profile=parse_profile({"discard_before_download": ["x"]}, source="central").profile,
+        )
+        rc, steps = self._run(backend, configure=configure)
+        assert rc == 0
+        steps.discard_paths.assert_called_once()
+        assert "could not all be stopped" in capsys.readouterr().out
+
+    def test_forged_records_the_host_did_not_write_are_removed(self, tmp_path):
+        # A profile with setup steps but no validate, skips or discard: the
+        # host has no validation or discard record to write, so the agent's
+        # forgeries must not survive the download.
+        profile = parse_profile(
+            {"setup": [{"name": "deps", "run": "true"}]}, source="central"
+        ).profile
+        backend = self._backend(tmp_path, profile=profile)
+        backend.setup_records = (_PASSED,)
+        run_dir = tmp_path / "work" / "_run"
+
+        def download(sandbox_path, local_dest):
+            run_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("sandbox-validation.json", "sandbox-discard.json", "toolchains.json"):
+                (run_dir / name).write_text("forged")
+            (run_dir / "verdict.json").write_text("the agent's own")
+
+        self._run(backend, download=download)
+        assert sorted(p.name for p in run_dir.iterdir()) == ["sandbox-setup.json", "verdict.json"]
+        assert json.loads((run_dir / "sandbox-setup.json").read_text()) == [_PASSED.to_dict()]
+
+    @pytest.mark.parametrize("profile", [None, SandboxProfile(egress=("npm",))])
+    def test_forged_records_are_removed_without_steps_or_a_profile(self, tmp_path, profile):
+        kwargs = {} if profile is None else {"sandbox_profile": profile}
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path / "work"), **kwargs
+        )
+        run_dir = tmp_path / "work" / "_run"
+        backend.run_dir = run_dir
+
+        def download(sandbox_path, local_dest):
+            run_dir.mkdir(parents=True)
+            (run_dir / "sandbox-validation.json").write_text("forged")
+            (run_dir / "sandbox-setup.json").mkdir()
+
+        _, steps = self._run(backend, download=download)
+        assert [c[0] for c in steps.mock_calls] == ["process_stream", "otel_flush", "download"]
+        assert list(run_dir.iterdir()) == []
+
+    def test_a_failed_return_to_the_agent_phase_blocks_the_next_run(self, tmp_path):
+        # The next run() on this backend switches to the agent phase before it
+        # writes the env script; while that fails, no agent starts.
+        def configure(steps):
+            steps.apply_phase_policy.side_effect = [None, RuntimeError("policy set failed")]
+
+        backend = self._backend(tmp_path)
+        self._run(backend, configure=configure)
+        assert backend._agent_phase_pending
+
+        def configure_again(steps):
+            steps.apply_phase_policy.side_effect = RuntimeError("policy set failed again")
+
+        with pytest.raises(RuntimeError, match="failed again"):
+            self._run(backend, configure=configure_again)
+        assert backend._agent_phase_pending
+
+        backend.validate_after_run = False
+        _, steps = self._run(backend)
+        assert [c[0] for c in steps.mock_calls][:5] == [
+            # The switch back to agent, before anything else of the run.
+            "stop_leftover_processes",
+            "apply_phase_policy",
+            "attach_provider",
+            "wait_for_provider_env",
+            "restore_discarded",
+        ]
+        assert not backend._agent_phase_pending
+
+    def test_the_wipe_covers_the_harness_credentials_and_the_env_script(self, tmp_path):
+        backend = self._backend(tmp_path, harness=_agent_harness())
+        backend.harness.sandbox_credential_files = ("/sandbox/.codex/auth.json",)
+        _, steps = self._run(backend)
+        steps.wipe_files.assert_called_once_with(
+            ["/sandbox/.codex/auth.json", "/tmp/.agentic-ci-env.sh"]
+        )
+
+    @pytest.mark.parametrize(
+        ("harness_cls", "path"),
+        [
+            (CodexHarness, "/sandbox/.codex/auth.json"),
+            (ClaudeCodeHarness, "/sandbox/.claude/.credentials.json"),
+            (OpenCodeHarness, "/sandbox/.local/share/opencode/auth.json"),
+        ],
+    )
+    def test_each_harness_names_its_credential_file(self, tmp_path, harness_cls, path):
+        backend = create_backend(
+            "openshell", harness=harness_cls(), workdir=str(tmp_path), sandbox_profile=STEPS_PROFILE
+        )
+        assert backend._credential_files() == [path, "/tmp/.agentic-ci-env.sh"]
+
+    def test_validate_commands_get_the_built_env_and_their_kind(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("JIRA_API_TOKEN", "jira-host-token-0000")
+        backend = self._backend(tmp_path)
+        _, steps = self._run(backend)
+        calls = steps.run_step.call_args_list
+        assert [(c.args, c.kwargs["kind"]) for c in calls] == [
+            (("unit", "pnpm test", 600), "test"),
+            (("lint", "false", 600), "lint"),
+        ]
+        env = calls[0].kwargs["env"]
+        assert env["HUSKY"] == "0" and env["HOME"] == "/sandbox"
+        assert "JIRA_API_TOKEN" not in env and "OPENAI_API_KEY" not in env
+        assert "jira-host-token-0000" in calls[0].kwargs["secrets"]
+
+    def test_records_with_skips_are_written_by_the_host_after_the_download(self, tmp_path):
+        backend = self._backend(tmp_path)
+        run_dir = tmp_path / "work" / "_run"
+
+        def download(sandbox_path, local_dest):
+            run_dir.mkdir(parents=True, exist_ok=True)
+            forged = [{"name": "unit", "kind": "test", "status": "passed", "rc": 0}]
+            (run_dir / "sandbox-validation.json").write_text(json.dumps(forged))
+            (run_dir / "sandbox-discard.json").write_text("forged")
+            (run_dir / "sandbox-setup.json").write_text("forged")
+
+        backend.setup_records = (_PASSED,)
+        self._run(backend, download=download)
+        records = json.loads((run_dir / "sandbox-validation.json").read_text())
+        assert records == [
+            {
+                "name": "unit",
+                "kind": "test",
+                "status": "passed",
+                "rc": 0,
+                "seconds": 0.5,
+                "tail": "tail of unit",
+            },
+            {
+                "name": "lint",
+                "kind": "lint",
+                "status": "passed",
+                "rc": 0,
+                "seconds": 0.5,
+                "tail": "tail of lint",
+            },
+            {
+                "name": "unshare --net",
+                "kind": "skip",
+                "status": "skipped",
+                "rc": None,
+                "seconds": 0.0,
+                "tail": "",
+                "reason": "seccomp",
+            },
+        ]
+        assert json.loads((run_dir / "sandbox-discard.json").read_text()) == [
+            {"path": "node_modules", "status": "removed"}
+        ]
+        assert json.loads((run_dir / "sandbox-setup.json").read_text()) == [_PASSED.to_dict()]
+
+    def test_a_failed_wipe_runs_no_validate_command_and_keeps_the_exit_code(self, tmp_path, capsys):
+        backend = self._backend(tmp_path)
+        rc, steps = self._run(backend, wipe=RuntimeError("Could not delete: exit status 1"), rc=0)
+        assert rc == 0
+        steps.run_step.assert_not_called()
+        steps.detach_provider.assert_not_called()
+        # The shim is never opened; the sandbox goes back to the agent phase.
+        assert steps.apply_phase_policy.call_args_list == [mock.call("agent", [])]
+        assert [r.status for r in backend.validation_records] == ["not_run", "not_run", "skipped"]
+        assert "validate phase could not be opened" in capsys.readouterr().out
+        steps.download.assert_called_once()
+
+    def test_a_failed_return_to_the_agent_phase_still_downloads(self, tmp_path, capsys):
+        def configure(steps):
+            steps.apply_phase_policy.side_effect = [None, RuntimeError("policy set failed")]
+
+        backend = self._backend(tmp_path)
+        rc, steps = self._run(backend, configure=configure)
+        assert rc == 0
+        steps.download.assert_called_once()
+        assert "could not return the sandbox to the agent phase" in capsys.readouterr().out
+
+    def test_skips_alone_are_recorded_without_a_phase_switch(self, tmp_path):
+        profile = SandboxProfile(skips=(sandbox_profile_module.Skip("podman", "no nesting"),))
+        backend = self._backend(tmp_path, profile=profile)
+        _, steps = self._run(backend)
+        steps.stop_leftover_processes.assert_not_called()
+        steps.wipe_files.assert_not_called()
+        steps.discard_paths.assert_not_called()
+        steps.restore_discarded.assert_not_called()
+        records = json.loads((tmp_path / "work" / "_run" / "sandbox-validation.json").read_text())
+        assert [r["status"] for r in records] == ["skipped"]
+
+    @pytest.mark.parametrize("profile", [None, SandboxProfile(egress=("npm",))])
+    def test_no_validate_no_skips_no_discard_changes_nothing(self, tmp_path, profile):
+        kwargs = {} if profile is None else {"sandbox_profile": profile}
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path / "work"), **kwargs
+        )
+        backend.run_dir = tmp_path / "work" / "_run"
+        _, steps = self._run(backend)
+        assert [c[0] for c in steps.mock_calls] == ["process_stream", "otel_flush", "download"]
+        assert not (tmp_path / "work" / "_run").exists()
+
+
+class TestProfileEnvInTheEnvScript:
+    def _script(self, backend, **kwargs):
+        captured = []
+
+        def upload(path):
+            with open(path) as fh:
+                captured.append(fh.read())
+
+        with (
+            mock.patch.object(sandbox, "upload", side_effect=upload),
+            mock.patch.object(sandbox, "exec_cmd"),
+        ):
+            backend._write_env_script("m", **kwargs)
+        return captured[0]
+
+    def test_profile_env_is_exported_for_the_agent(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        profile = SandboxProfile(env={"HUSKY": "0", "CYPRESS_INSTALL_BINARY": "0 1"})
+        backend = openshell_backend.OpenShellBackend(
+            workdir=str(tmp_path), harness=CodexHarness(), sandbox_profile=profile
+        )
+        lines = self._script(backend).splitlines()
+        # Last, after enable-plugins, so agentic-ci's own commands never see them.
+        assert lines[-4:] == [
+            "    agentic-ci enable-plugins",
+            "fi",
+            "export CYPRESS_INSTALL_BINARY='0 1'",
+            "export HUSKY=0",
+        ]
+
+    def test_a_name_agentic_ci_exports_is_not_overridden(self, tmp_path, monkeypatch, capsys):
+        # Names the reserved list misses: one the harness exports (TRACEPARENT
+        # here) and one the caller passes in extra_env keep agentic-ci's value.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        profile = SandboxProfile(
+            env={"TRACEPARENT": "forged", "CALLER_SETTING": "forged", "HUSKY": "0"}
+        )
+        backend = openshell_backend.OpenShellBackend(
+            workdir=str(tmp_path),
+            harness=CodexHarness(),
+            sandbox_profile=profile,
+            extra_env={"CALLER_SETTING": "caller"},
+        )
+        script = self._script(backend, traceparent="00-abc-def-01")
+        assert "forged" not in script
+        assert "export TRACEPARENT=00-abc-def-01" in script
+        assert "export CALLER_SETTING=caller" in script
+        assert script.splitlines()[-1] == "export HUSKY=0"
+        out = capsys.readouterr().out
+        assert "2 profile env variable(s) not exported to the agent" in out
+        assert "CALLER_SETTING, TRACEPARENT" in out

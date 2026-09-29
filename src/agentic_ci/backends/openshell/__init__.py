@@ -10,15 +10,17 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agentic_ci import log, toolchains
 from agentic_ci.backend import Backend
-from agentic_ci.backends.openshell import gateway, provider, sandbox
+from agentic_ci.backends.openshell import environment, gateway, provider, sandbox, steps
 from agentic_ci.backends.openshell.policy import phase_endpoints
 from agentic_ci.backends.openshell.provision import OpenShellInstaller
 from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
+from agentic_ci.redact import secret_values
 from agentic_ci.sandbox_profile import profile_hash
 
 if TYPE_CHECKING:
@@ -141,12 +143,45 @@ _MAIN_PROCESS_KEY = "main_process"
 # describes the sandbox and is left out of identity matching.
 _TOOLCHAINS_KEY = "toolchains"
 
-_DESCRIPTIVE_KEYS = frozenset({_MAIN_PROCESS_KEY, _TOOLCHAINS_KEY})
+# Key of the setup step records (StepRecord.to_dict()) in the saved identity.
+# Recorded only for a profile with setup steps, which run when the sandbox is
+# created; a reused sandbox reports them again (in ENVIRONMENT.md and
+# _run/sandbox-setup.json) instead of running the steps a second time.
+_SETUP_KEY = "setup"
+
+_DESCRIPTIVE_KEYS = frozenset({_MAIN_PROCESS_KEY, _TOOLCHAINS_KEY, _SETUP_KEY})
 
 
 def _identity_fields(identity: dict) -> dict:
     """*identity* without what it records about the sandbox, for matching."""
     return {k: v for k, v in identity.items() if k not in _DESCRIPTIVE_KEYS}
+
+
+def _saved_setup_records(identity: dict | None) -> tuple[steps.StepRecord, ...]:
+    """The setup step records of the saved identity; entries that do not parse are dropped."""
+    records = (identity or {}).get(_SETUP_KEY)
+    if not isinstance(records, list):
+        return ()
+    parsed = (steps.StepRecord.from_dict(record) for record in records)
+    return tuple(record for record in parsed if record is not None)
+
+
+# Run records the host writes into the run directory. run() writes them again
+# after the workdir download, which brings the sandbox's copy of _run back.
+_SETUP_RECORD = "sandbox-setup.json"
+_VALIDATION_RECORD = "sandbox-validation.json"
+_DISCARD_RECORD = "sandbox-discard.json"
+_TOOLCHAIN_RECORD = "toolchains.json"
+_RUN_RECORDS = (_SETUP_RECORD, _VALIDATION_RECORD, _DISCARD_RECORD, _TOOLCHAIN_RECORD)
+
+# The variable an env script line exports.
+_EXPORT_RE = re.compile(r"\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=")
+
+
+def _json_writer(records: tuple) -> Callable[[Path], None]:
+    """A writer of *records* (each with ``to_dict()``) as a JSON list, for a run record."""
+    data = [record.to_dict() for record in records]
+    return lambda path: steps.write_json(path, data)
 
 
 def _toolchain_records(identity: dict | None) -> dict[str, str]:
@@ -199,6 +234,18 @@ class OpenShellBackend(Backend):
     layer, not isolation (see :data:`sandbox.SANDBOX_SETUP_SHIM`), so each
     switch also kills the processes earlier execs left running and, for the
     setup and validate phases, detaches the credential provider.
+
+    Its ``setup`` steps run in the sandbox under the setup phase when the
+    sandbox is created (:meth:`_run_setup_phase`), and
+    ``/sandbox/.agentic-ci/ENVIRONMENT.md`` tells the agent what it has
+    (:meth:`_write_environment`). After the agent, :meth:`run` deletes the
+    harness credential files, runs the ``validate`` commands under the
+    validate phase, moves the ``discard_before_download`` paths out of the
+    workdir (the next run moves them back) and only then downloads the
+    workdir. The host writes the results to
+    ``<run_dir>/sandbox-setup.json``, ``sandbox-validation.json`` and
+    ``sandbox-discard.json`` and writes them again after the download, so
+    the agent cannot forge them.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -230,6 +277,19 @@ class OpenShellBackend(Backend):
         self.toolchain_env = toolchains.ToolchainEnv()
         self.toolchain_results: tuple[toolchains.ToolchainResult, ...] = ()
         self._toolchain_records: dict[str, str] = {}
+        # Set by setup() for a profile with setup steps (run now, or saved
+        # when a reused sandbox was created), and by each run() for a profile
+        # with validate commands or skips and discard paths; run() starts
+        # with none, so a run never reports an earlier run's results.
+        self.setup_records: tuple[steps.StepRecord, ...] = ()
+        self.validation_records: tuple[steps.StepRecord, ...] = ()
+        self.discard_records: tuple[steps.DiscardRecord, ...] = ()
+        # Whether validation ran in the current run() (not for a classifier
+        # run); only then is sandbox-validation.json written.
+        self._validation_ran = False
+        # Set when the sandbox left the agent phase and has not been switched
+        # back successfully; run() switches it before anything else then.
+        self._agent_phase_pending = False
         # Loaded from the saved identity on first use when this backend did
         # not create the sandbox itself.
         self._main_process: sandbox.MainProcess | None = None
@@ -344,6 +404,11 @@ class OpenShellBackend(Backend):
                 if self._provision_toolchains(_toolchain_records(identity)):
                     identity[_TOOLCHAINS_KEY] = self._toolchain_records
                     _save_sandbox_identity(identity)
+                # Setup steps ran when this sandbox was created; their effects
+                # are still in it, so they are reported, not run again.
+                self.setup_records = _saved_setup_records(identity)
+                self._write_setup_records()
+                self._write_environment()
                 return
 
             if existing_auth_mode != auth_mode:
@@ -372,6 +437,8 @@ class OpenShellBackend(Backend):
         # it is the only record of the sandbox's auth mode.
         _clear_sandbox_identity()
         self._main_process = None
+        # A new sandbox starts in the agent phase.
+        self._agent_phase_pending = False
         sandbox.create(
             image=self.image,
             policy_path=self.policy_path,
@@ -395,6 +462,8 @@ class OpenShellBackend(Backend):
         sandbox.upload(self.workdir)
 
         provisioned = self._provision_toolchains({})
+        self._run_setup_phase()
+        self._write_environment()
 
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
         identity = _sandbox_identity(
@@ -408,6 +477,8 @@ class OpenShellBackend(Backend):
             identity[_MAIN_PROCESS_KEY] = self._main_process.to_record()
         if provisioned:
             identity[_TOOLCHAINS_KEY] = self._toolchain_records
+        if self.sandbox_profile is not None and self.sandbox_profile.setup:
+            identity[_SETUP_KEY] = [record.to_dict() for record in self.setup_records]
         _save_sandbox_identity(identity)
 
     def _reuse_sandbox(self) -> bool:
@@ -476,31 +547,350 @@ class OpenShellBackend(Backend):
     def _write_toolchain_results(self) -> None:
         """Write :attr:`toolchain_results` to ``<run_dir>/toolchains.json`` on the host.
 
-        Only for a profile with toolchains and a :attr:`run_dir`. ``run()``
-        calls it again after the workdir download, which would otherwise
-        replace the host's record with whatever the sandbox holds at that
-        path (the workdir's ``_run`` is downloaded back too). Best effort: a
-        directory or other non-file the agent left at that path is removed
-        first, and a write that still fails is logged, never raised, so it
-        cannot replace the run's exit code or hide a download error.
+        Only for a profile with toolchains (see :meth:`_write_run_record`).
         """
         profile = self.sandbox_profile
-        if self.run_dir is None or profile is None or not profile.toolchains:
+        if profile is None or not profile.toolchains:
             return
+        results = self.toolchain_results
+        self._write_run_record(
+            _TOOLCHAIN_RECORD, lambda path: toolchains.write_results(path, results)
+        )
+
+    def _write_setup_records(self) -> None:
+        """Write :attr:`setup_records` to ``<run_dir>/sandbox-setup.json`` (profile with setup)."""
+        profile = self.sandbox_profile
+        if profile is None or not profile.setup:
+            return
+        self._write_json_record(_SETUP_RECORD, [record.to_dict() for record in self.setup_records])
+
+    def _write_run_records(self) -> None:
+        """Write this run's records again after the workdir download; remove every other one.
+
+        The download brings the sandbox's copy of ``_run`` back, so anything
+        the agent wrote there arrives with it. First a symlink or other
+        non-directory at the run directory is replaced by an empty directory
+        (see :meth:`_reclaim_run_dir`). Then the records this run holds are
+        written again, and every other host record name (:data:`_RUN_RECORDS`)
+        is removed, whatever the profile: a validation record is kept only
+        when validation ran in this run, and a record the host has nothing to
+        write for (a forged ``sandbox-validation.json`` for a profile without
+        validate, say) never survives. No-op without a run_dir.
+        """
+        if self.run_dir is None or not self._reclaim_run_dir():
+            return
+        profile = self.sandbox_profile
+        records: dict[str, Callable[[Path], None]] = {}
+        if profile is not None and profile.toolchains:
+            results = self.toolchain_results
+            records[_TOOLCHAIN_RECORD] = lambda path: toolchains.write_results(path, results)
+        if profile is not None and profile.setup:
+            records[_SETUP_RECORD] = _json_writer(self.setup_records)
+        if self._validation_ran:
+            records[_VALIDATION_RECORD] = _json_writer(self.validation_records)
+        if profile is not None and profile.discard_before_download:
+            records[_DISCARD_RECORD] = _json_writer(self.discard_records)
+        for name in _RUN_RECORDS:
+            if name in records:
+                self._write_run_record(name, records[name])
+            else:
+                self._remove_run_record(name)
+
+    def _reclaim_run_dir(self) -> bool:
+        """Make the run directory a real directory again after the download; return success.
+
+        The agent can replace the workdir's ``_run`` with a symlink to a
+        directory it controls, or with a file; consumers would then read its
+        records through it. The link or file is removed (never its target)
+        and an empty directory created in its place. A missing run directory
+        is left missing.
+        """
+        run_dir = Path(str(self.run_dir))
+        try:
+            if run_dir.is_symlink() or (run_dir.exists() and not run_dir.is_dir()):
+                log.info("WARNING: the run directory was not a directory after the download")
+                run_dir.unlink()
+                run_dir.mkdir()
+        except OSError as exc:
+            log.detail("run directory error", f"{type(exc).__name__}: {exc}")
+            log.info("WARNING: the run directory could not be restored; run records not written")
+            return False
+        return True
+
+    def _write_json_record(self, name: str, data: object) -> None:
+        self._write_run_record(name, lambda path: steps.write_json(path, data))
+
+    def _clear_run_record_path(self, name: str) -> Path | None:
+        """``<run_dir>/<name>`` with nothing left at it, or None when it cannot be written.
+
+        None without a run_dir or when the run directory is a symlink
+        (nothing is ever removed or written through it). A directory or any
+        other entry at that path is removed, a symlink itself, never its
+        target. Raises ``OSError`` when the removal fails.
+        """
+        if self.run_dir is None:
+            return None
         run_dir = Path(self.run_dir)
         if run_dir.is_symlink():
-            log.info("WARNING: the run directory is a symlink; toolchains.json not written")
-            return
-        path = run_dir / "toolchains.json"
+            log.info(f"WARNING: the run directory is a symlink; {name} not written")
+            return None
+        path = run_dir / name
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        elif path.is_symlink() or path.exists():
+            path.unlink()
+        return path
+
+    def _write_run_record(self, name: str, write: Callable[[Path], None]) -> None:
+        """Write ``<run_dir>/<name>`` on the host with *write*; no-op without a run_dir.
+
+        ``run()`` calls it again after the workdir download, which would
+        otherwise replace the host's record with whatever the sandbox holds at
+        that path (the workdir's ``_run`` is downloaded back too). Best
+        effort: a directory or other non-file the agent left at that path is
+        removed first, and a write that still fails is logged, never raised,
+        so it cannot replace the run's exit code or hide a download error.
+        """
         try:
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
-            elif path.is_symlink() or (path.exists() and not path.is_file()):
-                path.unlink()
-            toolchains.write_results(path, self.toolchain_results)
+            path = self._clear_run_record_path(name)
+            if path is not None:
+                write(path)
         except OSError as exc:
-            log.detail("toolchains.json write error", f"{type(exc).__name__}: {exc}")
-            log.info("WARNING: toolchains.json could not be written")
+            log.detail(f"{name} write error", f"{type(exc).__name__}: {exc}")
+            log.info(f"WARNING: {name} could not be written")
+
+    def _remove_run_record(self, name: str) -> None:
+        """Remove ``<run_dir>/<name>``, a record this run did not write (best effort)."""
+        if self.run_dir is None:
+            return
+        path = Path(self.run_dir) / name
+        try:
+            if not (path.is_symlink() or path.exists()):
+                return
+            if self._clear_run_record_path(name) is not None:
+                log.info(f"Removed {name} from the run directory: this run did not write it")
+        except OSError as exc:
+            log.detail(f"{name} removal error", f"{type(exc).__name__}: {exc}")
+            log.info(f"WARNING: {name} could not be removed from the run directory")
+
+    def _step_env(self) -> dict[str, str]:
+        """The environment of setup steps and validate commands (see :func:`steps.build_env`)."""
+        profile = self.sandbox_profile
+        return steps.build_env(
+            self.toolchain_env.path,
+            self.toolchain_env.variables,
+            profile.env if profile is not None else {},
+        )
+
+    def _sandbox_workdir(self) -> str:
+        return f"/sandbox/{os.path.basename(self.workdir)}"
+
+    def _run_setup_phase(self) -> None:
+        """Run the profile's setup steps in the sandbox under the setup phase, then switch to agent.
+
+        No-op without setup steps, so no phase is switched. Each step runs in
+        order through the setup shim with its own timeout, in the workdir, with
+        :meth:`_step_env` (no credential: the env script does not exist yet).
+        A step that fails or times out is recorded and the next one still
+        runs; the records go to :attr:`setup_records` and
+        ``<run_dir>/sandbox-setup.json``. When the setup phase cannot be
+        opened, no step runs and each is recorded as ``not_run``. The switch
+        back to the agent phase must succeed: it raises, and setup fails,
+        rather than let the agent start with setup egress open.
+        """
+        profile = self.sandbox_profile
+        if profile is None or not profile.setup:
+            return
+        log.section(f"Running {len(profile.setup)} setup step(s) in the sandbox")
+        records: list[steps.StepRecord] = []
+        try:
+            self._set_egress_phase("setup")
+        except RuntimeError as exc:
+            log.detail("setup phase error", str(exc))
+            log.info("WARNING: the setup phase could not be opened; setup steps not run")
+            records = [
+                steps.StepRecord(step.name, "not_run", reason="the setup phase could not be opened")
+                for step in profile.setup
+            ]
+        else:
+            env = self._step_env()
+            secrets = secret_values(self._merged_env())
+            for step in profile.setup:
+                records.append(
+                    steps.run_step(
+                        step.name,
+                        step.run,
+                        step.timeout,
+                        env=env,
+                        cwd=self._sandbox_workdir(),
+                        secrets=secrets,
+                    )
+                )
+        self.setup_records = tuple(records)
+        failed = sum(1 for record in records if record.status != "passed")
+        if failed:
+            log.info(f"WARNING: {failed} setup step(s) did not pass; the run continues")
+        self._write_setup_records()
+        self._set_egress_phase("agent")
+
+    def _write_environment(self) -> None:
+        """Write ``ENVIRONMENT.md`` and ``environment.json`` to ``/sandbox/.agentic-ci``.
+
+        For every sandbox profile, before the agent starts (see
+        :mod:`agentic_ci.backends.openshell.environment`). Best effort: a
+        failure is logged and the run goes on without the files.
+        """
+        profile = self.sandbox_profile
+        if profile is None:
+            return
+        data = environment.build(
+            profile,
+            toolchain_results=self.toolchain_results,
+            toolchain_env=self.toolchain_env,
+            setup_records=self.setup_records,
+            workdir=self._sandbox_workdir(),
+        )
+        local_dir = tempfile.mkdtemp(prefix=".agentic-ci-environment-")
+        try:
+            Path(local_dir, environment.ENVIRONMENT_MD).write_text(
+                environment.render_markdown(data), encoding="utf-8"
+            )
+            steps.write_json(Path(local_dir, environment.ENVIRONMENT_JSON), data)
+            sandbox.upload(local_dir, timeout=steps.ENVIRONMENT_TIMEOUT_SECONDS)
+            written = steps.install_environment_files(
+                f"/sandbox/{os.path.basename(local_dir)}",
+                environment.SANDBOX_ENVIRONMENT_DIR,
+                [environment.ENVIRONMENT_MD, environment.ENVIRONMENT_JSON],
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            log.detail("environment files error", type(exc).__name__)
+            written = False
+        finally:
+            shutil.rmtree(local_dir, ignore_errors=True)
+        if written:
+            log.info(f"Wrote {environment.SANDBOX_ENVIRONMENT_DIR}/{environment.ENVIRONMENT_MD}")
+        else:
+            log.info("WARNING: ENVIRONMENT.md could not be written; the run continues")
+
+    def _credential_files(self) -> list[str]:
+        """Harness credential files and the env script, which validate must not read."""
+        files = getattr(self.harness, "sandbox_credential_files", ())
+        if not isinstance(files, (tuple, list)):
+            files = ()
+        paths = [f for f in files if isinstance(f, str) and f.startswith("/")]
+        return list(dict.fromkeys([*paths, self._ENV_SCRIPT]))
+
+    def _wipe_credentials(self) -> None:
+        """Delete the harness credential files in the sandbox (raises when not confirmed)."""
+        steps.wipe_files(self._credential_files())
+
+    def _run_validation(self) -> bool:
+        """Run the profile's validate commands after the agent; return whether phases switched.
+
+        Opens the validate phase, which kills every process left in the
+        sandbox and then deletes the harness credential files (such as Codex's
+        ``$CODEX_HOME/auth.json``) before it detaches the provider and applies
+        the validate policy. Each command runs through the setup shim with
+        :meth:`_step_env` and its timeout; then the sandbox returns to the
+        agent phase so a reused sandbox starts clean. Declared ``skips`` are
+        recorded as ``skipped``. When the validate phase cannot be opened
+        (including a wipe that cannot be confirmed), no command runs and each
+        is recorded as ``not_run``. Nothing here raises: validation never
+        changes the run's exit code. Returns True when it switched phases
+        (with validate commands), which kills every leftover process.
+        """
+        profile = self.sandbox_profile
+        if profile is None or not (profile.validate or profile.skips):
+            return False
+        self._validation_ran = True
+        records: list[steps.StepRecord] = []
+        if profile.validate:
+            log.section(f"Running {len(profile.validate)} validate command(s) in the sandbox")
+            try:
+                self._set_egress_phase("validate", before_open=self._wipe_credentials)
+            except RuntimeError as exc:
+                log.detail("validate phase error", str(exc))
+                log.info("WARNING: the validate phase could not be opened; validation not run")
+                records = [
+                    steps.StepRecord(
+                        step.name,
+                        "not_run",
+                        kind=step.kind,
+                        reason="the validate phase could not be opened",
+                    )
+                    for step in profile.validate
+                ]
+            else:
+                env = self._step_env()
+                secrets = secret_values(self._merged_env())
+                for step in profile.validate:
+                    records.append(
+                        steps.run_step(
+                            step.name,
+                            step.run,
+                            step.timeout,
+                            env=env,
+                            cwd=self._sandbox_workdir(),
+                            secrets=secrets,
+                            kind=step.kind,
+                        )
+                    )
+            try:
+                self._set_egress_phase("agent")
+            except RuntimeError as exc:
+                # _agent_phase_pending stays set: the next run() or setup()
+                # switches the sandbox to the agent phase first (setup()
+                # recreates it when that fails) and never starts the agent
+                # without it.
+                log.detail("agent phase error", str(exc))
+                log.info(
+                    "WARNING: could not return the sandbox to the agent phase after validation"
+                )
+        records.extend(
+            steps.StepRecord(skip.match, "skipped", kind="skip", reason=skip.reason)
+            for skip in profile.skips
+        )
+        self.validation_records = tuple(records)
+        return bool(profile.validate)
+
+    def _stop_leftovers_before_discard(self) -> None:
+        """Kill the processes the agent left before the discard, when no phase switch did.
+
+        Only for a profile with discard paths. Best effort: a failure is
+        logged and the discard still runs.
+        """
+        profile = self.sandbox_profile
+        if profile is None or not profile.discard_before_download:
+            return
+        try:
+            sandbox.stop_leftover_processes(self._sandbox_main_process(), "discard")
+        except RuntimeError as exc:
+            log.detail("leftover processes error", str(exc))
+            log.info("WARNING: the processes left in the sandbox could not all be stopped")
+
+    def _restore_discarded(self) -> None:
+        """Put back what the previous run on this sandbox discarded, before the agent starts.
+
+        :meth:`_discard_before_download` moves the paths out of the workdir
+        instead of deleting them, so a later run (the skill after a classifier
+        run, or a retry) still has what the setup steps installed. Best
+        effort; no-op without discard paths.
+        """
+        profile = self.sandbox_profile
+        if profile is None or not profile.discard_before_download:
+            return
+        if steps.restore_discarded(self._sandbox_workdir()) is None:
+            log.info("WARNING: the paths discarded by the previous run could not be restored")
+
+    def _discard_before_download(self) -> None:
+        """Move the profile's ``discard_before_download`` paths out of the sandbox workdir."""
+        profile = self.sandbox_profile
+        if profile is None or not profile.discard_before_download:
+            return
+        log.section("Removing discard_before_download paths")
+        self.discard_records = tuple(
+            steps.discard_paths(self._sandbox_workdir(), profile.discard_before_download)
+        )
 
     def _profile_kwargs(self) -> dict:
         """``profile=`` for ``sandbox.create``, passed only when a profile is set."""
@@ -522,7 +912,9 @@ class OpenShellBackend(Backend):
             )
         return self._main_process
 
-    def _set_egress_phase(self, phase: str) -> None:
+    def _set_egress_phase(
+        self, phase: str, *, before_open: Callable[[], None] | None = None
+    ) -> None:
         """Open the sandbox profile's egress for *phase* to the setup shim.
 
         ``setup`` and ``validate`` bind the endpoints of the profile's presets
@@ -556,6 +948,11 @@ class OpenShellBackend(Backend):
         start services for the agent or for validate; validate kills them
         anyway.
 
+        *before_open* runs right after the kill, while nothing else runs in
+        the sandbox and before the provider or policy changes; an exception
+        it raises stops the switch. The validate phase deletes the harness
+        credential files there, so no leftover can write them again.
+
         Every step is idempotent, so switching to the phase already in effect
         is safe, and a reused sandbox left mid-phase (provider detached) is
         repaired by the switch to ``agent``; :meth:`setup` recreates one it
@@ -574,12 +971,18 @@ class OpenShellBackend(Backend):
             self.harness.auth_mode_for_env(self._merged_env())
         )
         log.section(f"Switching sandbox egress to the {phase} phase")
+        if phase != "agent":
+            # Cleared only by a switch back to agent that succeeds.
+            self._agent_phase_pending = True
         sandbox.stop_leftover_processes(self._sandbox_main_process(), phase)
+        if before_open is not None:
+            before_open()
         if phase == "agent":
             sandbox.apply_phase_policy(phase, endpoints)
             if key_env_vars:
                 sandbox.attach_provider(phase)
                 sandbox.wait_for_provider_env(key_env_vars, attached=True, phase=phase)
+            self._agent_phase_pending = False
             return
         if key_env_vars:
             # A DETACHED probe proves a detach only as a change from an
@@ -682,6 +1085,15 @@ class OpenShellBackend(Backend):
     ):
         env = self._merged_env()
         auth_mode = self.harness.auth_mode_for_env(env)
+        self.validation_records = ()
+        self.discard_records = ()
+        self._validation_ran = False
+        if self._agent_phase_pending:
+            # An earlier switch back to the agent phase failed (after
+            # validation, say): no credential reaches the sandbox, and no
+            # agent starts, until it succeeds. Raises otherwise.
+            log.info("The sandbox is not in the agent phase; switching it before the agent")
+            self._set_egress_phase("agent")
         self._write_env_script(
             model,
             otel_port,
@@ -703,6 +1115,7 @@ class OpenShellBackend(Backend):
         workdir_name = os.path.basename(self.workdir)
         sandbox_workdir = f"/sandbox/{workdir_name}"
         cmd = self._agent_command(sandbox_workdir, agent_args)
+        self._restore_discarded()
 
         # The download below copies the sandbox's .git over the host repo, and
         # the agent can write that .git. Only the host can write the workdir
@@ -727,13 +1140,25 @@ class OpenShellBackend(Backend):
             rc, stream_complete = self._process_stream(proc, streaming)
             self._wait_for_otel_flush(otel_port)
 
+            # Repo code runs again here, after the agent: only with the
+            # credential files deleted, under the validate phase. Then the
+            # discarded paths go, so they are not downloaded.
+            switched = False
+            if self.validate_after_run:
+                switched = self._run_validation()
+            if not switched:
+                # No phase switch killed the agent's leftovers; one could
+                # otherwise recreate a discarded path before the download.
+                self._stop_leftovers_before_discard()
+            self._discard_before_download()
+
             log.section("Downloading workdir")
             try:
                 sandbox.download(sandbox_workdir, self.workdir)
             finally:
                 # The download brings the sandbox's _run back too; the host's
-                # record of the toolchains wins over anything written there.
-                self._write_toolchain_results()
+                # records win over anything written there.
+                self._write_run_records()
 
             rc = self._resolve_exit_code(rc, stream_complete)
             return rc
@@ -742,6 +1167,34 @@ class OpenShellBackend(Backend):
             if keepalive:
                 keepalive.join(timeout=5)
             self._restore_host_git(release=True)
+
+    def _profile_script_lines(self, earlier: list[str]) -> list[str]:
+        """The env script's toolchain and profile ``env`` exports, which follow *earlier*.
+
+        A profile name that *earlier* exports, or that the caller passed in
+        ``extra_env``, is left out, so agentic-ci's value is the one in
+        effect; the profile's names are validated against the reserved
+        names, so this only catches what that list misses.
+        """
+        lines = self.toolchain_env.script_lines()
+        profile = self.sandbox_profile
+        if profile is None or not profile.env:
+            return lines
+        taken = {m.group(1) for line in earlier if (m := _EXPORT_RE.match(line))}
+        taken.update(self._extra_env)
+        dropped = sorted(name for name in profile.env if name in taken)
+        if dropped:
+            log.detail("profile env not exported", ", ".join(dropped))
+            log.info(
+                f"WARNING: {len(dropped)} profile env variable(s) not exported to the agent: "
+                "agentic-ci sets them"
+            )
+        lines.extend(
+            f"export {key}={shlex.quote(value)}"
+            for key, value in profile.env.items()
+            if key not in taken
+        )
+        return lines
 
     def _write_env_script(
         self,
@@ -796,9 +1249,6 @@ class OpenShellBackend(Backend):
                 continue
             lines.append(f"export {key}={shlex.quote(val)}")
 
-        # Empty (no lines) without provisioned toolchains.
-        lines.extend(self.toolchain_env.script_lines())
-
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
         if effort is not None:
             lines.append(f"export {AGENT_EFFORT_ENV_VAR}={shlex.quote(effort)}")
@@ -810,6 +1260,12 @@ class OpenShellBackend(Backend):
                 "fi",
             ]
         )
+
+        # The toolchain variables and the profile's env (which the setup steps
+        # and validate commands get too) come last, after every command the
+        # script runs, so they reach the agent and never agentic-ci's own
+        # commands. Both are empty without a profile.
+        lines.extend(self._profile_script_lines(lines))
 
         script = "\n".join(lines) + "\n"
 

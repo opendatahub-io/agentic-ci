@@ -8,17 +8,21 @@ before the workdir is copied back. Callers build one with
 as `SkillConfig.sandbox_profile`.
 
 !!! note "What takes effect in this release"
-    `resources`, `egress` and `toolchains` take effect today: the OpenShell
-    backend sizes the sandbox with `resources`, opens the `egress` presets
-    and raw endpoints to the agent (see [Egress](#egress)) and provisions
-    the `toolchains` (see [Toolchains](#toolchains)). Every other field is
-    validated, merged and carried to the backend, but not yet acted on.
-    In-sandbox setup, validation runs and `discard_before_download` land in
-    the following releases.
+    Every field takes effect in the OpenShell backend: it sizes the sandbox
+    with `resources`, opens the `egress` presets and raw endpoints (see
+    [Egress](#egress)), provisions the `toolchains` (see
+    [Toolchains](#toolchains)), runs the `setup` steps in the sandbox before
+    the agent and the `validate` commands after it, records the declared
+    `skips`, exports `env`, removes the `discard_before_download` paths and
+    tells the agent all of it in `ENVIRONMENT.md` (see
+    [Setup, validation and records](#setup-validation-and-records)). The
+    host-side `setup:` of `.agentic-ci/config.yml` is unchanged in this
+    release.
 
 Sandbox profiles apply only to the OpenShell backend. The Podman and local
-backends log a warning and ignore a profile (with a second warning counting
-the toolchains they do not provision).
+backends log a warning and ignore a profile (with further warnings counting
+the toolchains they do not provision and the setup steps and validate
+commands they do not run). Profile steps never run on the host.
 
 ## Schema
 
@@ -77,16 +81,19 @@ pattern must match the whole value; a trailing newline is rejected.
 ### Reserved environment variable names
 
 Profile `env` goes into the same environment as the harness, so names that
-would change the harness, its telemetry or credentials, the dynamic loader,
-the shell, git, or TLS and proxy settings are rejected. All checks ignore
-case.
+would change the harness (Claude Code, Codex, OpenCode), agentic-ci or
+OpenShell, their telemetry or credentials, the dynamic loader, the shell,
+git, the XDG directories the harnesses keep their config and credentials
+in, or TLS and proxy settings are rejected. All checks ignore case.
 
-- Names: `ALL_PROXY`, `BASH_ENV`, `ENV`, `HOME`, `HTTP_PROXY`, `HTTPS_PROXY`,
-  `IFS`, `NODE_EXTRA_CA_CERTS`, `NODE_OPTIONS`, `NO_PROXY`, `PATH`,
-  `PYTHONHOME`, `PYTHONSTARTUP`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_DIR`,
-  `SSL_CERT_FILE`.
-- Prefixes: `AGENT_`, `ANTHROPIC_`, `CLAUDE_`, `CLOUD_ML_`, `CODEX_`, `GCP_`,
-  `GIT_`, `GOOGLE_`, `LD_`, `OPENAI_`, `OTEL_`, `VERTEX_`.
+- Names: `ALL_PROXY`, `BASH_ENV`, `CURL_CA_BUNDLE`, `DENO_CERT`, `ENV`,
+  `HOME`, `HTTP_PROXY`, `HTTPS_PROXY`, `IFS`, `METADATA_SERVER_DETECTION`,
+  `NODE_EXTRA_CA_CERTS`, `NODE_OPTIONS`, `NO_PROXY`, `PATH`, `PYTHONHOME`,
+  `PYTHONSTARTUP`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_DIR`, `SSL_CERT_FILE`,
+  `TERM`, `USER`.
+- Prefixes: `AGENT_`, `AGENTIC_CI_`, `ANTHROPIC_`, `CLAUDE_`, `CLOUD_ML_`,
+  `CODEX_`, `GCP_`, `GIT_`, `GOOGLE_`, `LD_`, `OPENAI_`, `OPENCODE_`,
+  `OPENSHELL_`, `OTEL_`, `VERTEX_`, `XDG_`.
 - Any name containing `token`, `secret`, `key`, `password` or `credential`
   (a substring match, case-insensitive).
 - Any name with `pat` (personal access token) as a whole `_`-separated word,
@@ -329,8 +336,8 @@ OpenShell matches a connection by the caller's executable and its parent
 chain, so a command started through the shim, and everything it starts, gets
 the shim's rules; a bare process, or one the shim leaves behind after it
 exits, does not, and a process an earlier exec left running is killed before
-the phase opens anyway. Running setup and validate steps through the shim
-lands in a following release.
+the phase opens anyway. The profile's setup steps and validate commands run
+through the shim (see [Setup, validation and records](#setup-validation-and-records)).
 
 ## Toolchains
 
@@ -497,4 +504,199 @@ node or pnpm) and the pnpm store variables (with pnpm). A toolchain that
 failed exports nothing. `GOTOOLCHAIN=local` makes a go.mod that needs a
 newer Go fail (`go.mod requires go >= ...; GOTOOLCHAIN=local`) instead of
 downloading that toolchain. `OpenShellBackend.toolchain_env` holds the same
-variables for the in-sandbox setup steps of the following release.
+variables, which the setup steps and validate commands get too.
+
+## Setup, validation and records
+
+The OpenShell backend runs the profile's `setup` steps and `validate`
+commands inside the sandbox, never on the CI host (see
+[Setup order](backends/openshell.md#setup-order) and
+[Run order](backends/openshell.md#run-order)).
+
+### How a step runs
+
+Each setup step and validate command runs as
+
+```bash
+openshell sandbox exec --name ci --no-tty --no-login-shell -- \
+  /usr/bin/python3 -I -S -c <step wrapper> <spec> \
+  /usr/local/bin/agentic-ci-sandbox-setup /usr/bin/bash -c "<run>"
+```
+
+The step wrapper (`agentic_ci.backends.openshell.steps`) changes to the
+workdir (`/sandbox/<workdir name>`), builds the step's environment from
+scratch and runs the shim, which runs `bash -c "<run>"` in its own process
+group, so the phase's egress reaches the step and everything it starts. The
+environment is:
+
+| Variable | Value |
+|----------|-------|
+| `PATH` | the provisioned toolchains' directories, then `/sandbox/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin` |
+| `HOME`, `LANG` | `/sandbox`, `C.UTF-8` |
+| toolchain variables | `GOTOOLCHAIN`, `GOPATH`, `GOMODCACHE`, `GOCACHE`, `npm_config_cache`, the pnpm store (see above) |
+| profile `env` | as set (wins over a toolchain variable of the same name) |
+| inherited | only OpenShell's CA bundle variables (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `DENO_CERT`, `SSL_CERT_DIR`), proxy variables if a runtime sets them, `OPENSHELL_SANDBOX`, `TERM` and `USER` |
+
+Nothing else reaches the step: not the LLM env script (never sourced), not
+the provider placeholder, not a forge, Jira or LLM credential of the host.
+The internal exec runs with `--no-login-shell`, so an agent-written
+`~/.bash_profile` does not run before a validate command either.
+
+Each step has its own `timeout` (default 600 s, at most 3600 s), enforced in
+the sandbox: when it passes, the wrapper sends `SIGTERM` to the shim (which
+forwards it to the step's process group) and to every process below it, then
+`SIGKILL` 10 s later, and the step is recorded as `timeout` (exit 124). The
+host gives up on an exec that does not return a minute after that.
+
+No step process outlives its step. The wrapper is a child subreaper
+(`PR_SET_CHILD_SUBREAPER`), so a background job or a double-forked daemon the
+step starts is reparented to it rather than to the sandbox's init; as soon as
+the shim exits (the step passed, failed or timed out), the wrapper sends
+`SIGKILL` to every process still below it and reaps them. A step that leaves
+a daemon holding its output therefore ends when its shell does, and a
+process that ignores `SIGTERM` does not survive the timeout.
+
+### Setup steps
+
+When the sandbox is created, after the toolchains are provisioned, the
+backend switches to the `setup` phase (kill the leftovers, detach the
+provider, apply the setup policy), runs every setup step in order and
+switches back to the `agent` phase before anything else happens. A step
+that fails or times out is recorded and the next step still runs; the agent
+is told in `ENVIRONMENT.md`. When the setup phase cannot be opened, no step
+runs and each is recorded as `not_run`; a failed switch back to `agent`
+fails `setup()`, because the agent must never start with setup egress open.
+
+A reused sandbox (same identity, so the same profile) does not run its setup
+steps again: their effects are still in the sandbox, and the results saved
+with the sandbox identity when it was created are reported again. A profile
+without setup steps switches no phase in `setup()`.
+
+### Validate commands
+
+After the agent exits and the OTel flush, and before the workdir is
+downloaded, the backend:
+
+1. switches to the `validate` phase, which kills every process left in the
+   sandbox and then deletes the harness credential files: Codex's
+   `$CODEX_HOME/auth.json` (`/sandbox/.codex/auth.json`), Claude Code's
+   `/sandbox/.claude/.credentials.json`, OpenCode's
+   `/sandbox/.local/share/opencode/auth.json` and the env script
+   `/tmp/.agentic-ci-env.sh` if it is still there. The wipe runs after the
+   kill, so a process the agent left cannot write a file back, and it must
+   be confirmed: otherwise no validate command runs. Then the provider is
+   detached and the validate policy applied: the agent's rules parked, the
+   shim bound to the presets open in the validate phase, and never an LLM
+   or forge host;
+2. runs each validate command in order, as above;
+3. switches back to the `agent` phase, so a reused sandbox starts clean. A
+   failure here is logged and remembered: the next `setup()` repairs or
+   recreates the sandbox, and a `run()` on the same backend without a
+   `setup()` first switches to the `agent` phase before it writes the env
+   script, and raises (no agent starts) while that fails.
+
+A copy of a credential the agent made elsewhere during its run is not
+covered; that is the agent phase's existing exposure. Validation never
+changes the run's exit code: a validate phase that cannot be opened records
+every command as `not_run`. A model-routing classifier run
+(`run_routed_skill`) changes no code, so it skips validation
+(`SkillSession.run(..., validate=False)` sets `Backend.validate_after_run`);
+the skill run that follows validates.
+
+### discard_before_download
+
+After validation, each `discard_before_download` path is moved out of the
+workdir inside the sandbox, to `/sandbox/.agentic-ci/discarded`, before the
+download, so a large `node_modules` is never copied back. The next `run()` on
+the same sandbox (the skill run after a classifier run, or a retry) moves it
+back before its agent starts, so what the setup steps installed stays
+available; a path whose place was taken in the meantime is not restored, and
+the stash is deleted either way. Paths are workdir-relative; `..`, absolute
+paths, the workdir itself and `.git` are refused when the profile is parsed
+and again in the sandbox. Every directory on the way is opened without
+following symlinks, so a symlink anywhere in the path makes it `refused`
+instead of reaching outside the workdir, and a symlink as the last component
+is removed itself, never its target. Without a usable stash directory (a
+symlink planted there) paths are deleted instead. Failures are recorded, not
+fatal.
+
+### Records
+
+The host writes the records into the run directory (`<workdir>/_run` for a
+skill run) and writes them again after the workdir download, which brings
+the sandbox's copy of `_run` back: a record the agent forged there is
+replaced. Every record name in the table below that the run did not write
+is removed after the download, whatever the profile (with no profile too),
+so a forged `sandbox-validation.json` for a profile without validate
+commands, say, never survives. A `_run` the agent replaced with a symlink or
+a file is replaced by a directory first; nothing is written or removed
+through the link. A write error is logged, never raised.
+
+| File | Written for | Entries |
+|------|-------------|---------|
+| `sandbox-setup.json` | a profile with setup steps | `{name, status, rc, seconds, tail[, reason]}` |
+| `sandbox-validation.json` | a profile with validate commands or skips, in a run that validated (not a classifier run) | `{name, kind, status, rc, seconds, tail[, reason]}` |
+| `sandbox-discard.json` | a profile with discard paths | `{path, status}` |
+| `toolchains.json` | a profile with toolchains | see [Toolchains](#toolchains) |
+
+`status` is `passed`, `failed` (non-zero `rc`), `timeout`, `error` (could
+not be started) or `not_run` (the phase could not be opened; `reason` says
+so). Declared skips are entries of `sandbox-validation.json` with `kind:
+"skip"`, `status: "skipped"`, the skip's `match` as `name`, its `reason` and
+`rc: null`, so consumers can show what did not run. Discard statuses are
+`removed`, `absent`, `refused`, `failed` or `error`.
+
+`tail` holds at most the last 50 lines of the step's combined output, each
+cut to 400 characters, with ANSI escapes and control characters removed and
+secrets redacted (`agentic_ci.redact`): `Authorization`, `Cookie` and API key
+headers, `Bearer` and `Basic` credentials, credentials in URLs, well-known
+token shapes (OpenAI, Anthropic, GitHub, GitLab, npm, Slack, AWS, Google,
+JWTs, OpenShell placeholders), the value of `NAME=value` and `"name":
+"value"` pairs whose name looks like a credential, and the value of every
+variable the host holds whose name looks like one. Redaction is a filter for
+accidental leaks, not a guarantee. It runs in time linear in the output (a
+credential-like name is matched only where a run of name characters starts,
+with at most 128 characters before and after its credential word).
+
+!!! warning "What a validate record proves"
+    The host ran the command and recorded its exit status and output; it
+    does not prove the command was the one the repo intended or ran
+    unmodified tools. The validate commands run in the workdir the agent
+    changed, with the toolchains under `/sandbox/.local/toolchains` and
+    `/sandbox/.local/bin` first on `PATH`, all of which the agent can write
+    during its run (a replaced `node` or an edited test can make a command
+    pass). Consumers such as a merge gate should treat `passed` as a signal
+    from the sandbox, not as host-verified evidence, and pair it with CI or
+    review.
+
+### ENVIRONMENT.md
+
+For every profile, before the agent starts, the backend writes
+`/sandbox/.agentic-ci/ENVIRONMENT.md` and `environment.json`: the
+provisioned toolchains, the egress presets open to the agent, the setup
+steps and their results (with the last output lines of a failed step), the
+validate commands to run, the declared skips and the names of the profile's
+`env` variables. The directory is outside the workdir, so neither file is
+downloaded back or committed; a symlink or file the agent left at that path
+is replaced, never written through. The sandbox `AGENTS.md` tells the agent
+to read `ENVIRONMENT.md` first and to treat it as authoritative.
+
+Repo-controlled strings stay data: step names (letters, digits, `.`, `_` and
+`-` only) appear in inline code, and commands, skip text and output tails only
+inside fenced code blocks whose fence is longer than any backtick run they
+contain, under a note that they are data, not instructions. Lists are capped
+at 50 entries and strings at a few thousand characters. Writing the files is
+best effort: a failure is logged and the run goes on.
+
+### env
+
+The profile's `env` is exported by the agent's env script too, so the
+agent, the setup steps and the validate commands see the same values. In
+the env script the toolchain variables and then the profile's `env` come
+last, after every command the script runs (`agentic-ci enable-plugins`), so
+they reach only the agent. A profile name the script already exports, or
+that the caller passes in the backend's `extra_env` (`container_env`), is
+not exported (`WARNING: N profile env variable(s) not exported to the
+agent`, with the names in the job log): agentic-ci's own values always win,
+also for a name the [reserved list](#reserved-environment-variable-names)
+misses.

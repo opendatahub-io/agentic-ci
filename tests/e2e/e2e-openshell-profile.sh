@@ -56,6 +56,18 @@
 # that a reused sandbox skips re-provisioning, and that a profile change to
 # the toolchains alone recreates the sandbox, which then installs them again.
 #
+# Section 13 runs a profile's setup steps and validate commands in the
+# sandbox (driver steps-run, with a scripted "agent" under codex): pnpm
+# install reaches the npm registry through a setup-shim rule, a failing and a
+# timed-out step are recorded while later steps still run, steps get no
+# credential, the agent sees ENVIRONMENT.md, auth.json is deleted before
+# validate (even with a leftover rewriting it), the validate records and
+# their redacted tails, the agent phase is back afterwards, the host's records
+# replace ones forged in the workdir, discard_before_download keeps
+# node_modules out of the download and refuses a symlinked path, and a second
+# run on the reused sandbox reports the saved setup results without running
+# them again and gets the discarded node_modules back before its agent starts.
+#
 # No LLM call is made. The providers need a credential to be created, so fake
 # ones are used and a real OPENAI_API_KEY, ANTHROPIC_API_KEY or Google
 # credential is never read. The key checks send the fake key to the
@@ -1604,6 +1616,362 @@ assert all(r["status"] == "installed" for r in results.values()), results
 assert_ok "toolchains: from the host cache, with no download" \
     test "$(grep -c 'host cache hit' "$TC_LOG_2")" -eq 3 -a \
         "$(grep -c 'downloaded and verified' "$TC_LOG_2")" -eq 0
+
+# ============================================================================
+print_header "=== 13. Setup steps, validate commands, ENVIRONMENT.md and discard ==="
+# A profile with node 22 and pnpm (from the section 12 host cache), the npm
+# preset, setup steps (pnpm install through the shim, one that fails, one that
+# must still run after it, one that times out, one that prints its env, one
+# that passes but leaves processes running and one that checks that neither
+# those nor the timed-out step's survived) and
+# validate commands (the fixture's test, an environment check, one that
+# fails). The "agent" is a script under codex (driver steps-run): it logs
+# codex in, so $CODEX_HOME/auth.json exists, reads ENVIRONMENT.md, forges the
+# run records in the workdir, plants a symlink for a discard path and leaves a
+# process that keeps writing auth.json. After it the backend wipes the
+# credential files, validates, discards and downloads.
+S13_W="$TC_SANDBOX_WORKDIR"
+# assert_py DESC SCRIPT ARGS...: like assert_ok with python3 -c SCRIPT, but
+# shows the end of the assertion message when the check fails.
+assert_py() {
+    local desc="$1" script="$2" out; shift 2
+    if out="$(python3 -c "$script" "$@" 2>&1)"; then
+        pass "$desc"
+    else
+        fail "$desc"
+        echo "  Got: $(tail -3 <<<"$out" | tr '\n' ' ' | cut -c1-600)"
+    fi
+}
+printf '{"name": "agentic-ci-e2e", "private": true, "packageManager": "pnpm@%s+sha512.%s", "dependencies": {"is-number": "7.0.0"}}\n' \
+    "$TC_PNPM" "$TC_PNPM_SHA512" > "$WORKDIR/package.json"
+cat > "$WORKDIR/test.js" <<'TESTJS'
+const isNumber = require("is-number");
+if (!isNumber(5) || isNumber("x")) {
+    console.log("unit FAILED");
+    process.exit(1);
+}
+console.log("unit ok with is-number");
+TESTJS
+# shellcheck disable=SC2016 # expanded inside the sandbox
+S13_PROFILE="$(python3 - "$S13_W" <<'PROFILE_PY'
+import json, sys
+w = sys.argv[1]
+env_report = (
+    'echo "KEYVARS=$(env | grep -c -E \'^(OPENAI_API_KEY|ANTHROPIC_API_KEY|BOT_PAT|JIRA_API_TOKEN)=\')";'
+    ' echo "HUSKY=$HUSKY"; echo "PATH0=${PATH%%:*}"; echo "PWD=$PWD";'
+    ' echo "STORE=$pnpm_config_store_dir"'
+)
+# Counts what the earlier steps left running: the timed-out sleep 120 and the
+# daemon step's sleep 300 and 301.
+reaped = (
+    "n=0; for p in /proc/[0-9]*; do"
+    ' case "$(tr "\\0" " " < "$p/cmdline" 2>/dev/null)" in'
+    ' "sleep 120 "|"sleep 300 "|"sleep 301 ") n=$((n + 1));; esac; done; echo "LEFT=$n"'
+)
+profile = {
+    "toolchains": {"node": "22", "pnpm": "auto"},
+    "egress": ["npm"],
+    "setup": [
+        {"name": "deps", "run": "pnpm install --reporter=append-only", "timeout": 300},
+        {"name": "env-report", "run": env_report + "; echo leaked ghp_" + "a" * 36, "timeout": 60},
+        {"name": "broken", "run": "echo about to fail; exit 7", "timeout": 60},
+        {"name": "after-broken", "run": "echo later > setup-after.txt", "timeout": 60},
+        {"name": "slow", "run": "sleep 120", "timeout": 2},
+        # A background job holding the step's output and a double-forked
+        # daemon: the step must still end at once, and neither outlive it.
+        {
+            "name": "daemon",
+            "run": "sleep 300 & (setsid sleep 301 </dev/null >/dev/null 2>&1 &); echo started",
+            "timeout": 60,
+        },
+        {"name": "reaped", "run": reaped, "timeout": 60},
+    ],
+    "validate": [
+        {"name": "unit", "kind": "test", "run": "node test.js", "timeout": 120},
+        {
+            "name": "env-check",
+            "kind": "lint",
+            "run": env_report
+            + "; test -e /sandbox/.codex/auth.json && echo AUTH_PRESENT || echo AUTH_GONE"
+            + "; test -e /tmp/.agentic-ci-env.sh && echo ENV_SCRIPT_PRESENT || echo ENV_SCRIPT_GONE"
+            + f"; python3 {w}/probe.py https://registry.npmjs.org/is-number"
+            + f"; python3 {w}/probe.py https://api.openai.com/v1/models",
+            "timeout": 120,
+        },
+        {
+            "name": "failing",
+            "kind": "build",
+            "run": "echo validate fails here; echo 'Authorization: Bearer abcdefghijklmnop'; exit 5",
+            "timeout": 60,
+        },
+    ],
+    "skips": [{"match": "podman run", "reason": "no nested containers in the sandbox"}],
+    "env": {"HUSKY": "0"},
+    "discard_before_download": ["node_modules", "linkdir/ENVIRONMENT.md"],
+}
+print(json.dumps(profile))
+PROFILE_PY
+)"
+# shellcheck disable=SC2016 # expanded inside the sandbox
+S13_AGENT_SCRIPT='
+python3 -c "
+import os
+pid = os.getppid()
+while pid > 1:
+    if os.readlink(f\"/proc/{pid}/exe\") == \"/usr/local/bin/codex\":
+        print(\"UNDER_CODEX\")
+        break
+    with open(f\"/proc/{pid}/stat\") as fh:
+        pid = int(fh.read().rpartition(\")\")[2].split()[1])
+"
+E=/sandbox/.agentic-ci
+test -s $E/ENVIRONMENT.md && echo ENV_MD_PRESENT
+grep -q "^- \`broken\`: failed, exit 7" $E/ENVIRONMENT.md && echo ENV_MD_BROKEN_RECORDED
+grep -q "^- \`slow\`: timed out" $E/ENVIRONMENT.md && echo ENV_MD_TIMEOUT_RECORDED
+grep -q "^### \`unit\` (test, timeout 120s)" $E/ENVIRONMENT.md && echo ENV_MD_VALIDATE_LISTED
+grep -q "^## Declared skips" $E/ENVIRONMENT.md && echo ENV_MD_SKIPS_LISTED
+grep -q "| pnpm | auto | " $E/ENVIRONMENT.md && echo ENV_MD_TOOLCHAINS_LISTED
+grep -q "^Egress presets open to you.*\`npm\`" $E/ENVIRONMENT.md && echo ENV_MD_PRESETS_LISTED
+python3 -c "
+import json
+data = json.load(open(\"/sandbox/.agentic-ci/environment.json\"))
+print(\"ENV_JSON_SETUP \" + \",\".join(r[\"name\"] + \":\" + r[\"status\"] for r in data[\"setup\"]))
+"
+test -d node_modules/is-number && echo AGENT_SEES_NODE_MODULES
+echo "SETUP_AFTER=$(cat setup-after.txt)"
+test -s /sandbox/.codex/auth.json && echo AUTH_JSON_PRESENT
+echo "AGENT_HUSKY=$HUSKY"
+mkdir -p _run
+for f in sandbox-setup.json sandbox-validation.json sandbox-discard.json; do
+    echo "[{\"name\": \"forged\", \"status\": \"passed\"}]" > _run/$f
+done
+ln -s /sandbox/.agentic-ci linkdir
+cp /sandbox/.codex/auth.json /tmp/auth-copy.json
+nohup bash -c "while :; do cp /tmp/auth-copy.json /sandbox/.codex/auth.json 2>/dev/null; sleep 0.1; done" \
+    >/dev/null 2>&1 &
+echo AGENT_DONE
+'
+export BOT_PAT=glpat-e2e-fake-bot-pat-0000000000
+export JIRA_API_TOKEN=e2e-fake-jira-token-0000000000
+S13_RUN_DIR="$WORKDIR/_run"
+S13_LOG="$TMPDIR_E2E/steps-run.log"
+S13_ALLOW_MARK="$(date +%s)"
+s13_start=$(date +%s)
+driver steps-run --profile-json "$S13_PROFILE" --run-dir "$S13_RUN_DIR" \
+    --agent-script "$S13_AGENT_SCRIPT" > "$S13_LOG" 2>&1 || true
+unset BOT_PAT JIRA_API_TOKEN
+S13_OUT="$(tr -d '\r' < "$S13_LOG")"
+echo "  steps-run took $(($(date +%s) - s13_start))s"
+if grep -q "DRIVER_OK steps-run rc=0" <<<"$S13_OUT"; then
+    pass "steps: setup, the agent script, validation and download ran"
+else
+    fail "steps: setup, the agent script, validation and download ran"
+    tail -60 "$S13_LOG"
+fi
+
+# Setup: in order, under the setup phase, recorded by the host.
+assert_ok "setup: the setup phase opened before the steps" \
+    python3 -c '
+import sys
+out = sys.argv[1]
+setup = out.index("Switching sandbox egress to the setup phase")
+first = out.index("Setup step deps:")
+agent = out.index("Switching sandbox egress to the agent phase", first)
+env_md = out.index("Wrote /sandbox/.agentic-ci/ENVIRONMENT.md")
+assert setup < first < agent < env_md
+' "$S13_OUT"
+S13_SETUP_CHECK='
+import json, re, sys
+records = json.load(open(sys.argv[1]))
+status = {r["name"]: (r["status"], r["rc"]) for r in records}
+assert [r["name"] for r in records] == [
+    "deps", "env-report", "broken", "after-broken", "slow", "daemon", "reaped"
+], records
+assert status["deps"] == ("passed", 0), status
+assert status["env-report"] == ("passed", 0), status
+assert status["broken"] == ("failed", 7), status
+assert status["after-broken"] == ("passed", 0), status
+assert status["slow"] == ("timeout", 124), status
+assert status["daemon"] == ("passed", 0), status
+assert status["reaped"] == ("passed", 0), status
+tail = {r["name"]: r["tail"] for r in records}
+assert "about to fail" in tail["broken"], tail
+assert "timed out after 2s" in tail["slow"], tail
+# The daemon step ended with its shim, not at the host backstop.
+assert [r["seconds"] for r in records if r["name"] == "daemon"][0] < 30, records
+# Nothing the timed-out step or the daemon step started was left running.
+assert tail["reaped"] == "LEFT=0", tail
+if sys.argv[3] == "order":
+    sys.exit(0)
+report = tail["env-report"]
+assert "KEYVARS=0" in report and "HUSKY=0" in report, report
+assert re.search(r"PATH0=/sandbox/\.local/toolchains/node-22\.[0-9.]+/\S*bin\n", report), report
+assert "PWD=" + sys.argv[2] in report and "STORE=/sandbox/.cache/pnpm-store" in report, report
+assert "ghp_" not in report and "leaked [REDACTED]" in report, report
+'
+assert_py "setup: every step recorded in order; the failure and the timeout did not stop the rest" \
+    "$S13_SETUP_CHECK" "$S13_RUN_DIR/sandbox-setup.json" "$S13_W" order
+assert_py "setup: no credential in the steps' env, the toolchain and profile env are, tails redacted" \
+    "$S13_SETUP_CHECK" "$S13_RUN_DIR/sandbox-setup.json" "$S13_W" env
+S13_ALLOWS='
+import re, sys
+after = float(sys.argv[1])
+# Only the provisioned node (pnpm) counts: the validate env-check probe
+# (python3) reaches the registry through a shim rule too.
+pattern = re.compile(
+    r"NET:OPEN \[INFO\] ALLOWED (/sandbox/\.local/toolchains/node-[0-9.]+/\S*bin/node)\([0-9]+\)"
+    r" -> registry\.npmjs\.org:443 \[policy:agentic_ci_phase_[0-9]+"
+)
+for line in sys.stdin:
+    stamp = re.match(r"^\[([0-9.]+)\]", line)
+    match = pattern.search(line)
+    if stamp and match and float(stamp.group(1)) > after:
+        print(match.group(1))
+        sys.exit(0)
+sys.exit(1)
+'
+S13_ALLOWED_BY=""
+for _ in $(seq 20); do
+    S13_ALLOWED_BY="$(read_log | python3 -c "$S13_ALLOWS" "$S13_ALLOW_MARK" || true)"
+    [[ -n "$S13_ALLOWED_BY" ]] && break
+    sleep 1
+done
+if [[ -n "$S13_ALLOWED_BY" ]]; then
+    pass "setup: pnpm reached registry.npmjs.org through a setup-shim rule ($S13_ALLOWED_BY)"
+else
+    fail "setup: pnpm reached registry.npmjs.org through a setup-shim rule"
+fi
+expect DENIED "agent phase after the run: npm from a bare exec" -- "${PY_PROBE[@]}" "$NPM_URL"
+
+# The agent (a codex descendant) saw ENVIRONMENT.md and the setup results.
+for marker in UNDER_CODEX ENV_MD_PRESENT ENV_MD_BROKEN_RECORDED ENV_MD_TIMEOUT_RECORDED \
+    ENV_MD_VALIDATE_LISTED ENV_MD_SKIPS_LISTED ENV_MD_TOOLCHAINS_LISTED ENV_MD_PRESETS_LISTED \
+    AGENT_SEES_NODE_MODULES AUTH_JSON_PRESENT AGENT_DONE; do
+    assert_ok "agent: $marker" grep -qx "$marker" <<<"$S13_OUT"
+done
+assert_ok "agent: environment.json has the setup results" grep -qx \
+    "ENV_JSON_SETUP deps:passed,env-report:passed,broken:failed,after-broken:passed,slow:timeout,daemon:passed,reaped:passed" \
+    <<<"$S13_OUT"
+assert_ok "agent: the step after the failed one ran" grep -qx "SETUP_AFTER=later" <<<"$S13_OUT"
+assert_ok "agent: the profile env reaches the agent" grep -qx "AGENT_HUSKY=0" <<<"$S13_OUT"
+
+# Validate: after the wipe, under the validate phase, then back to agent.
+assert_ok "validate: kill, wipe, validate phase, commands, agent phase, discard, download" \
+    python3 -c '
+import sys
+out = sys.argv[1]
+done = out.index("AGENT_DONE")
+switch = out.index("Switching sandbox egress to the validate phase", done)
+stopped = out.index("before the validate phase", switch)
+wiped = out.index("Deleted 2 harness credential file path(s) before validation", stopped)
+first = out.index("Validate command unit:", wiped)
+agent = out.index("Switching sandbox egress to the agent phase", first)
+discard = out.index("Discarded before download:", agent)
+download = out.index("Downloading workdir", discard)
+' "$S13_OUT"
+S13_VALIDATION_CHECK='
+import json, sys
+records = json.load(open(sys.argv[1]))
+by_name = {r["name"]: r for r in records}
+assert [r["name"] for r in records] == ["unit", "env-check", "failing", "podman run"], records
+assert by_name["unit"]["kind"] == "test" and by_name["unit"]["status"] == "passed", by_name
+assert "unit ok with is-number" in by_name["unit"]["tail"], by_name
+check = by_name["env-check"]
+assert check["status"] == "passed", check
+lines = check["tail"].split("\n")
+if sys.argv[2] == "wipe":
+    for needle in ("AUTH_GONE", "ENV_SCRIPT_GONE", "KEYVARS=0", "HUSKY=0"):
+        assert needle in lines, (needle, lines)
+    # The validate phase opens npm to the shim, never the LLM host.
+    assert any(l.startswith("PROBE ALLOWED") and "host=registry.npmjs.org" in l for l in lines), lines
+    assert any(l.startswith("PROBE BLOCKED") for l in lines), lines
+    sys.exit(0)
+failing = by_name["failing"]
+assert (failing["kind"], failing["status"], failing["rc"]) == ("build", "failed", 5), failing
+assert "validate fails here" in failing["tail"], failing
+assert "abcdefghijklmnop" not in failing["tail"] and "Authorization: [REDACTED]" in failing["tail"]
+skip = by_name["podman run"]
+assert (skip["kind"], skip["status"], skip["rc"]) == ("skip", "skipped", None), skip
+assert skip["reason"] == "no nested containers in the sandbox", skip
+'
+assert_py "validate: records with kinds, results, redacted tails and the declared skip" \
+    "$S13_VALIDATION_CHECK" "$S13_RUN_DIR/sandbox-validation.json" records
+assert_py "validate: auth.json gone, no key in the env, npm open and the LLM host closed to it" \
+    "$S13_VALIDATION_CHECK" "$S13_RUN_DIR/sandbox-validation.json" wipe
+assert_ok "validate: the leftover that rewrote auth.json was killed" \
+    test "$(procs "auth-copy.json" | cut -d' ' -f1)" = 0
+assert_ok "validate: auth.json stays deleted after the run" \
+    test "$(sx bash -c 'test -e /sandbox/.codex/auth.json && echo present || echo gone')" = gone
+S13_POLICY="$TMPDIR_E2E/policy-after-validate.json"
+openshell policy get --base -o json "$SANDBOX" > "$S13_POLICY" 2>/dev/null || true
+assert_ok "validate: the agent phase is restored (no shim rule, no parked agent binary)" \
+    python3 -c '
+import json, sys
+policy = json.load(open(sys.argv[1]))["policy"]
+rules = policy["network_policies"]
+assert rules, "no rules"
+assert not [n for n in rules if n.startswith("agentic_ci_phase_")], list(rules)
+paths = [b["path"] for r in rules.values() for b in r.get("binaries", [])]
+assert "/usr/local/bin/codex" in paths, paths
+assert not [p for p in paths if p.startswith("/proc/agentic-ci-parked") or p.endswith("agentic-ci-sandbox-setup")], paths
+' "$S13_POLICY"
+
+# The host's records replace the ones the agent forged in the workdir.
+assert_ok "records: the forged records in the workdir were replaced by the host's" \
+    test "$(grep -l forged "$S13_RUN_DIR"/sandbox-*.json 2>/dev/null | wc -l)" -eq 0
+
+# Discard: node_modules is not downloaded; the symlinked path is refused.
+assert_ok "discard: node_modules removed, the symlinked path refused" \
+    python3 -c '
+import json, sys
+records = json.load(open(sys.argv[1]))
+assert records == [
+    {"path": "node_modules", "status": "removed"},
+    {"path": "linkdir/ENVIRONMENT.md", "status": "refused"},
+], records
+' "$S13_RUN_DIR/sandbox-discard.json"
+assert_ok "discard: node_modules is absent from the downloaded workdir" \
+    test ! -e "$WORKDIR/node_modules"
+assert_ok "discard: the pnpm lockfile setup wrote was downloaded" test -s "$WORKDIR/pnpm-lock.yaml"
+assert_ok "discard: nothing was removed through the symlink" \
+    test "$(sx bash -c 'test -s /sandbox/.agentic-ci/ENVIRONMENT.md && echo kept')" = kept
+assert_ok "ENVIRONMENT.md is not in the downloaded workdir" \
+    test -z "$(find "$WORKDIR" -name ENVIRONMENT.md -not -path '*/linkdir/*' -print -quit)"
+
+# A second run on the reused sandbox, as the skill run after a classifier run
+# or a retry would be: no setup step runs again, the saved setup results are
+# reported, and what the first run discarded is back before the agent starts.
+# shellcheck disable=SC2016 # expanded inside the sandbox
+S13_AGENT2_SCRIPT='
+test -d node_modules/is-number && echo AGENT2_SEES_RESTORED_NODE_MODULES
+grep -q "^- \`broken\`: failed, exit 7" /sandbox/.agentic-ci/ENVIRONMENT.md && echo AGENT2_ENV_MD
+echo AGENT2_DONE
+'
+S13_RUN2_DIR="$TMPDIR_E2E/s13-run2"
+S13_RUN2_LOG="$TMPDIR_E2E/steps-run-2.log"
+driver steps-run --profile-json "$S13_PROFILE" --run-dir "$S13_RUN2_DIR" \
+    --agent-script "$S13_AGENT2_SCRIPT" > "$S13_RUN2_LOG" 2>&1 || true
+S13_OUT2="$(tr -d '\r' < "$S13_RUN2_LOG")"
+assert_ok "second run: the sandbox is reused and no setup step runs again" \
+    python3 -c '
+import sys
+out = sys.argv[1]
+assert "Sandbox already exists" in out
+assert "setup step(s) in the sandbox" not in out and "Setup step " not in out
+assert "Wrote /sandbox/.agentic-ci/ENVIRONMENT.md" in out
+assert "DRIVER_OK steps-run rc=0" in out
+' "$S13_OUT2"
+assert_py "second run: sandbox-setup.json repeats the results of the creating run" \
+    "$S13_SETUP_CHECK" "$S13_RUN2_DIR/sandbox-setup.json" "$S13_W" env
+assert_ok "second run: the discarded node_modules is restored before the agent" \
+    grep -q "Restored 1 path(s) discarded by the previous run" <<<"$S13_OUT2"
+for marker in AGENT2_SEES_RESTORED_NODE_MODULES AGENT2_ENV_MD AGENT2_DONE; do
+    assert_ok "second run: $marker" grep -qx "$marker" <<<"$S13_OUT2"
+done
+assert_py "second run: validated again, with node_modules back" \
+    "$S13_VALIDATION_CHECK" "$S13_RUN2_DIR/sandbox-validation.json" records
+assert_ok "second run: node_modules is again absent from the downloaded workdir" \
+    test ! -e "$WORKDIR/node_modules"
 
 echo ""
 print_header "=== All test sections complete ==="

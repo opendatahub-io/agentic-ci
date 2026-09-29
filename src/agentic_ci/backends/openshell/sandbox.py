@@ -694,6 +694,15 @@ class MainProcess:
         return cls(pid=pid, start_time=start_time)
 
 
+def python_exec_args(script: str, args: Sequence[str]) -> list[str]:
+    """The argv that runs *script* with the sandbox's python, as the sandbox user, no login shell.
+
+    For in-sandbox helpers that manage the process themselves, such as the
+    setup and validate step runner (``agentic_ci.backends.openshell.steps``).
+    """
+    return [*_INTERNAL_EXEC, _NO_LOGIN_SHELL, "--", *_SANDBOX_PYTHON, script, *args]
+
+
 def _exec_python(label, script, args, timeout=_PROCESS_EXEC_TIMEOUT_SECONDS):
     """Run *script* with the sandbox's python as the sandbox user, with no login shell.
 
@@ -703,7 +712,7 @@ def _exec_python(label, script, args, timeout=_PROCESS_EXEC_TIMEOUT_SECONDS):
     prefix = [*_INTERNAL_EXEC, _NO_LOGIN_SHELL, "--"]
     log.detail("exec", " ".join([*prefix, *_SANDBOX_PYTHON, f"<{label}>", *args]))
     return subprocess.run(
-        [*prefix, *_SANDBOX_PYTHON, script, *args],
+        python_exec_args(script, args),
         capture_output=True,
         text=True,
         timeout=timeout,

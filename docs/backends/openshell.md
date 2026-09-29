@@ -34,13 +34,16 @@ environment). On each `agentic-ci run --backend openshell`, it:
 4. Applies a network policy and waits for it to activate
 5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
 6. Uploads the workdir (including setup step outputs) into the sandbox
-7. Provisions the sandbox profile's toolchains, if any (see
+7. Provisions the sandbox profile's toolchains, runs its setup steps in the
+   sandbox and writes `ENVIRONMENT.md`, if the profile has them (see
    [Setup order](#setup-order))
 8. Uploads an env script with agent configuration
 9. Executes the agent inside the sandbox
-10. Downloads the workdir back to the host and restores the host's git
+10. Runs the sandbox profile's validate commands in the sandbox and removes
+   its `discard_before_download` paths (see [Run order](#run-order))
+11. Downloads the workdir back to the host and restores the host's git
    control files (see [Host git after the run](#host-git-after-the-run))
-11. Tears everything down on completion
+12. Tears everything down on completion
 
 ## OpenShell Commands
 
@@ -429,19 +432,62 @@ openshell sandbox exec --name ci --no-tty -- \
 
     Results go to the log and `_run/toolchains.json`; a toolchain that fails
     is skipped and the run continues.
-5. Harness config upload, then the sandbox identity (with the profile hash,
-   so a changed profile, toolchains included, recreates the sandbox, and
-   the record of the provisioned toolchains) is saved.
+5. Setup steps, when the profile has them: switch to the `setup` egress
+   phase (kill leftovers, detach the provider, setup-phase policy), run each
+   step through the setup shim with its timeout, in the workdir and with an
+   environment agentic-ci builds (toolchain variables and the profile's
+   `env`, no credential), record them in `_run/sandbox-setup.json`, then
+   switch to the `agent` phase (see
+   [Setup, validation and records](../sandbox-profiles.md#setup-validation-and-records)).
+   A failed or timed-out step is recorded and the next one still runs.
+6. `/sandbox/.agentic-ci/ENVIRONMENT.md` and `environment.json`, for every
+   sandbox profile: toolchains, setup results, validate commands, skips and
+   open presets.
+7. Harness config upload, then the sandbox identity (with the profile hash,
+   so a changed profile, toolchains included, recreates the sandbox, the
+   record of the provisioned toolchains and the setup results) is saved.
+
+Without a profile, steps 4 to 6 do nothing; a profile without setup steps
+switches no phase.
 
 A reused sandbox (same identity) is switched to the `agent` egress phase
 and then provisioned again, which skips every toolchain that both the
 host's record and the marker show as installed with the same sha256 (the
 marker alone is in a directory the agent can write, so it is never trusted
-by itself), and saves the updated record. The toolchain variables (`PATH` prepends, `GOTOOLCHAIN=local`,
-the Go and npm caches and the pnpm store) are added to the env script that
-`run()` uploads before the agent starts. In-sandbox setup steps, the
-setup-phase policy and `ENVIRONMENT.md` come in a following release, between
-steps 4 and 5.
+by itself), and saves the updated record. Its setup steps are not run again:
+the results saved when it was created go to `_run/sandbox-setup.json` and
+`ENVIRONMENT.md`, which is written again. The toolchain variables (`PATH`
+prepends, `GOTOOLCHAIN=local`, the Go and npm caches and the pnpm store) and
+the profile's `env` are added to the env script that `run()` uploads before
+the agent starts.
+
+### Run order
+
+`OpenShellBackend.run()`:
+
+1. Switches the sandbox to the `agent` phase first when an earlier switch
+   back to it failed (and raises if that fails again, so no agent starts),
+   moves back what the previous run on this sandbox discarded (see step 3),
+   uploads the env script and starts the agent; waits for it and for the
+   OTel flush.
+2. Validate commands, when the profile has them: switch to the `validate`
+   phase, which kills every leftover process, then deletes the harness
+   credential files (Codex's `auth.json` and the others, plus the env
+   script), then detaches the provider and applies the validate-phase
+   policy; run each command through the setup shim; switch back to the
+   `agent` phase. Results, with the declared skips, go to
+   `_run/sandbox-validation.json`. None of this changes the exit code. A
+   classifier run skips this step and writes no validation record.
+3. Moves the `discard_before_download` paths out of the workdir, to
+   `/sandbox/.agentic-ci/discarded` (`_run/sandbox-discard.json`). When no
+   validate phase ran (a classifier run, or a profile without validate
+   commands), the leftover processes are killed first, so none can recreate
+   a discarded path before the download.
+4. Downloads the workdir, then writes this run's records (`toolchains.json`,
+   `sandbox-setup.json`, `sandbox-validation.json`, `sandbox-discard.json`)
+   over whatever the download brought back, removes every one of those names
+   this run did not write, replaces a `_run` the agent turned into a symlink
+   or file with a directory, and restores the host's git control files.
 
 ### Teardown
 
@@ -498,7 +544,9 @@ Because the sandbox has no internet access by default, repositories that
 need dependency installation (e.g. `npm ci` for Node.js projects) can
 define **setup steps** that run on the host before the workdir is
 uploaded. See [Project Configuration](../configuration.md#setup-steps)
-for full details.
+for full details. These host steps run with the host's environment; a
+[sandbox profile](../sandbox-profiles.md#setup-validation-and-records)'s
+`setup` steps run inside the sandbox instead, with no credential.
 
 ```yaml
 # .agentic-ci/config.yml
