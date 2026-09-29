@@ -144,6 +144,20 @@ class TestSecretValues:
             "sess-12345678",
         }
 
+    def test_multi_line_values_add_each_line(self):
+        pem = (
+            "-----BEGIN PRIVATE KEY-----\n"
+            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n"
+            "abc\n"
+            "-----END PRIVATE KEY-----\n"
+        )
+        values = set(secret_values({"GITHUB_APP_PRIVATE_KEY": pem}))
+        assert pem.strip() in values
+        assert "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC" in values
+        assert "-----END PRIVATE KEY-----" in values
+        # Lines shorter than MIN_SECRET_LENGTH are still left out.
+        assert "abc" not in values
+
     def test_longest_first(self):
         values = secret_values({"A_TOKEN": "a" * 10, "B_TOKEN": "b" * 20})
         assert values == ("b" * 20, "a" * 10)

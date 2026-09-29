@@ -18,7 +18,7 @@ from unittest import mock
 import pytest
 
 from agentic_ci.backends.openshell import environment, sandbox, steps
-from agentic_ci.redact import REDACTED
+from agentic_ci.redact import REDACTED, secret_values
 from agentic_ci.sandbox_profile import SandboxProfile, Skip, ValidateStep, parse_profile
 from agentic_ci.toolchains import ToolchainEnv, ToolchainResult
 
@@ -224,6 +224,15 @@ class TestTailText:
         text = steps.tail_text(data)
         assert time.monotonic() - start < 10
         assert len(text) == steps.TAIL_LINE_CHARS + 3
+
+    def test_redacts_each_line_of_a_multi_line_host_secret(self):
+        body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
+        pem = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----\n"
+        secrets = secret_values({"GITHUB_APP_PRIVATE_KEY": pem})
+        text = steps.tail_text(f"step printed:\n{pem}done\n".encode(), secrets)
+        assert body not in text
+        assert "PRIVATE KEY" not in text
+        assert text.splitlines()[0] == "step printed:"
 
     def test_drops_the_fragment_a_truncated_buffer_starts_with(self):
         text = steps.tail_text(b"retoken-half\nfull line\n", truncated=True)

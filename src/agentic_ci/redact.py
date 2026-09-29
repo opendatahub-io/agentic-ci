@@ -123,13 +123,16 @@ def secret_values(env: Mapping[str, str]) -> tuple[str, ...]:
 
     Values shorter than :data:`MIN_SECRET_LENGTH` are left out, as are values
     that are not strings. Surrounding whitespace is stripped, so a key read
-    from a file with a trailing newline still matches.
+    from a file with a trailing newline still matches. Each line of a
+    multi-line value (a PEM key, a JSON credential) is included too, because
+    step tails are redacted line by line.
     """
-    values = {
-        value.strip()
-        for name, value in env.items()
-        if isinstance(value, str) and is_secret_name(name)
-    }
+    values: set[str] = set()
+    for name, value in env.items():
+        if not (isinstance(value, str) and is_secret_name(name)):
+            continue
+        for part in (value, *value.splitlines()):
+            values.add(part.strip())
     return tuple(sorted((v for v in values if len(v) >= MIN_SECRET_LENGTH), key=len, reverse=True))
 
 
