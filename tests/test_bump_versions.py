@@ -232,3 +232,15 @@ class TestBumpOpenshell:
 
         content = cf.read_text()
         assert "OPENSHELL_VERSION" not in content
+
+
+@pytest.mark.parametrize("helper", ["_fetch_json", "_fetch_text", "_sha256_of_url"])
+def test_http_helpers_use_a_finite_timeout(bump_versions, helper):
+    response = mock.MagicMock()
+    response.__enter__.return_value.read.side_effect = [b"{}", b""]
+    with mock.patch.object(
+        bump_versions.urllib.request, "urlopen", return_value=response
+    ) as urlopen:
+        getattr(bump_versions, helper)("https://quay.io/api/v1/x")
+
+    assert urlopen.call_args.kwargs["timeout"] == bump_versions.HTTP_TIMEOUT_SECONDS

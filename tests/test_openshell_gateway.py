@@ -92,6 +92,22 @@ def test_write_config_renders_supervisor_and_sandbox_runtime_images(monkeypatch,
     assert rendered.count("[openshell.drivers.podman]") == 1
 
 
+@pytest.mark.parametrize("bad", ['"', "\\", "\n", "\r"])
+@pytest.mark.parametrize(
+    "env_name", ["OPENSHELL_SUPERVISOR_IMAGE", "OPENSHELL_SANDBOX_RUNTIME_IMAGE"]
+)
+def test_write_config_refuses_toml_special_characters(monkeypatch, tmp_path, env_name, bad):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("OPENSHELL_SUPERVISOR_IMAGE", raising=False)
+    monkeypatch.delenv("OPENSHELL_SANDBOX_RUNTIME_IMAGE", raising=False)
+    monkeypatch.setenv(env_name, f"quay.io/x/image{bad}:v1")
+
+    with pytest.raises(RuntimeError, match=f"^{env_name} contains characters not allowed"):
+        gateway._write_config()
+
+    assert not (tmp_path / ".config" / "openshell" / "gateway.toml").exists()
+
+
 def test_write_config_renders_sandbox_runtime_image_alone(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("OPENSHELL_SUPERVISOR_IMAGE", raising=False)

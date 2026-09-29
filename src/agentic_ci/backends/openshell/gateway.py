@@ -318,10 +318,16 @@ def _write_config():
     """Write the gateway TOML config, updating it if the content changed."""
     if config_is_current():
         return
+    # Render before opening the file, so a refused value leaves no
+    # truncated gateway.toml behind.
+    content = _render_config()
     config_path = _config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
     with open(config_path, "w") as f:
-        f.write(_render_config())
+        f.write(content)
+
+
+_TOML_UNSAFE_CHARS = frozenset('"\\\n\r')
 
 
 def _render_podman_driver_section():
@@ -334,6 +340,13 @@ def _render_podman_driver_section():
     for _label, env_name, key in _DRIVER_IMAGES:
         image = os.environ.get(env_name)
         if image:
+            # The value goes into a TOML basic string unescaped. An image
+            # reference never contains these characters, so refuse them
+            # rather than write a gateway.toml the gateway cannot load.
+            if _TOML_UNSAFE_CHARS.intersection(image):
+                raise RuntimeError(
+                    f"{env_name} contains characters not allowed in an image reference"
+                )
             lines.append(f'{key} = "{image}"')
     if not lines:
         return ""

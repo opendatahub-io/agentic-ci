@@ -34,18 +34,21 @@ RENOVATE_OUT_DIR = REPO_ROOT / "public" / "renovate"
 
 ALL_SANDBOX_CFS = [OPENSHELL_CLAUDE_CF, OPENSHELL_OPENCODE_CF, OPENSHELL_CODEX_CF]
 
+# Bound every HTTP request so a stalled registry or API cannot hang the job.
+HTTP_TIMEOUT_SECONDS = 30
+
 
 def _fetch_json(url):
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "bump-versions/1.0")
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
         return json.loads(resp.read())
 
 
 def _fetch_text(url):
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "bump-versions/1.0")
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
         return resp.read().decode().strip()
 
 
@@ -53,7 +56,7 @@ def _sha256_of_url(url):
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "bump-versions/1.0")
     h = hashlib.sha256()
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
         while chunk := resp.read(65536):
             h.update(chunk)
     return h.hexdigest()
