@@ -4,6 +4,7 @@ import contextlib
 import copy
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,8 +20,8 @@ from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import provider as openshell_provider
 from agentic_ci.backends.openshell import sandbox
 from agentic_ci.backends.openshell.policy import (
+    BASE_POLICY,
     EGRESS_PRESETS,
-    build_credential_binding_patch,
     phase_endpoints,
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
@@ -70,6 +71,44 @@ def _phase_steps():
         yield steps
 
 
+def _with_credential_binding(output):
+    """The ``.policy`` of *output* with a credential binding on each GCP endpoint.
+
+    Bindings like these come from sandbox policies written for OpenShell's
+    endpointless google-cloud provider. agentic-ci no longer writes them, but
+    a phase switch must still carry any endpoint field through unchanged.
+    """
+    policy = copy.deepcopy(output["policy"])
+    for rule in policy["network_policies"].values():
+        for endpoint in rule.get("endpoints", []):
+            if endpoint.get("host", "").endswith("googleapis.com"):
+                endpoint["credential_binding"] = {"provider": PROVIDER_NAME}
+                endpoint["allow_uninspected_credentials"] = True
+    return policy
+
+
+def _without_policy_flag(args):
+    """Drop the ``--policy <tempfile>`` pair, whose path differs per call."""
+    index = args.index("--policy")
+    return args[:index] + args[index + 2 :]
+
+
+@pytest.fixture(autouse=True)
+def gateway_config_current():
+    """Treat the on-disk gateway config as matching the environment by default."""
+    with mock.patch("agentic_ci.backends.openshell.gateway.config_is_current", return_value=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def provider_profile_current():
+    """Treat the gateway's copy of a reused provider's profile as current by default."""
+    with mock.patch(
+        "agentic_ci.backends.openshell.provider.ensure_auth_mode_profile", return_value=False
+    ):
+        yield
+
+
 def _profile_identity(harness, image, auth_mode, profile, main=MAIN):
     """A saved identity for a profile sandbox, with its main process recorded."""
     identity = openshell_backend._sandbox_identity(harness, image, auth_mode, profile=profile)
@@ -95,7 +134,7 @@ def created():
 
 class TestCreateResourceFlags:
     def test_no_resource_flags_by_default(self, created):
-        assert created() == [
+        assert _without_policy_flag(created()) == [
             "openshell",
             "sandbox",
             "create",
@@ -180,7 +219,6 @@ def test_create_uses_detached_persistent_main_process():
 def test_apply_policy_allows_hummingbird_binary_aliases():
     with (
         mock.patch.object(sandbox, "resolve_endpoints", return_value=["github.com:443:full"]),
-        mock.patch.object(sandbox, "_apply_credential_bindings"),
         mock.patch.object(sandbox, "_run") as run,
     ):
         sandbox._apply_policy(policy_path=None)
@@ -194,22 +232,62 @@ def test_apply_policy_allows_hummingbird_binary_aliases():
     assert binary_paths == list(sandbox.AGENT_BINARY_PATHS)
 
 
-@pytest.mark.parametrize(
-    ("auth_mode", "binds"),
-    [(None, True), ("vertex", True), ("oauth", False)],
-)
-def test_apply_policy_binds_credentials_only_with_a_provider(auth_mode, binds):
-    """A provider-less sandbox has no provider for GCP hosts to bind to."""
+@pytest.mark.parametrize("auth_mode", [None, "vertex", "openai", "api-key", "oauth"])
+def test_apply_policy_only_updates_the_policy(auth_mode):
+    """No credential binding is patched in afterwards, for any auth mode.
+
+    The provider's credentials resolve through the rule OpenShell composes
+    from its profile, and OpenShell refuses a sandbox policy that binds a
+    provider whose profile declares endpoints.
+    """
     with (
-        mock.patch.object(
-            sandbox, "resolve_endpoints", return_value=["oauth2.googleapis.com:443:read-write"]
-        ),
-        mock.patch.object(sandbox, "_apply_credential_bindings") as apply_bindings,
-        mock.patch.object(sandbox, "_run"),
+        mock.patch.object(sandbox, "resolve_endpoints", return_value=["github.com:443:full"]),
+        mock.patch.object(sandbox, "_run") as run,
     ):
         sandbox._apply_policy(policy_path=None, auth_mode=auth_mode)
 
-    assert apply_bindings.called is binds
+    assert [c.args[0][:3] for c in run.call_args_list] == [["openshell", "policy", "update"]]
+
+
+class TestCreateBasePolicy:
+    def test_passes_the_base_policy_file_and_removes_it(self):
+        seen = {}
+
+        def capture(args, **kwargs):
+            path = args[args.index("--policy") + 1]
+            with open(path) as fh:
+                seen["text"] = fh.read()
+            seen["path"] = path
+
+        with (
+            mock.patch.object(sandbox, "_run", side_effect=capture),
+            mock.patch.object(sandbox, "_apply_policy"),
+        ):
+            sandbox.create()
+
+        assert yaml.safe_load(seen["text"]) == BASE_POLICY
+        # The v0.1.x policy schema refuses null fields.
+        assert not re.search(r":\s*(null|~)\s*$", seen["text"], re.MULTILINE)
+        assert not os.path.exists(seen["path"])
+
+    def test_policy_flag_precedes_the_command_terminator(self, created):
+        args = created()
+        assert args.index("--policy") < args.index("--")
+
+    def test_policy_file_removed_when_create_fails(self):
+        seen = {}
+
+        def fail(args, **kwargs):
+            seen["path"] = args[args.index("--policy") + 1]
+            raise subprocess.CalledProcessError(1, args)
+
+        with (
+            mock.patch.object(sandbox, "_run", side_effect=fail),
+            pytest.raises(subprocess.CalledProcessError),
+        ):
+            sandbox.create()
+
+        assert not os.path.exists(seen["path"])
 
 
 class TestExistingSandboxKeepsItsAllocation:
@@ -311,7 +389,8 @@ class TestSandboxProfileResources:
             # Vertex credentials also reach the sandbox outside the provider,
             # so they have no fingerprint in the sandbox identity.
             provider.credential_fingerprint.return_value = None
-            provider.api_key_env_var.side_effect = openshell_provider.api_key_env_var
+            provider.ensure_auth_mode_profile.return_value = False
+            provider.provider_env_vars.side_effect = openshell_provider.provider_env_vars
             backend.setup()
         return create, delete, logged
 
@@ -501,7 +580,7 @@ class TestBuildPhasePolicy:
             "endpoints": [{"host": "oauth2.googleapis.com", "port": 443, "access": "read-write"}],
             "binaries": [{"path": "/usr/local/bin/claude"}],
         }
-        bound = {"policy": build_credential_binding_patch(output)}
+        bound = {"policy": _with_credential_binding(output)}
         policy = sandbox.build_phase_policy(bound, [NPM])
         endpoint = policy["network_policies"]["allow_oauth2_googleapis_com_443"]["endpoints"][0]
         assert endpoint["credential_binding"] == {"provider": PROVIDER_NAME}
@@ -562,7 +641,7 @@ class TestBuildPhasePolicy:
             "endpoints": [{"host": "oauth2.googleapis.com", "port": 443, "access": "read-write"}],
             "binaries": [{"path": "/usr/local/bin/claude"}],
         }
-        bound = build_credential_binding_patch(output)
+        bound = _with_credential_binding(output)
         setup = sandbox.build_phase_policy({"policy": bound}, [NPM], park_agent=True)
         rule = setup["network_policies"]["allow_oauth2_googleapis_com_443"]
         assert (
@@ -883,7 +962,7 @@ class TestApplyPhasePolicy:
             "endpoints": [{"host": "aiplatform.googleapis.com", "port": 443}],
             "binaries": [{"path": "/usr/local/bin/claude"}],
         }
-        bound = build_credential_binding_patch(output)
+        bound = _with_credential_binding(output)
         state = {"policy": bound}
 
         def run(args, **kwargs):
@@ -903,7 +982,6 @@ class TestCreatePassesProfileToPolicy:
     def _apply(self, **kwargs):
         with (
             mock.patch.object(sandbox, "resolve_endpoints", return_value=["a:443:full"]) as resolve,
-            mock.patch.object(sandbox, "_apply_credential_bindings"),
             mock.patch.object(sandbox, "_run") as run,
         ):
             sandbox.create(image="img", auth_mode="openai", workdir="/w", **kwargs)
@@ -915,11 +993,8 @@ class TestCreatePassesProfileToPolicy:
         assert resolve.call_args.kwargs["profile"] is profile
 
     def test_argv_without_a_profile_is_unchanged(self, tmp_path, capsys):
-        """No profile: the exact ``openshell`` argv origin/main produced before profiles."""
-        with (
-            mock.patch.object(sandbox, "_apply_credential_bindings") as bind,
-            mock.patch.object(sandbox, "_run") as run,
-        ):
+        """No profile: the exact ``openshell`` argv before profiles, plus the base policy."""
+        with mock.patch.object(sandbox, "_run") as run:
             sandbox.create(image="img", auth_mode="openai", workdir=str(tmp_path), otel_port=4318)
         binaries = []
         for path in (
@@ -944,7 +1019,8 @@ class TestCreatePassesProfileToPolicy:
             "host.openshell.internal:4318:read-write",
         ):
             endpoints += ["--add-endpoint", endpoint]
-        assert [c.args[0] for c in run.call_args_list] == [
+        calls = [c.args[0] for c in run.call_args_list]
+        assert [_without_policy_flag(calls[0]), *calls[1:]] == [
             [
                 "openshell",
                 "sandbox",
@@ -964,13 +1040,11 @@ class TestCreatePassesProfileToPolicy:
             ],
             ["openshell", "policy", "update", "--wait", *binaries, *endpoints, "ci"],
         ]
-        bind.assert_called_once_with()
         assert "Policy source: built-in default" in capsys.readouterr().out
 
     def test_agent_presets_reach_policy_update(self, tmp_path):
         profile = parse_profile({"egress": ["npm"]}, source="central").profile
         with (
-            mock.patch.object(sandbox, "_apply_credential_bindings"),
             mock.patch.object(sandbox, "_run") as run,
         ):
             sandbox.create(workdir=str(tmp_path), auth_mode="openai", profile=profile)
@@ -984,7 +1058,6 @@ class TestCreatePassesProfileToPolicy:
     def test_pypi_preset_replaces_the_l4_default_in_policy_update(self, tmp_path):
         profile = parse_profile({"egress": ["pypi"]}, source="central").profile
         with (
-            mock.patch.object(sandbox, "_apply_credential_bindings"),
             mock.patch.object(sandbox, "_run") as run,
         ):
             sandbox.create(workdir=str(tmp_path), auth_mode="openai", profile=profile)
@@ -1030,21 +1103,28 @@ class TestSetEgressPhase:
         )
 
     @pytest.mark.parametrize(
-        ("auth_mode", "env_var"), [("openai", "OPENAI_API_KEY"), ("api-key", "ANTHROPIC_API_KEY")]
+        ("auth_mode", "env_vars"),
+        [
+            ("openai", ("OPENAI_API_KEY",)),
+            ("api-key", ("ANTHROPIC_API_KEY",)),
+            ("vertex", ("GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN", "GOOGLE_VERTEX_AI_TOKEN")),
+        ],
     )
     @pytest.mark.parametrize("phase", ["setup", "validate"])
     def test_shim_phase_kills_leftovers_then_detaches_before_the_policy(
-        self, phase, auth_mode, env_var
+        self, phase, auth_mode, env_vars
     ):
+        # Vertex too: its profile declares the aiplatform hosts, so OpenShell
+        # composes a rule for the agent binaries that parking cannot touch.
         backend = self._backend(self.PROFILE, auth_mode)
         with _phase_steps() as steps:
             backend._set_egress_phase(phase)
         assert steps.mock_calls == [
             mock.call.stop_leftover_processes(MAIN, phase),
-            mock.call.provider_env_state(env_var),
+            mock.call.provider_env_state(env_vars),
             mock.call.detach_provider(phase),
             mock.call.apply_phase_policy(phase, [NPM]),
-            mock.call.wait_for_provider_env(env_var, attached=False, phase=phase),
+            mock.call.wait_for_provider_env(env_vars, attached=False, phase=phase),
         ]
 
     @pytest.mark.parametrize("seen", ["DETACHED", None])
@@ -1058,12 +1138,12 @@ class TestSetEgressPhase:
             backend._set_egress_phase(phase)
         assert steps.mock_calls == [
             mock.call.stop_leftover_processes(MAIN, phase),
-            mock.call.provider_env_state("OPENAI_API_KEY"),
+            mock.call.provider_env_state(("OPENAI_API_KEY",)),
             mock.call.attach_provider(phase),
-            mock.call.wait_for_provider_env("OPENAI_API_KEY", attached=True, phase=phase),
+            mock.call.wait_for_provider_env(("OPENAI_API_KEY",), attached=True, phase=phase),
             mock.call.detach_provider(phase),
             mock.call.apply_phase_policy(phase, [NPM]),
-            mock.call.wait_for_provider_env("OPENAI_API_KEY", attached=False, phase=phase),
+            mock.call.wait_for_provider_env(("OPENAI_API_KEY",), attached=False, phase=phase),
         ]
 
     def test_a_provider_never_seen_attached_fails_closed(self):
@@ -1077,9 +1157,14 @@ class TestSetEgressPhase:
         steps.apply_phase_policy.assert_not_called()
 
     @pytest.mark.parametrize(
-        ("auth_mode", "env_var"), [("openai", "OPENAI_API_KEY"), ("api-key", "ANTHROPIC_API_KEY")]
+        ("auth_mode", "env_vars"),
+        [
+            ("openai", ("OPENAI_API_KEY",)),
+            ("api-key", ("ANTHROPIC_API_KEY",)),
+            ("vertex", ("GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN", "GOOGLE_VERTEX_AI_TOKEN")),
+        ],
     )
-    def test_agent_phase_restores_the_policy_then_reattaches(self, auth_mode, env_var):
+    def test_agent_phase_restores_the_policy_then_reattaches(self, auth_mode, env_vars):
         backend = self._backend(self.PROFILE, auth_mode)
         with _phase_steps() as steps:
             backend._set_egress_phase("agent")
@@ -1087,12 +1172,12 @@ class TestSetEgressPhase:
             mock.call.stop_leftover_processes(MAIN, "agent"),
             mock.call.apply_phase_policy("agent", []),
             mock.call.attach_provider("agent"),
-            mock.call.wait_for_provider_env(env_var, attached=True, phase="agent"),
+            mock.call.wait_for_provider_env(env_vars, attached=True, phase="agent"),
         ]
 
-    @pytest.mark.parametrize("auth_mode", ["vertex", "oauth"])
     @pytest.mark.parametrize("phase", ["setup", "validate", "agent"])
-    def test_no_api_key_provider_means_no_detach(self, phase, auth_mode):
+    def test_no_provider_means_no_detach(self, phase):
+        auth_mode = "oauth"
         backend = self._backend(self.PROFILE, auth_mode)
         with _phase_steps() as steps:
             backend._set_egress_phase(phase)
@@ -1206,7 +1291,8 @@ class TestSandboxIdentityProfileHash:
             provider.auth_mode.return_value = "openai"
             provider.requires_provider.return_value = True
             provider.credential_fingerprint.return_value = None
-            provider.api_key_env_var.side_effect = openshell_provider.api_key_env_var
+            provider.ensure_auth_mode_profile.return_value = False
+            provider.provider_env_vars.side_effect = openshell_provider.provider_env_vars
             if configure is not None:
                 configure(steps)
             backend.setup()
@@ -1250,7 +1336,7 @@ class TestSandboxIdentityProfileHash:
             mock.call.stop_leftover_processes(MAIN, "agent"),
             mock.call.apply_phase_policy("agent", []),
             mock.call.attach_provider("agent"),
-            mock.call.wait_for_provider_env("OPENAI_API_KEY", attached=True, phase="agent"),
+            mock.call.wait_for_provider_env(("OPENAI_API_KEY",), attached=True, phase="agent"),
         ]
 
     def test_a_profile_sandbox_without_a_recorded_main_process_is_recreated(
@@ -1753,10 +1839,16 @@ class TestProviderAttachment:
             "sandbox",
             "provider",
             action,
+            "--wait",
+            "--timeout",
+            str(sandbox._PROVIDER_COMMAND_WAIT_SECONDS),
             sandbox.SANDBOX_NAME,
             PROVIDER_NAME,
         ]
+        # The process bound outlasts the --wait bound, so a slow supervisor
+        # is reported by openshell rather than cut off.
         assert run.call_args.kwargs["timeout"] == sandbox._PROVIDER_COMMAND_TIMEOUT_SECONDS
+        assert sandbox._PROVIDER_COMMAND_TIMEOUT_SECONDS > sandbox._PROVIDER_COMMAND_WAIT_SECONDS
 
     @pytest.mark.parametrize(
         ("func", "action"),
@@ -1782,7 +1874,7 @@ class TestProviderAttachment:
             mock.patch.object(sandbox.subprocess, "run", side_effect=timeout),
             pytest.raises(
                 RuntimeError,
-                match=rf"Could not {action} the API key provider for the setup phase: "
+                match=rf"Could not {action} the credential provider for the setup phase: "
                 rf"openshell sandbox provider {action} timed out \(TimeoutExpired\)$",
             ) as exc,
         ):
@@ -1812,6 +1904,41 @@ class TestProviderAttachment:
         assert out == f"{state}\n"
 
     @pytest.mark.parametrize(
+        ("sa_token", "adc_token", "state"),
+        [
+            ("openshell:resolve:env:v1_GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN", None, "ATTACHED"),
+            (None, "openshell:resolve:env:v1_GOOGLE_VERTEX_AI_TOKEN", "ATTACHED"),
+            ("ya29.real-looking", None, "DETACHED"),
+            (None, None, "DETACHED"),
+        ],
+    )
+    def test_the_probe_script_checks_every_variable(self, sa_token, adc_token, state):
+        # A Vertex provider holds one of two tokens; either placeholder counts.
+        names = ("GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN", "GOOGLE_VERTEX_AI_TOKEN")
+        env = {k: v for k, v in os.environ.items() if k not in names}
+        for name, value in zip(names, (sa_token, adc_token)):
+            if value is not None:
+                env[name] = value
+        out = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", sandbox._PROVIDER_ENV_SCRIPT, *names],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        ).stdout
+        assert out == f"{state}\n"
+
+    @pytest.mark.parametrize("env_vars", ["OPENAI_API_KEY", (), []])
+    def test_a_bare_string_or_no_variable_is_refused(self, env_vars):
+        # A string would be probed character by character.
+        with mock.patch.object(sandbox.subprocess, "run") as run:
+            with pytest.raises(ValueError, match="non-empty sequence"):
+                sandbox.provider_env_state(env_vars)
+            with pytest.raises(ValueError, match="non-empty sequence"):
+                sandbox.wait_for_provider_env(env_vars, attached=True, phase="setup")
+        run.assert_not_called()
+
+    @pytest.mark.parametrize(
         ("result", "state"),
         [
             (_completed(stdout="ATTACHED\n"), "ATTACHED"),
@@ -1822,7 +1949,7 @@ class TestProviderAttachment:
     )
     def test_provider_env_state(self, result, state):
         with mock.patch.object(sandbox.subprocess, "run", return_value=result) as run:
-            assert sandbox.provider_env_state("OPENAI_API_KEY", timeout=7) == state
+            assert sandbox.provider_env_state(("OPENAI_API_KEY",), timeout=7) == state
         argv = run.call_args.args[0]
         assert argv == [*_EXEC_PYTHON, sandbox._PROVIDER_ENV_SCRIPT, "OPENAI_API_KEY"]
         assert run.call_args.kwargs["timeout"] == 7
@@ -1836,7 +1963,7 @@ class TestWaitForProviderEnv:
             mock.patch.object(sandbox.subprocess, "run", side_effect=results) as run,
             mock.patch.object(sandbox, "time", fake_time),
         ):
-            sandbox.wait_for_provider_env("OPENAI_API_KEY", attached=attached, phase="setup")
+            sandbox.wait_for_provider_env(("OPENAI_API_KEY",), attached=attached, phase="setup")
         return run, fake_time.sleep
 
     def test_polls_until_the_detach_is_seen(self):
@@ -1868,7 +1995,7 @@ class TestWaitForProviderEnv:
             mock.patch.object(sandbox, "time", fake_time),
             pytest.raises(RuntimeError),
         ):
-            sandbox.wait_for_provider_env("OPENAI_API_KEY", attached=False, phase="setup")
+            sandbox.wait_for_provider_env(("OPENAI_API_KEY",), attached=False, phase="setup")
         timeouts = [c.kwargs["timeout"] for c in run.call_args_list]
         # 30 s bound: never the full exec timeout, never below the minimum.
         assert timeouts[0] == sandbox._PROVIDER_WAIT_SECONDS - 5

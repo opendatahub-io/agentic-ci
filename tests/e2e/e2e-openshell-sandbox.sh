@@ -114,24 +114,112 @@ else
     CODEX_SANDBOX="localhost/codex-sandbox:latest"
 fi
 
-# --- Resolve supervisor image ---
-# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE in as an ENV, so
-# this fallback only applies to local dev runs outside that image. Derive the
-# tag from the Containerfile so it stays matched to the pinned CLI/gateway
-# version after a bump rather than drifting.
+# --- Resolve supervisor and sandbox runtime images ---
+# The ci-openshell image bakes OPENSHELL_SUPERVISOR_IMAGE and
+# OPENSHELL_SANDBOX_RUNTIME_IMAGE in as ENVs, so these fallbacks only apply
+# to local dev runs outside that image. Derive the tag from the Containerfile
+# so it stays matched to the pinned CLI/gateway version after a bump rather
+# than drifting. Both images must share a tag: the supervisor runs in its
+# own container and the sandbox runtime supplies the openshell-sandbox
+# binary mounted into the workload.
+os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
+    "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
 elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
-    os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
-        "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
     export OPENSHELL_SUPERVISOR_IMAGE="quay.io/opendatahub/odh-openshell-supervisor:${os_tag:-latest}"
 fi
+if [[ -n "${SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE"
+elif [[ -z "${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="quay.io/opendatahub/odh-openshell-sandbox:${os_tag:-latest}"
+fi
 print_step "Using supervisor image: $OPENSHELL_SUPERVISOR_IMAGE"
+print_step "Using sandbox runtime image: $OPENSHELL_SANDBOX_RUNTIME_IMAGE"
 
 # Helper: run a command inside a sandbox image as the sandbox user
 run_in() {
     local image="$1"; shift
     podman run --rm --entrypoint "" "$image" "$@"
+}
+
+# Helper: run a command in the running "ci" sandbox and print its output.
+sandbox_sh() {
+    openshell sandbox exec --name ci --no-tty -- bash -c "$1" 2>&1 || true
+}
+
+# curl_denied_by_policy DESC HOST CMD: run CMD (a curl to HOST) in the "ci"
+# sandbox and pass only when curl fails and the proxy logs a new DENIED line
+# for curl and HOST with a policy reason.
+#
+# The curl error text depends on the OpenShell runtime (an HTTP proxy
+# answering CONNECT with 403, or a transparent proxy refusing the
+# connection), so the proof of denial is the proxy's own DENIED line for
+# curl, paired with curl failing. Counting the lines before and after the
+# probe keeps a denial logged earlier from standing in for this one. The
+# reason must be the policy decision, not an identity or resource failure
+# that happens to deny the same connection, and its text depends on the
+# runtime too: the HTTP proxy logs the OPA reason ("binary '/usr/bin/curl'
+# not allowed in policy ..."), the transparent proxy logs
+# "transparent_tcp_policy_denied".
+curl_denied_by_policy() {
+    local desc="$1" host="$2" cmd="$3"
+    local denied_re log_rc=0 proxy_log before after=0 out
+    denied_re=" DENIED /usr/bin/curl\([0-9]+\) -> ${host//./\\.}:443 .*\[reason:(binary '/usr/bin/curl' not allowed|transparent_tcp_policy_denied\])"
+    proxy_log="$(openshell logs ci -n 5000 2>&1)" || log_rc=$?
+    assert_ok "$desc: read the sandbox proxy log before the probe" test "$log_rc" -eq 0
+    before="$(printf '%s\n' "$proxy_log" | grep -cE "$denied_re" || true)"
+    out="$(sandbox_sh "$cmd")"
+    # -sS prints "curl: (N) ..." only when the transfer fails, so an HTTP
+    # response of any status (401 included) does not match.
+    assert_contains "$desc: the request fails" "$out" "^curl: ([0-9][0-9]*) "
+    # The supervisor ships its log lines to the gateway asynchronously. A
+    # failed log read counts no lines, so it cannot pass the check.
+    for _ in $(seq 1 15); do
+        log_rc=0
+        proxy_log="$(openshell logs ci -n 5000 2>&1)" || log_rc=$?
+        after=0
+        if [[ "$log_rc" -eq 0 ]]; then
+            after="$(printf '%s\n' "$proxy_log" | grep -cE "$denied_re" || true)"
+        fi
+        [[ "${after:-0}" -gt "${before:-0}" ]] && break
+        sleep 2
+    done
+    assert_ok "$desc: the proxy logged it DENIED by policy" test "${after:-0}" -gt "${before:-0}"
+    if [[ "${after:-0}" -le "${before:-0}" ]]; then
+        echo "  before=${before:-0} after=${after:-0} last log read rc=$log_rc; proxy lines for curl:"
+        printf '%s\n' "$proxy_log" | grep -F "/usr/bin/curl" | tail -5 | cut -c1-300 || true
+    fi
+}
+
+# sandbox_resolv_check LABEL: in the running "ci" sandbox, the workload's
+# resolv.conf points at the policy DNS relay (OpenShell writes it since
+# v0.1.0; the images bake none).
+sandbox_resolv_check() {
+    local label="$1"
+    assert_contains "$label: resolv.conf points at the policy DNS relay" \
+        "$(sandbox_sh 'cat /etc/resolv.conf')" "^nameserver 127\.0\.0\.53$"
+}
+
+# sandbox_otlp_dns_check LABEL BINARY PORT: for a "ci" sandbox created with
+# an OTel collector rule (a run without --no-otel), policy DNS mapped the
+# collector's host alias. The ALLOWED line for BINARY to
+# host.openshell.internal:PORT shows the name was looked up and admitted, so
+# a count of 0 policy_dns_trusted_gateway_unavailable lines means something
+# (v0.0.116-rhaiv.11 refused every such lookup). A failed log read counts
+# nothing, so it fails the check.
+sandbox_otlp_dns_check() {
+    local label="$1" binary="$2" port="$3"
+    local log_rc=0 sandbox_log dns_denials
+    sandbox_log="$(openshell logs ci --source sandbox -n 10000 2>&1)" || log_rc=$?
+    assert_ok "$label: read the sandbox log" test "$log_rc" -eq 0
+    [[ "$log_rc" -eq 0 ]] || return 0
+    assert_ok "$label: the sandbox log shows $binary allowed to the collector (port ${port:-unknown})" \
+        grep -qE "ALLOWED /usr/local/bin/${binary}\([0-9]+\) -> host\.openshell\.internal:${port:-none}\b" \
+        <<<"$sandbox_log"
+    dns_denials="$(grep -c "policy_dns_trusted_gateway_unavailable" <<<"$sandbox_log" || true)"
+    assert_ok "$label: no policy_dns_trusted_gateway_unavailable in the sandbox log (got ${dns_denials:-0})" \
+        test "${dns_denials:-0}" -eq 0
 }
 
 # --- shared sandbox checks ---
@@ -409,6 +497,7 @@ else
     echo "  openshell (wheel): $(openshell --version 2>&1 || echo unknown)"
     echo "  openshell-gateway: $(openshell-gateway --version 2>&1 || echo unknown)"
     echo "  supervisor image:  ${OPENSHELL_SUPERVISOR_IMAGE:-unknown}"
+    echo "  sandbox runtime:   ${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-unknown}"
     echo "  podman:            $(podman --version 2>&1 || echo unknown)"
     echo "  claude:            $(run_in "$CLAUDE_SANDBOX" claude --version 2>&1 || echo unknown)"
     echo "  opencode:          $(run_in "$OPENCODE_SANDBOX" opencode --version 2>&1 || echo unknown)"
@@ -427,10 +516,35 @@ else
         --image "$CLAUDE_SANDBOX" \
         --harness claude-code \
         --workdir "$WORKDIR" \
+        --keep \
         --no-otel \
         --no-streaming || RC=$?
 
     assert_ok "claude-code exited successfully" test "$RC" -eq 0
+    # --no-otel: no collector rule, so only resolv.conf is checked here; the
+    # Codex run below checks policy DNS for the collector.
+    sandbox_resolv_check "claude"
+
+    # Vertex auth (no ANTHROPIC_API_KEY or OAuth token): the provider comes
+    # from agentic-ci's google-vertex-ai profile, which binds the aiplatform
+    # hosts to the agent binaries only, and OpenShell no longer runs the GCE
+    # metadata emulator. The run above used --keep so the sandbox is still
+    # up for these probes.
+    if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+        print_step "Probing Vertex AI credential isolation..."
+        VERTEX_ENV="$(sandbox_sh 'env')"
+        PLACEHOLDERS="$(printf '%s\n' "$VERTEX_ENV" \
+            | grep -cE '^GOOGLE_VERTEX_AI_(SERVICE_ACCOUNT_)?TOKEN=openshell:resolve:env:' || true)"
+        assert_ok "vertex: a new exec gets the provider's token placeholder" \
+            test "${PLACEHOLDERS:-0}" -ge 1
+        EMULATOR_VARS="$(printf '%s\n' "$VERTEX_ENV" \
+            | grep -cE '^(GCE_METADATA_(HOST|IP)|METADATA_SERVER_DETECTION)=' || true)"
+        assert_ok "vertex: no metadata emulator variables in the sandbox" \
+            test "${EMULATOR_VARS:-0}" -eq 0
+        # shellcheck disable=SC2016 # expanded inside the sandbox
+        curl_denied_by_policy "vertex: plain curl gets no Vertex token" aiplatform.googleapis.com \
+            'curl -sS --max-time 20 -H "Authorization: Bearer ${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:-$GOOGLE_VERTEX_AI_TOKEN}" https://aiplatform.googleapis.com/v1/projects/x/locations/global/publishers/google/models'
+    fi
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
@@ -498,17 +612,31 @@ else
         WORKDIR="$TMPDIR_E2E/codex"
         mkdir -p "$WORKDIR"
 
-        print_step "Running Codex via agentic-ci (openshell backend)..."
+        print_step "Running Codex via agentic-ci (openshell backend, OTLP on)..."
+        CODEX_LOG="$TMPDIR_E2E/codex.log"
         RC=0
         agentic-ci run "Reply with only the word pong" \
             --backend openshell \
             --image "$CODEX_SANDBOX" \
             --harness codex \
             --workdir "$WORKDIR" \
-            --keep \
-            --no-otel || RC=$?
+            --keep 2>&1 | tee "$CODEX_LOG" || RC=$?
 
         assert_ok "codex exited successfully" test "$RC" -eq 0
+        # Codex exports its telemetry over OTLP/HTTP to host.openshell.internal.
+        # The token summary comes from the response.completed log event,
+        # which Codex exports last, so a model and a token total prove that
+        # /v1/logs reached the collector at the end of the run
+        # (v0.0.116-rhaiv.11 denied that name: policy_dns_trusted_gateway_unavailable).
+        OUTPUT="$(cat "$CODEX_LOG")"
+        assert_contains "codex OTLP: the collector saw the response's model" "$OUTPUT" "^\s*Model: "
+        assert_contains "codex OTLP: the collector saw the response's tokens" \
+            "$OUTPUT" "^\s*TOTAL\s\+[1-9]"
+        sandbox_resolv_check "codex"
+        # The collector port agentic-ci printed when it started the collector.
+        COLLECTOR_PORT="$(sed -n '/Starting OTEL collector/,/port:/ s/^ *port: \([0-9][0-9]*\).*/\1/p' \
+            "$CODEX_LOG" | head -1)"
+        sandbox_otlp_dns_check "codex OTLP" codex "$COLLECTOR_PORT"
 
         # agentic-ci's OpenAI provider profile has no curl rule, so a plain
         # sandbox process must not reach api.openai.com with the provider
@@ -518,49 +646,9 @@ else
         # sources the env script, and the agent wrapper deletes it, so the
         # env script is covered by unit tests instead.)
         print_step "Probing OpenAI credential isolation..."
-        # The curl error text depends on the OpenShell runtime (an HTTP
-        # proxy answering CONNECT with 403, or a transparent proxy refusing
-        # the connection), so the proof of denial is the proxy's own
-        # DENIED line for curl, paired with curl failing. Counting the
-        # lines before and after the probe keeps a denial logged earlier
-        # from standing in for this one. The reason must be the policy
-        # decision, not an identity or resource failure that happens to deny
-        # the same connection, and its text depends on the runtime too: the
-        # HTTP proxy logs the OPA reason ("binary '/usr/bin/curl' not
-        # allowed in policy ..."), the transparent proxy logs
-        # "transparent_tcp_policy_denied".
-        CURL_DENIED_RE=" DENIED /usr/bin/curl\([0-9]+\) -> api\.openai\.com:443 .*\[reason:(binary '/usr/bin/curl' not allowed|transparent_tcp_policy_denied\])"
-        LOG_RC=0
-        PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
-        assert_ok "read the sandbox proxy log before the curl probe" test "$LOG_RC" -eq 0
-        DENIED_BEFORE="$(printf '%s\n' "$PROXY_LOG" | grep -cE "$CURL_DENIED_RE" || true)"
-        CURL_OUT="$(openshell sandbox exec --name ci --no-tty -- bash -c \
-            'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models' \
-            2>&1 || true)"
-        # -sS prints "curl: (N) ..." only when the transfer fails, so an
-        # HTTP response of any status (401 included) does not match.
-        assert_contains "plain curl gets no OpenAI key: the request fails" \
-            "$CURL_OUT" "^curl: ([0-9][0-9]*) "
-        # The supervisor ships its log lines to the gateway asynchronously.
-        # A failed log read counts no lines, so it cannot pass the check.
-        DENIED_AFTER=0
-        for _ in $(seq 1 15); do
-            LOG_RC=0
-            PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
-            DENIED_AFTER=0
-            if [[ "$LOG_RC" -eq 0 ]]; then
-                DENIED_AFTER="$(printf '%s\n' "$PROXY_LOG" | grep -cE "$CURL_DENIED_RE" || true)"
-            fi
-            [[ "${DENIED_AFTER:-0}" -gt "${DENIED_BEFORE:-0}" ]] && break
-            sleep 2
-        done
-        assert_ok "plain curl gets no OpenAI key: the proxy logged it DENIED by policy" \
-            test "${DENIED_AFTER:-0}" -gt "${DENIED_BEFORE:-0}"
-        if [[ "${DENIED_AFTER:-0}" -le "${DENIED_BEFORE:-0}" ]]; then
-            echo "  DENIED_BEFORE=${DENIED_BEFORE:-0} DENIED_AFTER=${DENIED_AFTER:-0}" \
-                "last log read rc=$LOG_RC; proxy lines for curl:"
-            printf '%s\n' "$PROXY_LOG" | grep -F "/usr/bin/curl" | tail -5 | cut -c1-300 || true
-        fi
+        # shellcheck disable=SC2016 # expanded inside the sandbox
+        curl_denied_by_policy "plain curl gets no OpenAI key" api.openai.com \
+            'curl -sS --max-time 20 -H "Authorization: Bearer $OPENAI_API_KEY" https://api.openai.com/v1/models'
         AUTH_JSON="$(openshell sandbox exec --name ci --no-tty -- bash -c \
             'cat "${CODEX_HOME:-/sandbox/.codex}/auth.json"' 2>&1 || true)"
         # Counts only: assert_contains would print auth.json on failure.

@@ -8,15 +8,15 @@ import os
 import subprocess
 import tempfile
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 import yaml
 
 from agentic_ci import log
 from agentic_ci.backends.openshell.policy import (
+    BASE_POLICY,
     EGRESS_PHASES,
-    build_credential_binding_patch,
     resolve_endpoints,
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME, requires_provider
@@ -45,7 +45,7 @@ AGENT_BINARY_PATHS = (
 # egress whenever shim rules are live. What keeps the agent out is that shim
 # rules exist only in the setup and validate phases, the agent's rules are
 # parked then, every process left from an earlier exec is killed before a
-# shim phase opens (stop_leftover_processes), and the API key provider is
+# shim phase opens (stop_leftover_processes), and the credential provider is
 # detached while it is open (detach_provider).
 SANDBOX_SETUP_SHIM = "/usr/local/bin/agentic-ci-sandbox-setup"
 
@@ -143,11 +143,20 @@ def create(
         args.extend(["--cpu", str(cpu)])
     if gpu:
         args.extend(["--gpu", str(gpu)])
-    # The trailing argv becomes the sandbox's canonical main process.
-    # Use a persistent process so the supervisor stays alive to accept
-    # policy updates; --detach returns control to the caller immediately.
-    args.extend(["--detach", "--", "sleep", "infinity"])
-    _run(args, check=True)
+    # Always hand the supervisor an explicit base policy; see BASE_POLICY
+    # for why image policy discovery must not run.
+    fd, base_policy_file = tempfile.mkstemp(prefix="agentic-ci-base-policy-", suffix=".yaml")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            yaml.safe_dump(BASE_POLICY, fh, default_flow_style=False)
+        args.extend(["--policy", base_policy_file])
+        # The trailing argv becomes the sandbox's canonical main process.
+        # Use a persistent process so the supervisor stays alive to accept
+        # policy updates; --detach returns control to the caller immediately.
+        args.extend(["--detach", "--", "sleep", "infinity"])
+        _run(args, check=True)
+    finally:
+        os.unlink(base_policy_file)
 
     if approval_mode:
         _run(
@@ -176,14 +185,12 @@ def create(
 def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None, profile=None):
     """Apply network policy endpoints and wait for activation.
 
-    Two-step process:
-    1. ``openshell policy update`` to add endpoints incrementally (this
-       preserves filesystem_policy and other static fields).
-    2. ``openshell policy get --base`` + merge credential_binding + ``openshell
-       policy set`` to add credential_binding.provider on GCP endpoints.
-       The google-cloud provider profile is endpointless, so the gateway
-       withholds credentials unless the sandbox policy explicitly binds them.
-       Skipped for auth modes with no provider, which has nothing to bind.
+    Uses ``openshell policy update`` to add endpoints incrementally, which
+    preserves filesystem_policy and the other static fields of the base
+    policy. The inference endpoints and credential resolution of an
+    attached provider come from the rule OpenShell composes from its
+    profile, so nothing is bound to the provider here: OpenShell refuses a
+    sandbox policy that binds a provider whose profile declares endpoints.
     """
     endpoints = resolve_endpoints(
         policy_path, workdir=workdir, auth_mode=auth_mode, profile=profile
@@ -205,45 +212,6 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None, prof
         args.extend(["--add-endpoint", ep])
     args.append(SANDBOX_NAME)
     _run(args, check=True)
-
-    if requires_provider(auth_mode):
-        _apply_credential_bindings()
-
-
-def _apply_credential_bindings():
-    """Patch the active policy with credential_binding on GCP endpoints.
-
-    Reads the current base policy, adds credential_binding.provider to
-    matching GCP endpoints, then sets the merged policy back.
-    """
-    result = _run(
-        ["openshell", "policy", "get", "--base", "-o", "json", SANDBOX_NAME],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return
-
-    try:
-        policy = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return
-
-    patched = build_credential_binding_patch(policy)
-    if patched is None:
-        return
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        yaml.dump(patched, f, default_flow_style=False)
-        policy_file = f.name
-
-    try:
-        _run(
-            ["openshell", "policy", "set", "--wait", "--policy", policy_file, SANDBOX_NAME],
-            check=True,
-        )
-    finally:
-        os.unlink(policy_file)
 
 
 def _endpoint_to_policy(spec, index):
@@ -834,32 +802,47 @@ def stop_leftover_processes(main: MainProcess, phase: str) -> None:
 # How long a switch waits for the supervisor to pick up an attach or detach.
 # OpenShell's supervisor polls the gateway every 10 s, so a running sandbox
 # keeps injecting a detached provider's key for up to about that long.
+# ``openshell sandbox provider attach|detach --wait`` returns once the
+# supervisor has installed the change (credentials, policy and the
+# environment of new processes), and the probe that follows then confirms
+# it at once; the probe stays as a bounded, fail-closed check.
 _PROVIDER_WAIT_SECONDS = 30
 _PROVIDER_POLL_SECONDS = 2
 # A probe exec gets the time left before the deadline, but at least this.
 _PROVIDER_PROBE_MIN_TIMEOUT_SECONDS = 5
-# openshell sandbox provider attach/detach return in milliseconds when the
-# gateway answers; this only bounds a gateway that does not.
-_PROVIDER_COMMAND_TIMEOUT_SECONDS = 15
+# The --wait bound handed to openshell, and how much longer the command may
+# take before it counts as a gateway that does not answer.
+_PROVIDER_COMMAND_WAIT_SECONDS = _PROVIDER_WAIT_SECONDS
+_PROVIDER_COMMAND_TIMEOUT_SECONDS = _PROVIDER_COMMAND_WAIT_SECONDS + 15
 
 # Prefix of the placeholder OpenShell puts in a provider credential's
 # variable. Only the prefix is ever compared; the value is not printed.
 _PLACEHOLDER_PREFIX = "openshell:resolve:env:"
 
-# Prints ATTACHED when the variable holds a provider placeholder, else
-# DETACHED, and nothing else.
+# Prints ATTACHED when any of the variables named in its arguments holds a
+# provider placeholder, else DETACHED, and nothing else.
 _PROVIDER_ENV_SCRIPT = (
     "import os, sys; "
-    f"print('ATTACHED' if os.environ.get(sys.argv[1], '').startswith({_PLACEHOLDER_PREFIX!r}) "
-    "else 'DETACHED')"
+    "print('ATTACHED' if any(os.environ.get(name, '')"
+    f".startswith({_PLACEHOLDER_PREFIX!r}) for name in sys.argv[1:]) else 'DETACHED')"
 )
 
 
 def _provider_command(action: str, phase: str) -> None:
-    what = f"Could not {action} the API key provider for the {phase} phase"
+    what = f"Could not {action} the credential provider for the {phase} phase"
     try:
         result = _run(
-            ["openshell", "sandbox", "provider", action, SANDBOX_NAME, PROVIDER_NAME],
+            [
+                "openshell",
+                "sandbox",
+                "provider",
+                action,
+                "--wait",
+                "--timeout",
+                str(_PROVIDER_COMMAND_WAIT_SECONDS),
+                SANDBOX_NAME,
+                PROVIDER_NAME,
+            ],
             capture_output=True,
             text=True,
             timeout=_PROVIDER_COMMAND_TIMEOUT_SECONDS,
@@ -879,12 +862,13 @@ def _provider_command(action: str, phase: str) -> None:
 def detach_provider(phase: str) -> None:
     """Detach the CI provider from the sandbox for a setup or validate *phase*.
 
-    The rule OpenShell composes from an API key provider profile binds the API
-    host to the agent binaries and is not part of ``policy get --base``, so
+    The rule OpenShell composes from a provider profile binds the API hosts
+    to the agent binaries and is not part of ``policy get --base``, so
     parking the agent's rules cannot remove it: a step running an agent
-    binary under the shim could still spend the key. Detaching is the only
-    lever. Idempotent: detaching a detached provider succeeds. Follow it with
-    :func:`wait_for_provider_env` before any step runs.
+    binary under the shim could still spend the credential. Detaching is the
+    only lever. ``--wait`` returns once the supervisor has installed the
+    change. Idempotent: detaching a detached provider succeeds at once.
+    Follow it with :func:`wait_for_provider_env` before any step runs.
     """
     _provider_command("detach", phase)
 
@@ -894,14 +878,18 @@ def attach_provider(phase: str) -> None:
     _provider_command("attach", phase)
 
 
-def provider_env_state(env_var: str, timeout: float = _PROCESS_EXEC_TIMEOUT_SECONDS) -> str | None:
-    """Return ``ATTACHED`` or ``DETACHED`` as a fresh exec sees *env_var*, or None.
+def provider_env_state(
+    env_vars: Sequence[str], timeout: float = _PROCESS_EXEC_TIMEOUT_SECONDS
+) -> str | None:
+    """Return ``ATTACHED`` or ``DETACHED`` as a fresh exec sees *env_vars*, or None.
 
-    None means the probe failed (a timeout, a refused exec, odd output) and
-    says nothing about the provider.
+    ``ATTACHED`` when any of *env_vars* holds a provider placeholder. None
+    means the probe failed (a timeout, a refused exec, odd output) and says
+    nothing about the provider.
     """
+    names = _env_var_names(env_vars)
     try:
-        result = _exec_python("provider probe", _PROVIDER_ENV_SCRIPT, [env_var], timeout=timeout)
+        result = _exec_python("provider probe", _PROVIDER_ENV_SCRIPT, names, timeout=timeout)
     except subprocess.TimeoutExpired:
         log.detail("provider probe", "timed out")
         return None
@@ -912,19 +900,26 @@ def provider_env_state(env_var: str, timeout: float = _PROCESS_EXEC_TIMEOUT_SECO
     return state if state in ("ATTACHED", "DETACHED") else None
 
 
-def wait_for_provider_env(env_var: str, *, attached: bool, phase: str) -> None:
+def _env_var_names(env_vars: Sequence[str]) -> list[str]:
+    """*env_vars* as a list, refusing a bare string (which would probe each character)."""
+    if isinstance(env_vars, str) or not env_vars:
+        raise ValueError("env_vars must be a non-empty sequence of variable names")
+    return list(env_vars)
+
+
+def wait_for_provider_env(env_vars: Sequence[str], *, attached: bool, phase: str) -> None:
     """Wait until the supervisor has applied an attach or detach of the provider.
 
     A new exec gets the provider's variables from the supervisor's current
     provider snapshot, which OpenShell replaces together with the credential
-    bindings the proxy injects from. So a fresh exec whose *env_var* holds a
-    provider placeholder proves the key is injected again, and one without it
-    proves the proxy no longer resolves any placeholder for the key, including
-    one issued before the detach. It proves nothing about the network rule
-    composed from the provider profile: the supervisor reloads the policy
-    right after the environment, in the same poll, and a ``policy set
-    --wait`` issued after the detach confirms it (see
-    ``OpenShellBackend._set_egress_phase``). The probe needs no network.
+    bindings the proxy injects from. So a fresh exec in which one of
+    *env_vars* holds a provider placeholder proves the credential is injected
+    again, and one in which none does proves the proxy no longer resolves any
+    placeholder for it, including one issued before the detach. It proves
+    nothing about the network rule composed from the provider profile: the
+    supervisor reloads the policy right after the environment, in the same
+    poll, and a ``policy set --wait`` issued after the detach confirms it
+    (see ``OpenShellBackend._set_egress_phase``). The probe needs no network.
 
     A DETACHED result only counts when the probe has been seen to report
     ATTACHED for this sandbox: call it with ``attached=False`` only after an
@@ -934,19 +929,20 @@ def wait_for_provider_env(env_var: str, *, attached: bool, phase: str) -> None:
     included, and raises ``RuntimeError`` when the state cannot be confirmed,
     so the caller does not run the phase.
     """
+    names = _env_var_names(env_vars)
     want = "ATTACHED" if attached else "DETACHED"
     deadline = time.monotonic() + _PROVIDER_WAIT_SECONDS
     while True:
         left = max(_PROVIDER_PROBE_MIN_TIMEOUT_SECONDS, deadline - time.monotonic())
-        if provider_env_state(env_var, timeout=left) == want:
-            log.info(f"API key provider {want.lower()} for the {phase} phase")
+        if provider_env_state(names, timeout=left) == want:
+            log.info(f"Credential provider {want.lower()} for the {phase} phase")
             return
         if time.monotonic() >= deadline:
             break
         time.sleep(_PROVIDER_POLL_SECONDS)
     action = "resume" if attached else "stop"
     raise RuntimeError(
-        f"Could not confirm that API key injection {action}s for the {phase} phase "
+        f"Could not confirm that credential injection {action}s for the {phase} phase "
         f"within {_PROVIDER_WAIT_SECONDS}s; see the job log"
     )
 

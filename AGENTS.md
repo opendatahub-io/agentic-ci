@@ -38,6 +38,7 @@ src/agentic_ci/
     telemetry.py        # Generic event transport for the OTLP trace pipeline
     routing.py          # Difficulty classifier + model tier routing (run_routed_skill)
     models.py           # Model registry: default model, routing tiers, effort levels per harness
+    vertex_token_stub.py # Loopback GCP token-exchange stub for OpenCode in OpenShell
     otel.py             # OTLP collector + token/cost summary
 ```
 
@@ -53,7 +54,7 @@ src/agentic_ci/
 
 - **`plugins.py`**: Build-time plugin installation (`install_claude_plugins`, `install_opencode_skills`, `install_codex_plugins`) and runtime filtering (`enable_plugins`). At build time, installs plugins or skills from the skills-registry marketplace (supporting both legacy `repo` and `git-subdir` source formats) into the container image and writes a plugin-to-skill manifest listing the skills each harness actually loads (not every `SKILL.md` in the plugin repo). All marketplace source paths are validated against the clone root to prevent directory traversal. At runtime, `AGENT_ENABLED_PLUGINS` controls which plugins are active: Claude Code disables plugins in `settings.json`; OpenCode deletes unwanted skill directories from disk; Codex removes unwanted native plugins and manifest-managed compatibility skills while preserving unmanaged personal skills.
 
-- **`sandbox_profile.py`**: Frozen `SandboxProfile` dataclasses describing what a target repo needs in the sandbox (toolchains, egress presets, setup, validate, skips, env, resources, `discard_before_download`, `overlay`). `parse_profile(data, source="central"|"overlay")` validates raw JSON/YAML (overlay problems that could widen access are dropped with warnings), `merge_profiles()` applies central-wins precedence, and `profile_to_dict()` / `profile_hash()` serialize. `SkillConfig.sandbox_profile` carries it through `run_skill` / `run_routed_skill` and `_AgentSession` to `create_backend`, which passes it only to `OpenShellBackend` and only when set; other backends warn and ignore it. `resources` (explicit backend kwargs win) and `egress` take effect so far: OpenShell opens the profile's presets and raw endpoints to the agent at sandbox create, ignores the repo `openshell-policy.yml`, and `OpenShellBackend._set_egress_phase()` binds setup and validate egress to the in-image setup shim `/usr/local/bin/agentic-ci-sandbox-setup` (see `sandbox.apply_phase_policy()`). The shim is an extra layer, not isolation: each switch also kills every process earlier execs left running except the sandbox's main process (`sandbox.stop_leftover_processes()`, main process recorded at create in the identity file) and detaches the openai/anthropic API key provider during setup and validate (`sandbox.detach_provider()`/`attach_provider()`/`wait_for_provider_env()`).
+- **`sandbox_profile.py`**: Frozen `SandboxProfile` dataclasses describing what a target repo needs in the sandbox (toolchains, egress presets, setup, validate, skips, env, resources, `discard_before_download`, `overlay`). `parse_profile(data, source="central"|"overlay")` validates raw JSON/YAML (overlay problems that could widen access are dropped with warnings), `merge_profiles()` applies central-wins precedence, and `profile_to_dict()` / `profile_hash()` serialize. `SkillConfig.sandbox_profile` carries it through `run_skill` / `run_routed_skill` and `_AgentSession` to `create_backend`, which passes it only to `OpenShellBackend` and only when set; other backends warn and ignore it. `resources` (explicit backend kwargs win) and `egress` take effect so far: OpenShell opens the profile's presets and raw endpoints to the agent at sandbox create, ignores the repo `openshell-policy.yml`, and `OpenShellBackend._set_egress_phase()` binds setup and validate egress to the in-image setup shim `/usr/local/bin/agentic-ci-sandbox-setup` (see `sandbox.apply_phase_policy()`). The shim is an extra layer, not isolation: each switch also kills every process earlier execs left running except the sandbox's main process (`sandbox.stop_leftover_processes()`, main process recorded at create in the identity file) and detaches the credential provider (openai, api-key or vertex) during setup and validate (`sandbox.detach_provider()`/`attach_provider()`/`wait_for_provider_env()`).
 
 - **`backends/podman.py`**: `PodmanBackend` — runs the agent in a `podman run` container. Bind-mounts the workdir into the container at `/workspace`, so changes are visible on the host immediately. Mounts gcloud credentials as read-only volumes. Uses `--network host` when OTEL is enabled.
 
@@ -107,12 +108,19 @@ scripts/
   bump-versions.py                  — Bump pinned dependency versions in Containerfiles
 ```
 
-OpenShell is consumed from UBI9 artifacts: the CLI binary copied from
+OpenShell is consumed from four UBI9 artifacts sharing one tag
+(`OPENSHELL_IMAGE_TAG`, `v0.1.2-rhaiv.0`): the CLI binary copied from
 `quay.io/opendatahub/odh-openshell-cli`, the gateway binary copied from
-`quay.io/opendatahub/odh-openshell-gateway`, and the supervisor pulled at
-runtime from `quay.io/opendatahub/odh-openshell-supervisor`. The OpenShell CI
-image is UBI9, the OpenShell sandbox images are Hummingbird,
-and the podman-path images stay on UBI10.
+`quay.io/opendatahub/odh-openshell-gateway`, the supervisor pulled at
+runtime from `quay.io/opendatahub/odh-openshell-supervisor`, and the sandbox
+runtime pulled at runtime from `quay.io/opendatahub/odh-openshell-sandbox`.
+The supervisor runs in its own container and the sandbox runtime image
+supplies the `openshell-sandbox` binary mounted into each workload; both are
+selected through `OPENSHELL_SUPERVISOR_IMAGE` and
+`OPENSHELL_SANDBOX_RUNTIME_IMAGE`, rendered into `gateway.toml` by
+`backends/openshell/gateway.py`. The OpenShell CI image is UBI9, the
+OpenShell sandbox images are Hummingbird, and the podman-path images stay
+on UBI10.
 
 All three sandbox images build directly on their respective hardened
 Hummingbird agentic images (`quay.io/aipcc/base-images/agentic/claude-code`,

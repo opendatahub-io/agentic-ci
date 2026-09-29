@@ -246,15 +246,18 @@ an agent-only host, or that carries a credential option such as
 their count is logged. The agent-only hosts are the hosts of every auth
 mode's endpoints, every endpoint host of the provider profiles agentic-ci
 vendors (`src/agentic_ci/backends/openshell/profiles/`, read at import, which
-fails on a malformed profile), `oauth2.googleapis.com` and the OTel collector
+fails on a malformed profile), `oauth2.googleapis.com`,
+`*.aiplatform.googleapis.com` and the OTel collector
 (`host.openshell.internal`). Wildcards on either side are compared as
-patterns, so `*.googleapis.com` overlaps `oauth2.googleapis.com`. Once a
-vendored profile declares a host such as `*-aiplatform.googleapis.com`, it
-also keeps `us-central1-aiplatform.googleapis.com` from the shim; the
-profiles vendored today declare only `api.openai.com` and
-`api.anthropic.com`. Each switch replaces the whole policy with `openshell
-policy set` and closes every open proxied connection, so it happens only
-while nothing runs in the sandbox.
+patterns, so `*.googleapis.com` overlaps `oauth2.googleapis.com`, and the
+Vertex profile's `*-aiplatform.googleapis.com` keeps
+`us-central1-aiplatform.googleapis.com` from the shim. The vendored profiles
+declare `api.openai.com`, `api.anthropic.com` and the Vertex AI hosts
+(`*-aiplatform.googleapis.com`, `aiplatform.googleapis.com`,
+`aiplatform.us.rep.googleapis.com`, `aiplatform.eu.rep.googleapis.com`),
+which no longer appear in any auth mode's endpoints. Each switch replaces
+the whole policy with `openshell policy set` and closes every open proxied
+connection, so it happens only while nothing runs in the sandbox.
 
 The shim lets setup and validate reach preset hosts without widening the
 agent's egress. It is an extra layer, not isolation: it is not a boundary
@@ -283,31 +286,32 @@ protections are, on every switch:
   otherwise write the workdir while the agent works, and on a reused sandbox
   the previous run's processes would run next to the new agent. Setup
   therefore cannot start a service for the agent or for validate.
-- **The API key provider is detached** while `setup` or `validate` is open,
-  for openai and api-key (Anthropic) auth. The rule OpenShell composes from
-  agentic-ci's provider profile binds the API host to the agent binaries and is
-  not part of `policy get --base`, so parking cannot remove it, and a step
-  could otherwise spend the key by running an agent binary under the shim. A
-  running sandbox keeps injecting for up to about 10 s after `openshell sandbox
-  provider detach`, so the switch first makes sure a fresh exec gets the
-  provider placeholder (attaching the provider if not), detaches, and then
-  waits (up to 30 s) until a fresh exec no longer gets it: the supervisor
-  swaps a sandbox's environment and its credential bindings together, and
-  after the swap no placeholder resolves, including one issued before the
-  detach. That probe covers injection only; the provider's composed rule
-  leaves with the policy the supervisor reloads in the same poll, and the
-  phase's `policy set --wait`, issued after the detach, confirms it whenever
-  the policy changes. Detaching closes the provider's route to the API host,
-  not the key: the agent already holds the real key (the env script exports
-  it, for api-key auth until RHAI-3011 is fixed, and Codex also keeps it in
-  `$CODEX_HOME/auth.json`), and could leave it in the workdir for setup or
-  validate code it also wrote to send out through the shim's egress. The
-  `agent` switch attaches the provider again and waits for the placeholder,
-  so the agent can authenticate; this also repairs a reused sandbox a run
-  left detached. Vertex stays attached: its `google-cloud` profile is endpointless,
-  so OpenShell composes no rule for it, and its credential is bound only to
-  the aiplatform and oauth2 endpoints of the agent's own rules, which are
-  parked and never opened to the shim. The `oauth` mode has no provider.
+- **The credential provider is detached** while `setup` or `validate` is
+  open, for openai, api-key (Anthropic) and vertex auth. The rule OpenShell
+  composes from agentic-ci's provider profile binds the API hosts to the agent
+  binaries and is not part of `policy get --base`, so parking cannot remove
+  it, and a step could otherwise spend the credential by running an agent
+  binary under the shim. A running sandbox keeps injecting for up to about
+  10 s after `openshell sandbox provider detach`, so the switch first makes
+  sure a fresh exec gets the provider placeholder (attaching the provider if
+  not), detaches (`--wait`, which returns once the supervisor has installed
+  the change), and then checks (for up to 30 s) until a fresh exec no longer
+  gets it: the supervisor swaps a sandbox's environment and its credential
+  bindings together, and after the swap no placeholder resolves, including
+  one issued before the detach. That probe covers injection only; the
+  provider's composed rule leaves with the policy the supervisor reloads in
+  the same poll, and the phase's `policy set --wait`, issued after the
+  detach, confirms it whenever the policy changes. Detaching closes the
+  provider's route to the API hosts, not the credential: with api-key auth
+  the agent already holds the real key (the env script exports it until
+  RHAI-3011 is fixed) and could leave it in the workdir for setup or validate
+  code it also wrote to send out through the shim's egress. With openai and
+  vertex auth the agent only sees the placeholder. The `agent` switch
+  attaches the provider again and waits for the placeholder, so the agent
+  can authenticate; this also repairs a reused sandbox a run left detached.
+  The placeholder does not change across the detach and the attach, so one
+  the agent stored earlier (Codex's `auth.json`) still resolves. The `oauth`
+  mode has no provider.
 
 While the agent phase is in effect, the agent can still spend its own key
 through an agent binary wrapper such as `codex sandbox -- curl` (see

@@ -7,16 +7,19 @@ from unittest import mock
 import pytest
 import yaml
 
+from agentic_ci.backends.openshell import provider as openshell_provider
 from agentic_ci.backends.openshell.provider import (
     ANTHROPIC_PROFILE_ID,
     OPENAI_PROFILE_ID,
     PROVIDER_NAME,
-    api_key_env_var,
+    VERTEX_PROFILE_ID,
     auth_mode,
     credential_fingerprint,
     delete,
+    ensure_auth_mode_profile,
     ensure_profile,
     profile_endpoint_hosts,
+    provider_env_vars,
     refresh_credentials,
     rotate_token,
     setup,
@@ -38,8 +41,23 @@ def _exported(profile, resource_version=3):
 
 
 class TestRotateToken:
-    def test_rotate_token_calls_openshell(self):
-        with mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run:
+    @pytest.mark.parametrize(
+        ("cred_type", "credential_key"),
+        [
+            ("service_account", "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN"),
+            # A --from-gcloud-adc provider holds its token under the ADC key.
+            ("authorized_user", "GOOGLE_VERTEX_AI_TOKEN"),
+            ("unknown", "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN"),
+        ],
+    )
+    def test_rotate_token_calls_openshell(self, cred_type, credential_key):
+        with (
+            mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run,
+            mock.patch(
+                "agentic_ci.backends.openshell.provider._adc_credential_type",
+                return_value=cred_type,
+            ),
+        ):
             rotate_token()
 
         mock_run.assert_called_once_with(
@@ -49,7 +67,7 @@ class TestRotateToken:
                 "refresh",
                 "rotate",
                 "--credential-key",
-                "GCP_SA_ACCESS_TOKEN",
+                credential_key,
                 PROVIDER_NAME,
             ],
             check=True,
@@ -79,7 +97,7 @@ class TestProviderSetup:
         [
             (OPENAI_PROFILE_ID, "openai"),
             (ANTHROPIC_PROFILE_ID, "api-key"),
-            ("google-cloud", "vertex"),
+            (VERTEX_PROFILE_ID, "vertex"),
         ],
     )
     def test_auth_mode_reads_provider_type(self, provider_type, expected):
@@ -101,11 +119,19 @@ class TestProviderSetup:
         )
 
     @pytest.mark.parametrize(
-        ("provider_type", "mode"), [("openai", "openai"), ("anthropic", "api-key")]
+        ("provider_type", "mode"),
+        [
+            ("openai", "openai"),
+            ("anthropic", "api-key"),
+            ("google-vertex-ai", "vertex"),
+            ("google-cloud", "vertex"),
+        ],
     )
     def test_auth_mode_flags_builtin_profile_providers(self, provider_type, mode):
-        # Providers from the builtin profiles bind the API host to curl, so
-        # they must not look reusable for the auth mode they serve.
+        # Providers from the builtin profiles bind the API host to curl (or,
+        # for google-vertex-ai, to binaries agentic-ci does not choose), and
+        # a google-cloud provider relies on the removed metadata emulator,
+        # so they must not look reusable for the auth mode they serve.
         result = subprocess.CompletedProcess(
             ["openshell", "provider", "list"],
             0,
@@ -350,6 +376,42 @@ class TestProviderProfiles:
         assert "protocol" not in endpoint
         assert endpoint["allow_uninspected_credentials"] is True
 
+    def test_packaged_vertex_profile_binds_only_agent_binaries(self):
+        # OpenShell's example google-vertex-ai profile binds no binary, and
+        # the version agentic-ci carried before bound curl, which would let
+        # any sandbox process spend the token. Only the agent binaries here.
+        profile = _packaged_profile(VERTEX_PROFILE_ID)
+
+        assert profile["id"] == VERTEX_PROFILE_ID
+        assert sorted(profile["binaries"]) == sorted(AGENT_BINARY_PATHS)
+        assert not any("curl" in path for path in profile["binaries"])
+        assert {e["host"] for e in profile["endpoints"]} == {
+            "*-aiplatform.googleapis.com",
+            "aiplatform.googleapis.com",
+            "aiplatform.us.rep.googleapis.com",
+            "aiplatform.eu.rep.googleapis.com",
+        }
+        for endpoint in profile["endpoints"]:
+            assert (endpoint["port"], endpoint["protocol"], endpoint["enforcement"]) == (
+                443,
+                "rest",
+                "enforce",
+            )
+        # The gateway exports refresh timings as durations; the legacy
+        # *_seconds form would make ensure_profile update it on every run.
+        for credential in profile["credentials"]:
+            refresh = credential.get("refresh", {})
+            assert not {"refresh_before_seconds", "max_lifetime_seconds"} & set(refresh)
+        # --from-gcloud-adc needs an oauth2_refresh_token credential with the
+        # three gcloud ADC material keys.
+        adc = next(c for c in profile["credentials"] if c["name"] == "gcloud_adc_token")
+        assert adc["refresh"]["strategy"] == "oauth2_refresh_token"
+        assert {m["name"] for m in adc["refresh"]["material"]} >= {
+            "client_id",
+            "client_secret",
+            "refresh_token",
+        }
+
     def test_ensure_profile_imports_missing_profile(self):
         missing = subprocess.CompletedProcess(["openshell"], 1, stdout="", stderr="not found")
         imported = []
@@ -364,7 +426,7 @@ class TestProviderProfiles:
         with mock.patch(
             "agentic_ci.backends.openshell.provider._run", side_effect=fake_run
         ) as mock_run:
-            ensure_profile(OPENAI_PROFILE_ID)
+            assert ensure_profile(OPENAI_PROFILE_ID) is True
 
         assert mock_run.call_args_list[0].args[0] == [
             "openshell",
@@ -392,7 +454,7 @@ class TestProviderProfiles:
         with mock.patch(
             "agentic_ci.backends.openshell.provider._run", return_value=current
         ) as mock_run:
-            ensure_profile(OPENAI_PROFILE_ID)
+            assert ensure_profile(OPENAI_PROFILE_ID) is False
 
         mock_run.assert_called_once()
 
@@ -411,7 +473,7 @@ class TestProviderProfiles:
         with mock.patch(
             "agentic_ci.backends.openshell.provider._run", side_effect=fake_run
         ) as mock_run:
-            ensure_profile(OPENAI_PROFILE_ID)
+            assert ensure_profile(OPENAI_PROFILE_ID) is True
 
         assert mock_run.call_args_list[1].args[0][:6] == [
             "openshell",
@@ -422,6 +484,32 @@ class TestProviderProfiles:
             "-f",
         ]
         assert updated == [{**_packaged_profile(OPENAI_PROFILE_ID), "resource_version": 7}]
+
+    @pytest.mark.parametrize(
+        ("mode", "profile_id"),
+        [
+            ("api-key", ANTHROPIC_PROFILE_ID),
+            ("openai", OPENAI_PROFILE_ID),
+            ("vertex", VERTEX_PROFILE_ID),
+        ],
+    )
+    @pytest.mark.parametrize("changed", [True, False])
+    def test_ensure_auth_mode_profile_syncs_the_mode_profile(self, mode, profile_id, changed):
+        # A reused provider composes its rule from the gateway's copy of the
+        # profile, so the backend syncs it and recreates the sandbox on a change.
+        with mock.patch(
+            "agentic_ci.backends.openshell.provider.ensure_profile", return_value=changed
+        ) as ensure:
+            assert ensure_auth_mode_profile(mode) is changed
+
+        ensure.assert_called_once_with(profile_id)
+
+    @pytest.mark.parametrize("mode", ["oauth", None, "vertex-google-cloud-provider"])
+    def test_ensure_auth_mode_profile_skips_modes_without_a_profile(self, mode):
+        with mock.patch("agentic_ci.backends.openshell.provider._run") as mock_run:
+            assert ensure_auth_mode_profile(mode) is False
+
+        mock_run.assert_not_called()
 
     def test_provider_creation_registers_profile_first(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -461,22 +549,41 @@ class TestProviderProfiles:
         ]
 
 
-class TestApiKeyEnvVar:
+class TestProviderEnvVars:
     @pytest.mark.parametrize(
         ("mode", "profile_id"), [("openai", OPENAI_PROFILE_ID), ("api-key", ANTHROPIC_PROFILE_ID)]
     )
     def test_matches_the_packaged_profile(self, mode, profile_id):
         (credential,) = _packaged_profile(profile_id)["credentials"]
-        assert credential["env_vars"] == [api_key_env_var(mode)]
+        assert credential["env_vars"] == list(provider_env_vars(mode))
 
-    @pytest.mark.parametrize("mode", ["vertex", "oauth", None, "openai-builtin-profile"])
+    def test_vertex_lists_the_first_variable_of_each_token_credential(self):
+        # The provider stores the service account token or the gcloud ADC
+        # token under the first env var of its credential; the probe must
+        # see either one.
+        credentials = {c["name"]: c for c in _packaged_profile(VERTEX_PROFILE_ID)["credentials"]}
+        assert provider_env_vars("vertex") == (
+            credentials["service_account_token"]["env_vars"][0],
+            credentials["gcloud_adc_token"]["env_vars"][0],
+        )
+
+    @pytest.mark.parametrize("mode", ["oauth", None, "openai-builtin-profile", "vertex-builtin"])
     def test_other_modes_have_nothing_to_detach(self, mode):
-        assert api_key_env_var(mode) is None
+        assert provider_env_vars(mode) == ()
 
 
 class TestProfileEndpointHosts:
     def test_packaged_profiles(self):
-        assert profile_endpoint_hosts() == frozenset({"api.openai.com", "api.anthropic.com"})
+        assert profile_endpoint_hosts() == frozenset(
+            {
+                "api.openai.com",
+                "api.anthropic.com",
+                "*-aiplatform.googleapis.com",
+                "aiplatform.googleapis.com",
+                "aiplatform.us.rep.googleapis.com",
+                "aiplatform.eu.rep.googleapis.com",
+            }
+        )
 
     def test_wildcards_are_kept_and_hosts_normalized(self, tmp_path):
         (tmp_path / "vertex.yaml").write_text(
@@ -513,3 +620,116 @@ class TestProfileEndpointHosts:
         (tmp_path / "bad.yaml").write_text(text)
         with pytest.raises(ValueError, match=f"provider profile bad.yaml.*{message}"):
             profile_endpoint_hosts(tmp_path)
+
+
+class TestVertexProvider:
+    def _setup(self, monkeypatch, cred_type, adc_path=None):
+        monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
+        monkeypatch.setenv("CLOUD_ML_REGION", "global")
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("VERTEX_LOCATION", raising=False)
+        calls = []
+        with (
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.provider_exists", return_value=False
+            ),
+            mock.patch(
+                "agentic_ci.backends.openshell.provider.ensure_profile",
+                side_effect=lambda profile_id: calls.append(("profile", profile_id)),
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider.ensure_adc", return_value="adc"),
+            mock.patch(
+                "agentic_ci.backends.openshell.provider._adc_credential_type",
+                return_value=cred_type,
+            ),
+            mock.patch("agentic_ci.backends.openshell.provider._adc_path", return_value=adc_path),
+            mock.patch(
+                "agentic_ci.backends.openshell.provider._run",
+                side_effect=lambda args, **kwargs: calls.append(("run", args)),
+            ),
+        ):
+            setup("vertex")
+        return calls
+
+    def test_adc_creates_provider_from_the_vendored_profile(self, monkeypatch):
+        calls = self._setup(monkeypatch, "authorized_user")
+
+        assert calls == [
+            ("profile", VERTEX_PROFILE_ID),
+            (
+                "run",
+                [
+                    "openshell",
+                    "provider",
+                    "create",
+                    "--name",
+                    PROVIDER_NAME,
+                    "--type",
+                    VERTEX_PROFILE_ID,
+                    "--from-gcloud-adc",
+                    "--config",
+                    "VERTEX_AI_PROJECT_ID=proj",
+                    "--config",
+                    "VERTEX_AI_REGION=global",
+                ],
+            ),
+        ]
+
+    def test_service_account_configures_vertex_token_refresh(self, monkeypatch, tmp_path):
+        key = tmp_path / "sa.json"
+        key.write_text(
+            '{"type": "service_account", "client_email": "sa@proj.iam", "private_key": "PEM"}'
+        )
+        calls = self._setup(monkeypatch, "service_account", adc_path=str(key))
+
+        assert calls[0] == ("profile", VERTEX_PROFILE_ID)
+        create, configure, rotate = (args for kind, args in calls[1:])
+        assert create == [
+            "openshell",
+            "provider",
+            "create",
+            "--name",
+            PROVIDER_NAME,
+            "--type",
+            VERTEX_PROFILE_ID,
+            "--credential",
+            "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN=placeholder",
+            "--config",
+            "VERTEX_AI_PROJECT_ID=proj",
+            "--config",
+            "VERTEX_AI_REGION=global",
+        ]
+        assert configure[:6] == [
+            "openshell",
+            "provider",
+            "refresh",
+            "configure",
+            "--credential-key",
+            "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN",
+        ]
+        assert "client_email=sa@proj.iam" in configure
+        assert rotate == [
+            "openshell",
+            "provider",
+            "refresh",
+            "rotate",
+            "--credential-key",
+            "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN",
+            PROVIDER_NAME,
+        ]
+        # Nothing refers to the removed metadata emulator's provider type or keys.
+        flat = [arg for _kind, args in calls[1:] for arg in args]
+        assert "google-cloud" not in flat
+        assert not any(arg.startswith(("project_id=", "service_account_email=")) for arg in flat)
+
+    def test_vertex_token_placeholder_is_redacted_in_the_log(self):
+        with (
+            mock.patch("agentic_ci.backends.openshell.provider.log.detail") as detail,
+            mock.patch("agentic_ci.backends.openshell.provider.subprocess.run"),
+        ):
+            openshell_provider._run(
+                ["openshell", "private_key=SECRET", "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN=t"]
+            )
+        logged = detail.call_args.args[1]
+        assert "SECRET" not in logged
+        assert "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN=<redacted>" in logged

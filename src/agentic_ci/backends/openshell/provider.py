@@ -23,20 +23,28 @@ else:
 
 PROVIDER_NAME = "ci-gcp"
 
-# Provider profiles agentic-ci registers with the gateway before creating an
-# API key provider. OpenShell's builtin "openai" and "anthropic" profiles bind
-# the API host to curl, so any sandbox process could spend the key; these
-# profiles bind it to agent binaries instead. An agent binary wrapper can
-# still spend the key; see the YAML files for details.
+# Provider profiles agentic-ci registers with the gateway before creating a
+# provider (the gateway ships none). OpenShell's example "openai" and
+# "anthropic" profiles bind the API host to curl, so any sandbox process could
+# spend the key, and its "google-vertex-ai" example binds no binary at all;
+# these profiles bind the hosts to agent binaries instead. An agent binary
+# wrapper can still spend the credential; see the YAML files for details.
 OPENAI_PROFILE_ID = "agentic-ci-openai"
 ANTHROPIC_PROFILE_ID = "agentic-ci-anthropic"
+VERTEX_PROFILE_ID = "agentic-ci-google-vertex-ai"
 _PROFILE_PACKAGE = "agentic_ci.backends.openshell"
 _PROFILE_DIR = "profiles"
 
-_SECRET_PREFIXES = ("private_key=", "GCP_SA_ACCESS_TOKEN=", "OPENAI_API_KEY=")
+# Credential key the gateway refreshes for service-account Vertex auth. The
+# sandbox receives it as an opaque placeholder that the supervisor proxy
+# resolves on requests to the aiplatform endpoints the Vertex profile declares.
+VERTEX_SA_TOKEN_KEY = "GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN"
+# The same for gcloud ADC (user OAuth) Vertex auth.
+VERTEX_ADC_TOKEN_KEY = "GOOGLE_VERTEX_AI_TOKEN"
+
+_SECRET_PREFIXES = ("private_key=", f"{VERTEX_SA_TOKEN_KEY}=", "OPENAI_API_KEY=")
 _PROVIDER_AUTH_MODES = {
-    "google-cloud": "vertex",
-    "google-vertex-ai": "vertex",
+    VERTEX_PROFILE_ID: "vertex",
     ANTHROPIC_PROFILE_ID: "api-key",
     "claude": "api-key",
     OPENAI_PROFILE_ID: "openai",
@@ -47,6 +55,19 @@ _PROVIDER_AUTH_MODES = {
     # instead of reusing one whose key curl can spend.
     "anthropic": "api-key-builtin-profile",
     "openai": "openai-builtin-profile",
+    # The same for Vertex. A google-cloud provider relied on the GCE metadata
+    # emulator, which OpenShell removed: it still injects GCE_METADATA_HOST,
+    # pointing SDKs at a port nothing serves. A google-vertex-ai provider
+    # comes from a profile agentic-ci does not control.
+    "google-cloud": "vertex-google-cloud-provider",
+    "google-vertex-ai": "vertex-builtin-profile",
+}
+
+# The provider profile agentic-ci creates each provider-backed auth mode from.
+_AUTH_MODE_PROFILES = {
+    "api-key": ANTHROPIC_PROFILE_ID,
+    "openai": OPENAI_PROFILE_ID,
+    "vertex": VERTEX_PROFILE_ID,
 }
 
 # Auth modes whose credential reaches the sandbox only through the env
@@ -107,21 +128,19 @@ def _provider_process_env(credential_key, env: Mapping[str, str]) -> dict[str, s
     return {**os.environ, **env, credential_key: value}
 
 
-# The variable that carries the provider placeholder for each auth mode whose
-# provider injects an API key (the env_vars of the profiles in profiles/).
-# These providers are detached while the setup shim's egress is open: the
-# rule OpenShell composes from the profile lets agent binaries, and so
-# anything a setup or validate step runs under an agent binary, spend the key.
-#
-# Vertex is left attached. Its google-cloud profile is endpointless, so
-# OpenShell composes no rule for it, and its credential is bound only to the
-# aiplatform and oauth2 endpoints of agentic-ci's own agent rules, which the
-# setup and validate phases park and never open to the shim. Its metadata
-# emulator hands out placeholders, which resolve only through such a binding.
-# The oauth mode has no provider at all.
-_API_KEY_ENV_VARS = {
-    "openai": "OPENAI_API_KEY",
-    "api-key": "ANTHROPIC_API_KEY",
+# The variables that carry the provider placeholder for each auth mode whose
+# provider injects a credential (the env_vars of the profiles in profiles/
+# that agentic-ci stores a credential under). These providers are detached
+# while the setup shim's egress is open: the rule OpenShell composes from the
+# profile lets agent binaries, and so anything a setup or validate step runs
+# under an agent binary, spend the credential. A Vertex provider holds one of
+# two tokens, depending on whether it was created from a service account key
+# or from gcloud ADC, so both are listed. The oauth mode has no provider at
+# all.
+_PROVIDER_ENV_VARS = {
+    "openai": ("OPENAI_API_KEY",),
+    "api-key": ("ANTHROPIC_API_KEY",),
+    "vertex": (VERTEX_SA_TOKEN_KEY, VERTEX_ADC_TOKEN_KEY),
 }
 
 
@@ -168,12 +187,13 @@ def requires_provider(auth_mode: str | None) -> bool:
     return auth_mode not in _PROVIDERLESS_AUTH_MODES
 
 
-def api_key_env_var(auth_mode: str | None) -> str | None:
-    """Return the provider placeholder's variable if *auth_mode*'s provider injects an API key.
+def provider_env_vars(auth_mode: str | None) -> tuple[str, ...]:
+    """Return the variables that can hold *auth_mode*'s provider placeholder.
 
-    None for vertex (see :data:`_API_KEY_ENV_VARS`), oauth and anything else.
+    Empty for oauth and anything else that has no provider credential to
+    detach (see :data:`_PROVIDER_ENV_VARS`).
     """
-    return _API_KEY_ENV_VARS.get(auth_mode) if auth_mode is not None else None
+    return _PROVIDER_ENV_VARS.get(auth_mode, ()) if auth_mode is not None else ()
 
 
 def _run(args, **kwargs):
@@ -192,14 +212,17 @@ def _run(args, **kwargs):
 def setup(auth_mode, env: Mapping[str, str] | None = None):
     """Configure the OpenShell provider.
 
-    Creates a google-cloud provider that injects GCP credentials into the
-    sandbox via the OpenShell supervisor proxy. The agent uses its native
-    Vertex AI integration — no inference.local proxy is needed.
+    For Vertex AI, creates a provider from agentic-ci's Vertex profile. The
+    gateway keeps the refresh material and mints short-lived access tokens;
+    the sandbox only sees a placeholder variable that the supervisor proxy
+    resolves on requests to the aiplatform endpoints. (OpenShell removed the
+    GCE metadata emulator the older google-cloud provider relied on, so
+    SDK-side ADC discovery no longer works inside the sandbox.)
 
     For user OAuth credentials (from gcloud auth application-default login),
     --from-gcloud-adc handles everything. For service account keys (CI),
-    the provider is created bare and refresh is configured separately with
-    the service account's email and private key.
+    the provider is created with a placeholder token and refresh is
+    configured separately with the service account's email and private key.
 
     For Anthropic or OpenAI API key auth, creates the corresponding provider.
 
@@ -214,6 +237,9 @@ def setup(auth_mode, env: Mapping[str, str] | None = None):
         # NOTE: switching auth modes (e.g. Vertex → API key) between runs
         # is not supported. The existing provider is reused regardless of
         # its type. To switch, tear down the environment and start fresh.
+        # OpenShellBackend.setup() has already made the gateway's copy of the
+        # profile match agentic-ci's (ensure_auth_mode_profile), before it
+        # decided whether the sandbox can be reused.
         print(f"  Provider '{PROVIDER_NAME}' already exists", flush=True)
         refresh_credentials(auth_mode, credential_env)
     elif auth_mode == "api-key":
@@ -339,7 +365,7 @@ def _profile_matches(wanted, current):
     return wanted == current
 
 
-def ensure_profile(profile_id):
+def ensure_profile(profile_id) -> bool:
     """Register agentic-ci's provider profile *profile_id* with the gateway.
 
     Profiles live in the gateway database, which ``gateway.start()`` creates
@@ -347,6 +373,9 @@ def ensure_profile(profile_id):
     refuses an id that already exists, so an existing profile is exported
     first: left alone when it matches the packaged file, otherwise updated
     in place with the resource version the gateway expects.
+
+    Returns True when the gateway's copy was imported or updated, False when
+    it already matched.
     """
     resource = files(_PROFILE_PACKAGE).joinpath(_PROFILE_DIR, f"{profile_id}.yaml")
     wanted = yaml.safe_load(resource.read_text(encoding="utf-8"))
@@ -364,11 +393,11 @@ def ensure_profile(profile_id):
                 ["openshell", "provider", "profile", "import", "-f", str(profile_path)],
                 check=True,
             )
-        return
+        return True
 
     exported = yaml.safe_load(current.stdout)
     if _profile_matches(wanted, exported):
-        return
+        return False
 
     print(f"  Updating provider profile {profile_id}", flush=True)
     updated = {**wanted, "resource_version": exported["resource_version"]}
@@ -382,6 +411,24 @@ def ensure_profile(profile_id):
         )
     finally:
         os.unlink(profile_file)
+    return True
+
+
+def ensure_auth_mode_profile(auth_mode) -> bool:
+    """Make the gateway's copy of *auth_mode*'s provider profile match the packaged one.
+
+    A provider reused across runs composes its sandbox rule from whatever
+    profile the gateway holds under its type id, which may come from an older
+    agentic-ci or have been changed by hand, so it could bind binaries other
+    than the agent's. Returns True when the profile had to be imported or
+    updated; the caller then recreates the sandbox rather than reuse one that
+    ran under the drifted rule. Returns False for auth modes without a
+    profile.
+    """
+    profile_id = _AUTH_MODE_PROFILES.get(auth_mode)
+    if profile_id is None:
+        return False
+    return ensure_profile(profile_id)
 
 
 def _create_anthropic_provider(env: Mapping[str, str] | None = None):
@@ -445,8 +492,9 @@ def _create_gcp_provider(env: Mapping[str, str] | None = None):
     source = ensure_adc(credential_env)
     cred_type = _adc_credential_type()
 
+    ensure_profile(VERTEX_PROFILE_ID)
     print(
-        f"  Creating GCP provider "
+        f"  Creating Vertex AI provider "
         f"(project={project}, region={region}, creds={cred_type}, source={source})",
         flush=True,
     )
@@ -457,31 +505,40 @@ def _create_gcp_provider(env: Mapping[str, str] | None = None):
         _create_gcp_provider_adc(project, region)
 
 
-def _create_gcp_provider_adc(project, region):
-    """Create a GCP provider from gcloud ADC user credentials."""
-    args = [
-        "openshell",
-        "provider",
-        "create",
-        "--name",
-        PROVIDER_NAME,
-        "--type",
-        "google-cloud",
-        "--from-gcloud-adc",
-    ]
+def _vertex_config_args(project, region):
+    """``--config`` arguments for the settings the Vertex profile projects into the sandbox."""
+    args = []
     if project:
-        args.extend(["--config", f"project_id={project}"])
-    args.extend(["--config", f"region={region}"])
-    _run(args, check=True)
+        args.extend(["--config", f"VERTEX_AI_PROJECT_ID={project}"])
+    args.extend(["--config", f"VERTEX_AI_REGION={region}"])
+    return args
+
+
+def _create_gcp_provider_adc(project, region):
+    """Create a Vertex AI provider from gcloud ADC user credentials."""
+    _run(
+        [
+            "openshell",
+            "provider",
+            "create",
+            "--name",
+            PROVIDER_NAME,
+            "--type",
+            VERTEX_PROFILE_ID,
+            "--from-gcloud-adc",
+            *_vertex_config_args(project, region),
+        ],
+        check=True,
+    )
 
 
 def _create_gcp_provider_sa(project, region):
-    """Create a GCP provider from a service account key.
+    """Create a Vertex AI provider from a service account key.
 
     --from-gcloud-adc only accepts user OAuth credentials. For service
-    accounts we create the provider bare, then configure the JWT refresh
-    strategy with the service account's email and private key so the
-    gateway can mint access tokens.
+    accounts we create the provider with a placeholder token, then configure
+    the JWT refresh strategy with the service account's email and private
+    key so the gateway can mint access tokens.
     """
     adc = _adc_path()
     with open(adc) as f:
@@ -490,22 +547,21 @@ def _create_gcp_provider_sa(project, region):
     client_email = sa["client_email"]
     private_key = sa["private_key"]
 
-    args = [
-        "openshell",
-        "provider",
-        "create",
-        "--name",
-        PROVIDER_NAME,
-        "--type",
-        "google-cloud",
-        "--credential",
-        "GCP_SA_ACCESS_TOKEN=placeholder",
-    ]
-    if project:
-        args.extend(["--config", f"project_id={project}"])
-    args.extend(["--config", f"region={region}"])
-    args.extend(["--config", f"service_account_email={client_email}"])
-    _run(args, check=True)
+    _run(
+        [
+            "openshell",
+            "provider",
+            "create",
+            "--name",
+            PROVIDER_NAME,
+            "--type",
+            VERTEX_PROFILE_ID,
+            "--credential",
+            f"{VERTEX_SA_TOKEN_KEY}=placeholder",
+            *_vertex_config_args(project, region),
+        ],
+        check=True,
+    )
 
     _run(
         [
@@ -514,7 +570,7 @@ def _create_gcp_provider_sa(project, region):
             "refresh",
             "configure",
             "--credential-key",
-            "GCP_SA_ACCESS_TOKEN",
+            VERTEX_SA_TOKEN_KEY,
             "--strategy",
             "google-service-account-jwt",
             "--material",
@@ -541,8 +597,16 @@ def rotate_token():
     transient mint failure is only retried after 60s while the old token
     keeps aging. Calling this proactively keeps a fresh token in play.
 
+    The provider holds its token under the key it was created with:
+    :data:`VERTEX_ADC_TOKEN_KEY` for gcloud ADC user credentials,
+    :data:`VERTEX_SA_TOKEN_KEY` otherwise.
+
     Raises subprocess.CalledProcessError on failure.
     """
+    if _adc_credential_type() == "authorized_user":
+        credential_key = VERTEX_ADC_TOKEN_KEY
+    else:
+        credential_key = VERTEX_SA_TOKEN_KEY
     _run(
         [
             "openshell",
@@ -550,7 +614,7 @@ def rotate_token():
             "refresh",
             "rotate",
             "--credential-key",
-            "GCP_SA_ACCESS_TOKEN",
+            credential_key,
             PROVIDER_NAME,
         ],
         check=True,
