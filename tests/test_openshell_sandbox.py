@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 import agentic_ci.backends.openshell as openshell_backend
+from agentic_ci import toolchains
 from agentic_ci.backends import create_backend
 from agentic_ci.backends.openshell import provider as openshell_provider
 from agentic_ci.backends.openshell import sandbox
@@ -25,6 +26,7 @@ from agentic_ci.backends.openshell.policy import (
     phase_endpoints,
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
+from agentic_ci.backends.openshell.provision import OpenShellInstaller
 from agentic_ci.sandbox_profile import (
     Resources,
     SandboxProfile,
@@ -1430,6 +1432,347 @@ class TestSandboxIdentityProfileHash:
         create, delete, _ = self._setup(backend, tmp_path, monkeypatch, exists=True, saved=saved)
         delete.assert_called_once_with()
         create.assert_called_once()
+
+
+GO = SandboxProfile(toolchains={"go": "auto", "shfmt": "3.12.0"})
+_RESULTS = (
+    toolchains.ToolchainResult("go", "auto", "1.26.5", "a" * 64, "installed"),
+    toolchains.ToolchainResult("shfmt", "3.12.0", "", "", "failed", "shfmt: checksum mismatch"),
+)
+_ENV = toolchains.ToolchainEnv(path=("/sandbox/.local/toolchains/go-1.26.5/go/bin",))
+
+
+class TestToolchainProvisioning:
+    """setup() provisions toolchains after the workdir upload, and only with toolchains."""
+
+    def _setup(self, backend, tmp_path, monkeypatch, *, exists=False, saved=None):
+        state = tmp_path / "state.json"
+        monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state))
+        if saved is not None:
+            state.write_text(json.dumps(saved, sort_keys=True) + "\n")
+        backend.workdir = str(tmp_path / "work")
+        backend.harness.auth_mode_for_env.return_value = "openai"
+        backend.harness.name = "Codex"
+        openshell = "agentic_ci.backends.openshell"
+        with (
+            mock.patch(f"{openshell}.provider") as provider,
+            mock.patch(f"{openshell}.gateway.is_running", return_value=True),
+            mock.patch(f"{openshell}.sandbox.exists", return_value=exists),
+            mock.patch(f"{openshell}.sandbox.create") as create,
+            mock.patch(f"{openshell}.sandbox.delete") as delete,
+            mock.patch(f"{openshell}.sandbox.upload") as upload,
+            mock.patch(f"{openshell}.toolchains.provision") as provision,
+            _phase_steps() as steps,
+            mock.patch.object(backend, "_run_setup_steps") as setup_steps,
+            mock.patch.object(backend, "_upload_sandbox_config") as upload_config,
+        ):
+            provision.return_value = toolchains.Provisioned(results=_RESULTS, env=_ENV)
+            for name, part in [
+                ("create", create),
+                ("delete", delete),
+                ("run_setup_steps", setup_steps),
+                ("upload", upload),
+                ("provision", provision),
+                ("upload_config", upload_config),
+            ]:
+                steps.attach_mock(part, name)
+            provider.provider_exists.return_value = exists
+            provider.auth_mode.return_value = "openai"
+            provider.requires_provider.return_value = True
+            provider.credential_fingerprint.return_value = None
+            provider.ensure_auth_mode_profile.return_value = False
+            provider.provider_env_vars.side_effect = openshell_provider.provider_env_vars
+            backend.setup()
+        return [c[0] for c in steps.mock_calls], provision, state
+
+    def test_order_create_upload_provision_config(self, tmp_path, monkeypatch):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        backend.run_dir = tmp_path / "_run"
+        names, provision, _ = self._setup(backend, tmp_path, monkeypatch)
+        assert names == [
+            "create",
+            "find_main_process",
+            "run_setup_steps",
+            "upload",
+            "provision",
+            "upload_config",
+        ]
+        args, kwargs = provision.call_args
+        assert args == (GO.toolchains,)
+        assert kwargs["workdir"] == tmp_path / "work"
+        assert isinstance(kwargs["installer"], OpenShellInstaller)
+        assert backend.toolchain_env == _ENV
+        assert backend.toolchain_results == _RESULTS
+        assert json.loads((tmp_path / "_run" / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+
+    def test_failures_are_logged_and_setup_continues(self, tmp_path, monkeypatch, capsys):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        self._setup(backend, tmp_path, monkeypatch)
+        assert "WARNING: 1 toolchain(s) not provisioned; the run continues" in (
+            capsys.readouterr().out
+        )
+
+    def test_without_run_dir_nothing_is_written(self, tmp_path, monkeypatch):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        monkeypatch.chdir(tmp_path)
+        with mock.patch.object(toolchains, "write_results") as write_results:
+            self._setup(backend, tmp_path, monkeypatch)
+        write_results.assert_not_called()
+        assert list(tmp_path.rglob("toolchains.json")) == []
+
+    def test_a_new_sandbox_records_its_toolchains_on_the_host(self, tmp_path, monkeypatch):
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        _, provision, state = self._setup(backend, tmp_path, monkeypatch)
+        # Nothing recorded yet: the installer trusts no marker in a new sandbox.
+        assert provision.call_args.kwargs["installer"].recorded == {}
+        saved = json.loads(state.read_text())
+        # Only what was installed; the failed shfmt is not recorded.
+        assert saved["toolchains"] == {"/sandbox/.local/toolchains/go-1.26.5": "a" * 64}
+        assert openshell_backend._identity_fields(saved) == openshell_backend._sandbox_identity(
+            "Codex", None, "openai", profile=GO
+        )
+
+    def test_a_reused_sandbox_trusts_only_the_host_record(self, tmp_path, monkeypatch):
+        saved = _profile_identity("Codex", None, "openai", GO)
+        saved["toolchains"] = {
+            "/sandbox/.local/toolchains/go-1.26.4": "b" * 64,
+            "/sandbox/.local/toolchains/go-1.26.5": "c" * 64,
+            "/elsewhere/go": "d" * 64,
+            "/sandbox/.local/toolchains/bad": "not hex",
+        }
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        names, provision, state = self._setup(
+            backend, tmp_path, monkeypatch, exists=True, saved=saved
+        )
+        assert "create" not in names and "delete" not in names
+        assert provision.call_args.kwargs["installer"].recorded == {
+            "/sandbox/.local/toolchains/go-1.26.4": "b" * 64,
+            "/sandbox/.local/toolchains/go-1.26.5": "c" * 64,
+        }
+        after = json.loads(state.read_text())
+        assert after["toolchains"] == {
+            "/sandbox/.local/toolchains/go-1.26.4": "b" * 64,
+            "/sandbox/.local/toolchains/go-1.26.5": "a" * 64,
+        }
+        assert after["main_process"] == saved["main_process"]
+
+    def test_a_failed_install_drops_its_record(self, tmp_path, monkeypatch):
+        saved = _profile_identity("Codex", None, "openai", GO)
+        saved["toolchains"] = {"/sandbox/.local/toolchains/go-1.26.5": "a" * 64}
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        failed = toolchains.ToolchainResult("go", "auto", "1.26.5", "a" * 64, "failed", "x")
+        with mock.patch.object(
+            toolchains,
+            "provision",
+            return_value=toolchains.Provisioned(results=(failed,), env=toolchains.ToolchainEnv()),
+        ):
+            backend._provision_toolchains(openshell_backend._toolchain_records(saved))
+        assert backend._toolchain_records == {}
+
+    def test_a_profile_without_toolchains_records_none(self, tmp_path, monkeypatch):
+        backend = create_backend(
+            "openshell", harness=mock.Mock(), sandbox_profile=SandboxProfile(egress=("npm",))
+        )
+        _, _, state = self._setup(backend, tmp_path, monkeypatch)
+        assert "toolchains" not in json.loads(state.read_text())
+
+    @pytest.mark.parametrize("profile", [None, SandboxProfile(egress=("npm",))])
+    def test_no_toolchains_no_provisioning(self, tmp_path, monkeypatch, profile):
+        kwargs = {} if profile is None else {"sandbox_profile": profile}
+        backend = create_backend("openshell", harness=mock.Mock(), **kwargs)
+        backend.run_dir = tmp_path / "_run"
+        names, provision, _ = self._setup(backend, tmp_path, monkeypatch)
+        provision.assert_not_called()
+        assert "provision" not in names
+        assert not backend.toolchain_env
+        assert not (tmp_path / "_run").exists()
+
+    def test_a_reused_sandbox_provisions_after_the_agent_switch(self, tmp_path, monkeypatch):
+        saved = _profile_identity("Codex", None, "openai", GO)
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        names, provision, _ = self._setup(backend, tmp_path, monkeypatch, exists=True, saved=saved)
+        assert "create" not in names and "upload" not in names
+        assert names.index("provision") > names.index("wait_for_provider_env")
+        provision.assert_called_once()
+        assert backend.toolchain_env == _ENV
+
+    def test_changed_toolchains_recreate_the_sandbox(self, tmp_path, monkeypatch):
+        old = SandboxProfile(toolchains={"go": "1.26.4"})
+        saved = _profile_identity("Codex", None, "openai", old)
+        saved["toolchains"] = {"/sandbox/.local/toolchains/go-1.26.4": "b" * 64}
+        backend = create_backend("openshell", harness=mock.Mock(), sandbox_profile=GO)
+        names, provision, state = self._setup(
+            backend, tmp_path, monkeypatch, exists=True, saved=saved
+        )
+        assert names[:2] == ["delete", "create"]
+        after = json.loads(state.read_text())
+        assert after["profile_hash"] == profile_hash(GO)
+        # The old sandbox's record does not carry over to the new one.
+        assert provision.call_args.kwargs["installer"].recorded == {}
+        assert after["toolchains"] == {"/sandbox/.local/toolchains/go-1.26.5": "a" * 64}
+
+
+def _agent_harness():
+    harness = mock.Mock()
+    harness.build_args.return_value = ["agent"]
+    harness.auth_mode_for_env.return_value = "openai"
+    return harness
+
+
+class TestToolchainResultsAfterRun:
+    """run() rewrites _run/toolchains.json after the workdir download."""
+
+    def _run(self, backend, tmp_path, forge):
+        def download(sandbox_path, local_dest):
+            if forge:
+                path = tmp_path / "_run" / "toolchains.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('[{"name": "go", "status": "installed", "reason": "forged"}]')
+
+        with (
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+            mock.patch.object(backend, "_wait_for_otel_flush"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd_streaming"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.download", side_effect=download),
+        ):
+            return backend.run("prompt", "model")
+
+    def test_a_forged_record_from_the_sandbox_is_replaced(self, tmp_path):
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path), sandbox_profile=GO
+        )
+        backend.run_dir = tmp_path / "_run"
+        backend.toolchain_results = _RESULTS
+        self._run(backend, tmp_path, forge=True)
+        assert json.loads((tmp_path / "_run" / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+
+    def test_also_when_the_download_fails(self, tmp_path):
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path), sandbox_profile=GO
+        )
+        backend.run_dir = tmp_path / "_run"
+        backend.toolchain_results = _RESULTS
+        error = subprocess.CalledProcessError(1, ["openshell"])
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").mkdir(exist_ok=True)
+            (tmp_path / "_run" / "toolchains.json").write_text("forged")
+            raise error
+
+        with (
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+            mock.patch.object(backend, "_wait_for_otel_flush"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd_streaming"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.download", side_effect=download),
+        ):
+            with pytest.raises(subprocess.CalledProcessError):
+                backend.run("prompt", "model")
+        assert json.loads((tmp_path / "_run" / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+
+    def test_a_symlinked_run_dir_is_not_written_through(self, tmp_path, capsys):
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path / "w"), sandbox_profile=GO
+        )
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (tmp_path / "w").mkdir()
+        (tmp_path / "w" / "_run").symlink_to(outside)
+        backend.run_dir = tmp_path / "w" / "_run"
+        backend.toolchain_results = _RESULTS
+        backend._write_toolchain_results()
+        assert list(outside.iterdir()) == []
+        assert "run directory is a symlink" in capsys.readouterr().out
+
+    def _run_with(self, backend, download, rc=7):
+        with (
+            mock.patch.object(backend, "_write_env_script"),
+            mock.patch.object(backend, "_process_stream", return_value=(rc, False)),
+            mock.patch.object(backend, "_wait_for_otel_flush"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd_streaming"),
+            mock.patch("agentic_ci.backends.openshell.sandbox.download", side_effect=download),
+        ):
+            return backend.run("prompt", "model")
+
+    def _backend(self, tmp_path):
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path), sandbox_profile=GO
+        )
+        backend.run_dir = tmp_path / "_run"
+        backend.toolchain_results = _RESULTS
+        return backend
+
+    def test_a_directory_left_at_the_path_is_replaced(self, tmp_path):
+        backend = self._backend(tmp_path)
+
+        def download(sandbox_path, local_dest):
+            planted = tmp_path / "_run" / "toolchains.json" / "nested"
+            planted.mkdir(parents=True)
+            (planted / "file").write_text("x")
+
+        assert self._run_with(backend, download) == 7
+        assert json.loads((tmp_path / "_run" / "toolchains.json").read_text()) == [
+            r.to_dict() for r in _RESULTS
+        ]
+
+    def test_a_symlink_left_at_the_path_is_not_written_through(self, tmp_path):
+        backend = self._backend(tmp_path)
+        outside = tmp_path / "outside.json"
+        outside.write_text("keep")
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").mkdir()
+            (tmp_path / "_run" / "toolchains.json").symlink_to(outside)
+
+        assert self._run_with(backend, download) == 7
+        path = tmp_path / "_run" / "toolchains.json"
+        assert not path.is_symlink()
+        assert json.loads(path.read_text()) == [r.to_dict() for r in _RESULTS]
+        assert outside.read_text() == "keep"
+
+    def test_a_run_dir_left_as_a_file_keeps_the_exit_code(self, tmp_path, capsys):
+        backend = self._backend(tmp_path)
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").write_text("not a directory")
+
+        assert self._run_with(backend, download) == 7
+        out = capsys.readouterr().out
+        assert "WARNING: toolchains.json could not be written" in out
+        assert "toolchains.json write error: FileExistsError" in out
+        assert (tmp_path / "_run").read_text() == "not a directory"
+
+    def test_a_failed_rewrite_does_not_hide_the_download_error(self, tmp_path, capsys):
+        backend = self._backend(tmp_path)
+        error = subprocess.CalledProcessError(1, ["openshell"])
+
+        def download(sandbox_path, local_dest):
+            (tmp_path / "_run").write_text("not a directory")
+            raise error
+
+        with pytest.raises(subprocess.CalledProcessError) as raised:
+            self._run_with(backend, download)
+        assert raised.value is error
+        assert "WARNING: toolchains.json could not be written" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("profile", [None, SandboxProfile(egress=("npm",))])
+    def test_without_toolchains_the_download_is_left_alone(self, tmp_path, profile):
+        kwargs = {} if profile is None else {"sandbox_profile": profile}
+        backend = create_backend(
+            "openshell", harness=_agent_harness(), workdir=str(tmp_path), **kwargs
+        )
+        backend.run_dir = tmp_path / "_run"
+        with mock.patch.object(toolchains, "write_results") as write_results:
+            self._run(backend, tmp_path, forge=False)
+        write_results.assert_not_called()
+        assert not (tmp_path / "_run").exists()
 
 
 _SANDBOX_EXEC = [

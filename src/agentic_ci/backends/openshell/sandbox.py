@@ -710,6 +710,15 @@ def _exec_python(label, script, args, timeout=_PROCESS_EXEC_TIMEOUT_SECONDS):
     )
 
 
+def exec_python(label, script, args, timeout=_PROCESS_EXEC_TIMEOUT_SECONDS):
+    """Run *script* with the sandbox image's ``/usr/bin/python3`` (see :func:`_exec_python`).
+
+    For in-sandbox helpers outside this module, such as toolchain
+    installation (``agentic_ci.backends.openshell.provision``).
+    """
+    return _exec_python(label, script, args, timeout=timeout)
+
+
 def _process_script(args, what):
     """Run :data:`_PROCESS_SCRIPT` in the sandbox; return its exit status and stdout lines.
 
@@ -947,11 +956,17 @@ def wait_for_provider_env(env_vars: Sequence[str], *, attached: bool, phase: str
     )
 
 
-def upload(local_path):
-    """Upload a local path into the sandbox."""
+def upload(local_path, timeout=None):
+    """Upload a local path into the sandbox.
+
+    With *timeout* (seconds), ``subprocess.TimeoutExpired`` is raised when the
+    upload takes longer; without it the upload is not bounded.
+    """
+    kwargs = {} if timeout is None else {"timeout": timeout}
     _run(
         ["openshell", "sandbox", "upload", "--no-git-ignore", SANDBOX_NAME, local_path],
         check=True,
+        **kwargs,
     )
 
 

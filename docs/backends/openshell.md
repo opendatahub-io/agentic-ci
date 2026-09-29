@@ -34,11 +34,13 @@ environment). On each `agentic-ci run --backend openshell`, it:
 4. Applies a network policy and waits for it to activate
 5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
 6. Uploads the workdir (including setup step outputs) into the sandbox
-7. Uploads an env script with agent configuration
-8. Executes the agent inside the sandbox
-9. Downloads the workdir back to the host and restores the host's git
+7. Provisions the sandbox profile's toolchains, if any (see
+   [Setup order](#setup-order))
+8. Uploads an env script with agent configuration
+9. Executes the agent inside the sandbox
+10. Downloads the workdir back to the host and restores the host's git
    control files (see [Host git after the run](#host-git-after-the-run))
-10. Tears everything down on completion
+11. Tears everything down on completion
 
 ## OpenShell Commands
 
@@ -400,6 +402,46 @@ openshell sandbox exec --name ci --no-tty -- \
   claude --permission-mode bypassPermissions --model <MODEL> \
   --output-format stream-json --verbose -p "<PROMPT>"
 ```
+
+### Setup order
+
+`OpenShellBackend.setup()` runs these steps for a new sandbox:
+
+1. `sandbox.create` with the resources and the agent-phase egress (with a
+   sandbox profile, its main process is recorded right after).
+2. Host setup steps from `.agentic-ci/config.yml` (legacy, host side).
+3. `sandbox.upload(workdir)`.
+4. Toolchain provisioning, when the [sandbox profile](../sandbox-profiles.md#toolchains)
+   has toolchains: for each one the host resolves the version, downloads
+   and verifies the archive (host cache in `~/.cache/agentic-ci/toolchains`)
+   and the sandbox extracts it:
+
+    ```bash
+    # Is it already there? Asked only when the host's record of this sandbox
+    # (the saved identity) lists it with the same sha256; the marker must agree.
+    openshell sandbox exec --name ci --no-tty --no-login-shell -- \
+      /usr/bin/python3 -I -S -c <install script> check <plan> /sandbox/.local/toolchains
+    # If not: upload the verified archive (named by its sha256) and extract it
+    openshell sandbox upload --no-git-ignore ci ~/.cache/agentic-ci/toolchains/<sha256>
+    openshell sandbox exec --name ci --no-tty --no-login-shell -- \
+      /usr/bin/python3 -I -S -c <install script> install <plan> /sandbox/.local/toolchains <sha256>
+    ```
+
+    Results go to the log and `_run/toolchains.json`; a toolchain that fails
+    is skipped and the run continues.
+5. Harness config upload, then the sandbox identity (with the profile hash,
+   so a changed profile, toolchains included, recreates the sandbox, and
+   the record of the provisioned toolchains) is saved.
+
+A reused sandbox (same identity) is switched to the `agent` egress phase
+and then provisioned again, which skips every toolchain that both the
+host's record and the marker show as installed with the same sha256 (the
+marker alone is in a directory the agent can write, so it is never trusted
+by itself), and saves the updated record. The toolchain variables (`PATH` prepends, `GOTOOLCHAIN=local`,
+the Go and npm caches and the pnpm store) are added to the env script that
+`run()` uploads before the agent starts. In-sandbox setup steps, the
+setup-phase policy and `ENVIRONMENT.md` come in a following release, between
+steps 4 and 5.
 
 ### Teardown
 

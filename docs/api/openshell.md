@@ -15,3 +15,7 @@
 ## Policy
 
 ::: agentic_ci.backends.openshell.policy
+
+## Toolchain Installation
+
+::: agentic_ci.backends.openshell.provision

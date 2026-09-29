@@ -829,10 +829,27 @@ jobs:
           CODEX_SANDBOX_IMAGE: ${{ needs.build-codex-sandbox.outputs.image }}
         run: bash tests/e2e/e2e-openshell-sandbox.sh
 
+      # The sandbox profile e2e below provisions toolchains (section 12) with
+      # real downloads on the runner: go, node, pnpm and shfmt, about 150 MB
+      # from go.dev and dl.google.com, nodejs.org, the npm registry and
+      # GitHub. This keeps the host's toolchain cache between runs, keyed on
+      # the script that pins the versions. A cached archive is hashed again
+      # against the official checksum before use, so a stale or tampered
+      # entry is only downloaded again.
+      - name: Restore the toolchain download cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/e2e-toolchain-cache
+          key: e2e-toolchains-${{ hashFiles('tests/e2e/e2e-openshell-profile.sh') }}
+          restore-keys: e2e-toolchains-
+
       # Sandbox-profile egress: phase switches and the setup shim's binary
       # binding, then the credential provider detach for Codex (openai),
-      # Claude Code (api-key) and Vertex AI, and Codex telemetry after a
-      # phase switch against a fake Responses API. No LLM call; the script
+      # Claude Code (api-key) and Vertex AI, Codex telemetry after a phase
+      # switch against a fake Responses API, and toolchain provisioning
+      # (section 12: go, node, pnpm and shfmt downloaded and verified on the
+      # runner, E2E_TOOLCHAIN_CACHE restored above). No LLM call; the script
       # creates the providers with fake credentials. Runs even when the step
       # above failed, so its result is never hidden.
       - name: Run sandbox profile e2e tests
@@ -840,4 +857,5 @@ jobs:
         env:
           CODEX_SANDBOX_IMAGE: ${{ needs.build-codex-sandbox.outputs.image }}
           CLAUDE_SANDBOX_IMAGE: ${{ needs.build-claude-sandbox.outputs.image }}
+          E2E_TOOLCHAIN_CACHE: ${{ runner.temp }}/e2e-toolchain-cache
         run: bash tests/e2e/e2e-openshell-profile.sh

@@ -18,6 +18,7 @@ from agentic_ci.backends.openshell import (
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
 from agentic_ci.sandbox_profile import Resources, SandboxProfile
+from agentic_ci.toolchains import ToolchainEnv
 
 
 @pytest.fixture(autouse=True)
@@ -1189,3 +1190,85 @@ class TestCreateBackendSandboxProfile:
         with mock.patch("agentic_ci.backends.log.info") as logged:
             create_backend(name, harness=harness)
         logged.assert_not_called()
+
+
+TOOLCHAIN_ENV = ToolchainEnv(
+    path=("/sandbox/.local/toolchains/go-1.26.5/go/bin", "/sandbox/.local/gopath/bin"),
+    variables={"GOTOOLCHAIN": "local", "GOPATH": "/sandbox/.local/gopath"},
+)
+
+
+class TestToolchainEnvScript:
+    """Provisioned toolchains reach the env script; without them it is unchanged."""
+
+    def _script(self, backend):
+        captured = []
+
+        def upload(path):
+            with open(path) as fh:
+                captured.append(fh.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("gpt-5.6-sol")
+        return captured[0]
+
+    def _backend(self, monkeypatch, tmp_path, **kwargs):
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        return OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness(), **kwargs)
+
+    def test_toolchain_variables_are_exported_before_the_model(self, monkeypatch, tmp_path):
+        backend = self._backend(monkeypatch, tmp_path)
+        backend.toolchain_env = TOOLCHAIN_ENV
+        lines = self._script(backend).splitlines()
+        start = lines.index(
+            "export PATH=/sandbox/.local/toolchains/go-1.26.5/go/bin:"
+            '/sandbox/.local/gopath/bin:"$PATH"'
+        )
+        assert lines[start + 1 : start + 3] == [
+            "export GOTOOLCHAIN=local",
+            "export GOPATH=/sandbox/.local/gopath",
+        ]
+        assert lines[start + 3] == "export AGENT_MODEL=gpt-5.6-sol"
+
+    def test_no_toolchains_leaves_the_script_unchanged(self, monkeypatch, tmp_path):
+        plain = self._script(self._backend(monkeypatch, tmp_path))
+        profiled = self._script(
+            self._backend(monkeypatch, tmp_path, sandbox_profile=SandboxProfile(egress=("npm",)))
+        )
+        assert plain == profiled
+        assert "PATH" not in plain and "GOTOOLCHAIN" not in plain
+
+    def test_a_backend_starts_with_no_toolchains(self, monkeypatch, tmp_path):
+        backend = self._backend(monkeypatch, tmp_path)
+        assert not backend.toolchain_env
+        assert backend.toolchain_results == ()
+        assert backend.run_dir is None
+
+
+class TestToolchainsOnOtherBackends:
+    @pytest.mark.parametrize(
+        ("name", "cls_name"), [("podman", "PodmanBackend"), ("local", "LocalBackend")]
+    )
+    def test_toolchains_are_ignored_with_a_warning(self, harness, name, cls_name):
+        profile = SandboxProfile(toolchains={"go": "auto", "node": "22"})
+        with (
+            mock.patch(f"agentic_ci.backends.{cls_name}"),
+            mock.patch("agentic_ci.backends.log.info") as logged,
+        ):
+            create_backend(name, harness=harness, sandbox_profile=profile)
+        messages = [c.args[0] for c in logged.call_args_list]
+        assert any(
+            m.startswith("WARNING: 2 sandbox profile toolchain(s) not provisioned")
+            and f"the {name} backend does not provision toolchains" in m
+            for m in messages
+        )
+
+    def test_podman_setup_never_provisions(self, harness, tmp_path):
+        profile = SandboxProfile(toolchains={"go": "1.26.5"})
+        backend = create_backend(
+            "podman", harness=harness, workdir=str(tmp_path), sandbox_profile=profile
+        )
+        assert not hasattr(backend, "_provision_toolchains")
