@@ -345,7 +345,8 @@ the local backend it is the operator's own Codex configuration.
 | `GCLOUD_CREDENTIALS` | — | Raw JSON or base64 gcloud credentials |
 | `GCP_SERVICE_ACCOUNT_KEY` | — | Service account key: file path, raw JSON, or base64-encoded JSON |
 | `GOOGLE_APPLICATION_CREDENTIALS` | — | Path to ADC credentials file |
-| `OPENSHELL_SUPERVISOR_IMAGE` | `openshell/supervisor:dev` | OpenShell supervisor image (`openshell` backend only) |
+| `OPENSHELL_SUPERVISOR_IMAGE` | unset | OpenShell supervisor image, runs beside each sandbox (`openshell` backend only; set in the CI image) |
+| `OPENSHELL_SANDBOX_RUNTIME_IMAGE` | unset | OpenShell sandbox runtime image supplying the `openshell-sandbox` binary mounted into each sandbox (`openshell` backend only; set in the CI image) |
 
 ## Streaming Output
 

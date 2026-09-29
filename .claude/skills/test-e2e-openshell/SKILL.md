@@ -18,9 +18,18 @@ to confirm or override each one before proceeding:
 | Role               | Default image                                          | Variable                    |
 |--------------------|--------------------------------------------------------|-----------------------------|
 | CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
-| Supervisor         | `quay.io/opendatahub/odh-openshell-supervisor`         | `$SUPERVISOR_IMAGE`         |
+| Supervisor         | `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0` | `$SUPERVISOR_IMAGE`  |
+| Sandbox runtime    | `quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0`    | `$SANDBOX_RUNTIME_IMAGE` |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
+
+The supervisor and sandbox runtime tags must match `OPENSHELL_IMAGE_TAG` in
+`images/ci/Containerfile.openshell` (the CLI and gateway baked into the CI
+image). The CI image already sets both variables to those images; the `-e`
+flags below override them, so never leave `$SUPERVISOR_IMAGE` or
+`$SANDBOX_RUNTIME_IMAGE` empty or untagged: an empty value makes the gateway
+fall back to its compiled-in `ghcr.io/nvidia/openshell` images, which CI
+cannot pull, and an untagged one pulls `:latest`.
 
 Also ask for:
 
@@ -135,6 +144,7 @@ podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -170,6 +180,7 @@ Run cleanup first.
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -204,6 +215,7 @@ podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$OPENCODE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -233,6 +245,7 @@ Run cleanup first.
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$OPENCODE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -286,6 +299,7 @@ podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     agentic-ci run \
@@ -342,6 +356,7 @@ podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     cd /tmp/e2e-workdir && \
@@ -411,6 +426,7 @@ podman exec \
   -e ANTHROPIC_VERTEX_PROJECT_ID=<your-project-id> \
   -e CLOUD_ML_REGION=global \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \
@@ -446,6 +462,7 @@ Run cleanup first.
 podman exec \
   -e "ANTHROPIC_API_KEY=$(cat "$API_KEY_FILE")" \
   -e OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE" \
+  -e OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE" \
   -e SANDBOX_IMAGE="$CLAUDE_SANDBOX_IMAGE" \
   openshell-e2e bash -c '
     mkdir -p /tmp/e2e-workdir && cd /tmp/e2e-workdir && \

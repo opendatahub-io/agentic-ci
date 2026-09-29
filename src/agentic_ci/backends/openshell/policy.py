@@ -1,6 +1,5 @@
 """Policy resolution for OpenShell sandbox."""
 
-import copy
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -10,23 +9,39 @@ from types import MappingProxyType
 import yaml
 
 from agentic_ci import log
-from agentic_ci.backends.openshell.provider import PROVIDER_NAME, profile_endpoint_hosts
+from agentic_ci.backends.openshell.provider import profile_endpoint_hosts
 from agentic_ci.sandbox_profile import CREDENTIAL_ENDPOINT_OPTIONS, SandboxProfile
 
 REPO_POLICY_PATH = ".agentic-ci/openshell-policy.yml"
 
+# Base sandbox policy passed to ``openshell sandbox create --policy``.
+#
+# Mirrors OpenShell's restrictive default policy (openshell_policy::
+# restrictive_default_policy) as of v0.0.116-rhaiv.1, which the sandbox's
+# AGENTS.md describes; the v0.1.x default lists /bin (a symlink to /usr/bin
+# in the Hummingbird images) instead of /app. Passing it explicitly keeps the supervisor
+# from discovering the image's own /etc/openshell/policy.yaml: the
+# Hummingbird agentic images ship one in a foreign schema, and OpenShell
+# (since v0.0.116-rhaiv.8, v0.1.x included) rejects the sandbox with "Image
+# policy is invalid" instead of falling back to its default. Network
+# endpoints and binaries are layered on afterwards with ``openshell policy
+# update``. Every optional field is either set or left out, never null: the
+# v0.1.x policy schema refuses null and unknown fields.
+BASE_POLICY = {
+    "version": 1,
+    "filesystem_policy": {
+        "include_workdir": True,
+        "read_only": ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/etc", "/var/log"],
+        "read_write": ["/tmp", "/dev/null"],
+    },
+    "landlock": {"compatibility": "best_effort"},
+}
+
+
 # Default network endpoints in openshell policy update format:
 #   host:port:access[:protocol[:enforcement]]
-# No protocol is specified so endpoints are L4-only (CONNECT tunneling).
-# Using protocol=rest would enable L7 inspection which blocks CONNECT
-# requests that Vertex AI streaming/gRPC clients use.
-#
-# Hosts that a provider profile marks as credentialed (api.anthropic.com for
-# the anthropic provider, api.openai.com for the openai provider) reject
-# L4-only rules since OpenShell v0.0.116 unless the endpoint explicitly opts
-# in with the allow-uninspected-credentials option. This mirrors the
-# allow_uninspected_credentials flag build_credential_binding_patch sets on
-# the GCP endpoints.
+# No protocol is specified so endpoints are L4 (OpenShell still terminates
+# TLS where it must inject a credential, but inspects no request).
 DEFAULT_ENDPOINTS = [
     "github.com:443:full",
     "*.github.com:443:full",
@@ -36,12 +51,23 @@ DEFAULT_ENDPOINTS = [
     "files.pythonhosted.org:443:read-only",
 ]
 
+# Extra endpoints per auth mode, bound to the agent binaries, beyond the rule
+# OpenShell composes from the provider profile.
+#
+# Vertex needs none: agentic-ci's Vertex profile declares the aiplatform
+# hosts as L7 endpoints, and OpenShell rejects a sandbox endpoint for the
+# same host with conflicting metadata ("network endpoint ambiguity
+# validation failed"). The agent sends the provider's placeholder as its
+# bearer token, so no OAuth token exchange with oauth2.googleapis.com
+# happens in the sandbox either.
+#
+# The Anthropic and OpenAI profiles declare their hosts as L4 endpoints that
+# allow uninspected credentials, and these entries match them exactly, so
+# the two coexist. OpenShell refuses a CONNECT to a credentialed host
+# unless every rule that matches the caller opts in, so they must keep the
+# allow-uninspected-credentials option.
 AUTH_ENDPOINTS = {
-    "vertex": [
-        "aiplatform.googleapis.com:443:read-write",
-        "*.aiplatform.googleapis.com:443:read-write",
-        "oauth2.googleapis.com:443:read-write",
-    ],
+    "vertex": [],
     "api-key": [
         "api.anthropic.com:443:read-write:::allow-uninspected-credentials",
     ],
@@ -225,9 +251,14 @@ def _profile_endpoints(profile: SandboxProfile, phase: str) -> list[str]:
 _OTEL_COLLECTOR_HOST = "host.openshell.internal"
 
 # Google's OAuth token endpoint. Vertex credentials are exchanged there, and
-# it stays agent-only even when no auth mode lists it (a Vertex provider
-# profile may declare only the inference hosts).
+# it stays agent-only even though no auth mode lists it (the Vertex provider
+# profile declares only the inference hosts).
 _GOOGLE_OAUTH_HOST = "oauth2.googleapis.com"
+
+# Every subdomain of the Vertex AI API host. The Vertex profile names the
+# hosts agentic-ci's agents use; this keeps the rest of the API (which
+# agentic-ci listed in AUTH_ENDPOINTS before the profile) agent-only too.
+_VERTEX_API_SUBDOMAINS = "*.aiplatform.googleapis.com"
 
 
 def _endpoint_host(endpoint: str) -> str:
@@ -245,11 +276,11 @@ def _agent_only_hosts(
     default :data:`AUTH_ENDPOINTS`), the endpoint hosts of every vendored
     provider profile (``profiles/*.yaml``, read with
     :func:`provider.profile_endpoint_hosts` when *profile_hosts* is None,
-    which raises on a malformed profile), Google's OAuth token endpoint and
-    the OTel collector. It is its own list, not derived from
-    ``AUTH_ENDPOINTS`` alone, so an inference host stays agent-only even if
-    it leaves ``AUTH_ENDPOINTS`` because a provider profile declares it
-    (which a later OpenShell bump may need). Wildcard hosts (such as
+    which raises on a malformed profile), Google's OAuth token endpoint, every
+    subdomain of the Vertex AI API host and the OTel collector. It is its own list, not derived from
+    ``AUTH_ENDPOINTS`` alone, so an inference host stays agent-only when a
+    provider profile declares it instead of ``AUTH_ENDPOINTS``, as the
+    Vertex profile does for the aiplatform hosts. Wildcard hosts (such as
     ``*-aiplatform.googleapis.com``) are kept as written and matched by
     :func:`_hosts_overlap`.
     """
@@ -260,7 +291,7 @@ def _agent_only_hosts(
     return frozenset(
         {_endpoint_host(ep) for eps in auth_endpoints.values() for ep in eps}
         | profile_hosts
-        | {_GOOGLE_OAUTH_HOST, _OTEL_COLLECTOR_HOST}
+        | {_GOOGLE_OAUTH_HOST, _VERTEX_API_SUBDOMAINS, _OTEL_COLLECTOR_HOST}
     )
 
 
@@ -409,45 +440,3 @@ def resolve_endpoints(flag_path=None, workdir=".", auth_mode=None, profile=None)
             endpoints.append(ep)
             seen.add(ep)
     return endpoints
-
-
-# GCP hosts that need credential_binding.provider for the endpointless
-# google-cloud profile.
-_GCP_CREDENTIAL_HOSTS = {
-    "aiplatform.googleapis.com",
-    "*.aiplatform.googleapis.com",
-    "oauth2.googleapis.com",
-}
-
-
-def build_credential_binding_patch(policy_get_output, provider_name=PROVIDER_NAME):
-    """Patch a policy to add credential_binding on GCP endpoints.
-
-    Takes the JSON output of ``openshell policy get --base -o json``
-    (which wraps the policy under a ``policy`` key), extracts the raw
-    policy, adds ``credential_binding.provider`` to GCP endpoints, and
-    returns the raw policy dict suitable for ``openshell policy set``.
-    Returns None if no changes are needed.
-    """
-    raw_policy = policy_get_output.get("policy")
-    if not isinstance(raw_policy, dict):
-        return None
-
-    patched = copy.deepcopy(raw_policy)
-    network_policies = patched.get("network_policies")
-    if not isinstance(network_policies, dict):
-        return None
-
-    changed = False
-    for rule in network_policies.values():
-        endpoints = rule.get("endpoints")
-        if not isinstance(endpoints, list):
-            continue
-        for ep in endpoints:
-            host = ep.get("host", "")
-            if host in _GCP_CREDENTIAL_HOSTS and "credential_binding" not in ep:
-                ep["credential_binding"] = {"provider": provider_name}
-                ep["allow_uninspected_credentials"] = True
-                changed = True
-
-    return patched if changed else None

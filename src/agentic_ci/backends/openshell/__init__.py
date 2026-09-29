@@ -142,9 +142,12 @@ class OpenShellBackend(Backend):
 
     OpenShell provides security-focused sandboxing with network policy
     enforcement, filesystem isolation, and Landlock-based access control.
-    Authentication is handled through the OpenShell google-cloud provider,
-    which injects GCP credentials via the supervisor proxy. The agent
-    uses its native Vertex AI integration directly.
+    Authentication is handled through an OpenShell provider created from
+    one of agentic-ci's provider profiles (Vertex AI, Anthropic or OpenAI;
+    none for a Claude subscription OAuth token). The gateway holds the real
+    credential and injects a placeholder into the sandbox; the supervisor
+    proxy swaps it for the real value on requests to the profile's
+    endpoints from the agent binaries.
 
     Unlike PodmanBackend, which bind-mounts the workdir so changes are
     visible immediately on the host, OpenShellBackend copies the workdir
@@ -163,7 +166,7 @@ class OpenShellBackend(Backend):
     the ``setup``, ``validate`` and ``agent`` phases. The shim is an extra
     layer, not isolation (see :data:`sandbox.SANDBOX_SETUP_SHIM`), so each
     switch also kills the processes earlier execs left running and, for the
-    setup and validate phases, detaches the API key provider.
+    setup and validate phases, detaches the credential provider.
     """
 
     collector_bind_address = "0.0.0.0"
@@ -231,6 +234,14 @@ class OpenShellBackend(Backend):
         provider.validate_credentials(auth_mode, env)
         credential = provider.credential_fingerprint(auth_mode, env)
 
+        if gateway.is_running() and not gateway.config_is_current():
+            # The gateway reads gateway.toml only at startup, so a running
+            # gateway would keep creating sandboxes with the old supervisor
+            # and sandbox runtime images. Tear down the sandbox and gateway
+            # so the new config takes effect.
+            log.section("OpenShell gateway config changed; restarting gateway")
+            self.stop()
+
         if not gateway.is_running():
             log.section("Starting OpenShell gateway")
             gateway.start()
@@ -247,6 +258,16 @@ class OpenShellBackend(Backend):
                     "Could not determine the existing OpenShell provider auth mode; "
                     "run agentic-ci stop before switching harnesses"
                 )
+
+        profile_updated = False
+        if existing_provider and existing_auth_mode == auth_mode:
+            # The reused provider composes its sandbox rule from the gateway's
+            # copy of its profile, which an older agentic-ci or a hand edit may
+            # have left binding other binaries. OpenShell v0.1.2 recomposes the
+            # rule of a running sandbox when the profile changes, but a sandbox
+            # that ran under the drifted rule is not reused anyway: recreating
+            # it does not depend on that runtime behavior.
+            profile_updated = provider.ensure_auth_mode_profile(auth_mode)
 
         if sandbox_exists:
             identity = _load_sandbox_identity()
@@ -281,11 +302,13 @@ class OpenShellBackend(Backend):
             identity_matches = (
                 existing_auth_mode == auth_mode and _identity_fields(identity) == expected_identity
             )
-            if identity_matches and main_known and self._reuse_sandbox():
+            if identity_matches and main_known and not profile_updated and self._reuse_sandbox():
                 return
 
             if existing_auth_mode != auth_mode:
                 log.section("Auth mode changed; recreating OpenShell sandbox and provider")
+            elif profile_updated:
+                log.section("Provider profile updated; recreating OpenShell sandbox")
             elif identity_matches and not main_known:
                 log.section("Sandbox has no recorded main process; recreating OpenShell sandbox")
             elif identity_matches:
@@ -395,9 +418,10 @@ class OpenShellBackend(Backend):
         could run it while its rules are live. So every switch, in order:
 
         - ``setup``/``validate``: kills every process an earlier exec left
-          running (the agent, its daemons, earlier steps); for openai and
-          api-key auth, makes sure a fresh exec gets the key placeholder
-          (attaching the provider first if not) and detaches the provider;
+          running (the agent, its daemons, earlier steps); for openai,
+          api-key and vertex auth, makes sure a fresh exec gets the
+          credential placeholder (attaching the provider first if not) and
+          detaches the provider;
           applies the phase policy, which, issued after the detach, also
           confirms the provider's composed rule is gone when the policy
           changes; then waits until a fresh exec no longer gets the
@@ -428,31 +452,33 @@ class OpenShellBackend(Backend):
         if profile is None:
             return
         endpoints = [] if phase == "agent" else phase_endpoints(profile, phase)
-        key_env_var = provider.api_key_env_var(self.harness.auth_mode_for_env(self._merged_env()))
+        key_env_vars = provider.provider_env_vars(
+            self.harness.auth_mode_for_env(self._merged_env())
+        )
         log.section(f"Switching sandbox egress to the {phase} phase")
         sandbox.stop_leftover_processes(self._sandbox_main_process(), phase)
         if phase == "agent":
             sandbox.apply_phase_policy(phase, endpoints)
-            if key_env_var is not None:
+            if key_env_vars:
                 sandbox.attach_provider(phase)
-                sandbox.wait_for_provider_env(key_env_var, attached=True, phase=phase)
+                sandbox.wait_for_provider_env(key_env_vars, attached=True, phase=phase)
             return
-        if key_env_var is not None:
+        if key_env_vars:
             # A DETACHED probe proves a detach only as a change from an
             # observed ATTACHED; otherwise a probe that cannot see the
             # placeholder would confirm it at once. A sandbox not seen
             # attached (setup straight to validate, or an odd probe) is
             # attached first; nothing runs in it now, so that is harmless.
-            if sandbox.provider_env_state(key_env_var) != "ATTACHED":
+            if sandbox.provider_env_state(key_env_vars) != "ATTACHED":
                 sandbox.attach_provider(phase)
-                sandbox.wait_for_provider_env(key_env_var, attached=True, phase=phase)
+                sandbox.wait_for_provider_env(key_env_vars, attached=True, phase=phase)
             sandbox.detach_provider(phase)
         # Issued after the detach, so when the policy changes, "policy set
         # --wait" returns only once the supervisor has loaded a policy the
         # gateway composed without the provider's rule.
         sandbox.apply_phase_policy(phase, endpoints)
-        if key_env_var is not None:
-            sandbox.wait_for_provider_env(key_env_var, attached=False, phase=phase)
+        if key_env_vars:
+            sandbox.wait_for_provider_env(key_env_vars, attached=False, phase=phase)
 
     def _warn_unapplied_resources(self):
         """Say so when a reused sandbox keeps an allocation the caller did not ask for.
@@ -607,9 +633,10 @@ class OpenShellBackend(Backend):
         """Write env vars to a script inside the sandbox, sourced before the agent runs.
 
         Uses the harness's native env script (Vertex AI vars, API key, and
-        OTEL vars) since the google-cloud provider injects GCP credentials
-        directly. The harness handles OTEL endpoint configuration using the
-        gateway host address.
+        OTEL vars). Provider credentials arrive as gateway-injected
+        placeholders in the sandbox environment, so the script only wires
+        the harness to them. The harness handles OTEL endpoint configuration
+        using the gateway host address.
         """
         env = self._merged_env() if env is None else env
         auth_mode = self.harness.auth_mode_for_env(env) if auth_mode is None else auth_mode

@@ -33,9 +33,23 @@
 # agentic-ci-anthropic provider, ANTHROPIC_API_KEY and the claude binary.
 # Only the provider checks use curl.
 #
-# No agent runs and no LLM call is made. The API key providers need a key to
-# be created, so fake ones are used and a real OPENAI_API_KEY or
-# ANTHROPIC_API_KEY is never read. The key checks send the fake key to the
+# Section 10 checks Codex telemetry after a phase switch: a Codex sandbox with
+# the OTel collector rule goes to the setup phase and back to agent, then
+# Codex runs through the harness against a fake Responses API on the host
+# that holds the response open for E2E_OTLP_STALL_SECONDS (45 by default,
+# past the lifetime of a policy DNS mapping), and the collector must receive
+# /v1/logs after that, with the response's model and tokens. It also checks
+# that the placeholder Codex stored in auth.json is still the one a fresh
+# exec gets after the provider was detached and attached again. Section 11
+# repeats the provider checks for Vertex AI auth with a fake access token:
+# the provider is created from agentic-ci-google-vertex-ai as agentic-ci
+# creates it for a service account (without the token rotation, which needs
+# real key material), and the sandbox must carry no metadata emulator
+# variables.
+#
+# No LLM call is made. The providers need a credential to be created, so fake
+# ones are used and a real OPENAI_API_KEY, ANTHROPIC_API_KEY or Google
+# credential is never read. The key checks send the fake key to the
 # API: OpenAI's 401 echoes it masked ("Incorrect API key provided:
 # sk-e2e-o***"), and Anthropic answers a key-shaped value with "API key is
 # invalid." but an unresolved placeholder with "invalid x-api-key", which
@@ -64,6 +78,8 @@ source "$SCRIPT_DIR/../images/shell-utils.sh"
 
 PASS=0
 FAIL=0
+# The fake Responses API of section 10; cleanup() stops it if a check aborts.
+MOCK_PID=""
 TMPDIR_E2E="$(mktemp -d)"
 # Host-side filter for the sandbox log (see denial_logged).
 DENIALS="$TMPDIR_E2E/denials.py"
@@ -102,6 +118,7 @@ fi
 
 cleanup() {
     local rc=$?
+    if [[ -n "$MOCK_PID" ]]; then kill "$MOCK_PID" 2>/dev/null || true; fi
     agentic-ci stop --backend openshell --harness codex >/dev/null 2>&1 || true
     rm -rf "$TMPDIR_E2E"
     echo ""
@@ -263,14 +280,22 @@ print_step "claude-sandbox: $CLAUDE_SANDBOX"
 HARNESS=codex
 HARNESS_IMAGE="$CODEX_SANDBOX"
 
+# The ci-openshell image sets both runtime images; outside it, derive them
+# from the pinned tag so they match the CLI and gateway.
+os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
+    "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
 if [[ -n "${SUPERVISOR_IMAGE:-}" ]]; then
     export OPENSHELL_SUPERVISOR_IMAGE="$SUPERVISOR_IMAGE"
 elif [[ -z "${OPENSHELL_SUPERVISOR_IMAGE:-}" ]]; then
-    os_tag="$(grep -oP 'ARG OPENSHELL_IMAGE_TAG=\K\S+' \
-        "$REPO_ROOT/images/ci/Containerfile.openshell" 2>/dev/null || true)"
     export OPENSHELL_SUPERVISOR_IMAGE="quay.io/opendatahub/odh-openshell-supervisor:${os_tag:-latest}"
 fi
+if [[ -n "${SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="$SANDBOX_RUNTIME_IMAGE"
+elif [[ -z "${OPENSHELL_SANDBOX_RUNTIME_IMAGE:-}" ]]; then
+    export OPENSHELL_SANDBOX_RUNTIME_IMAGE="quay.io/opendatahub/odh-openshell-sandbox:${os_tag:-latest}"
+fi
 print_step "supervisor: $OPENSHELL_SUPERVISOR_IMAGE"
+print_step "sandbox runtime: $OPENSHELL_SANDBOX_RUNTIME_IMAGE"
 print_step "openshell: $(openshell --version 2>&1 || echo unknown)"
 
 # --- Workdir with the probe ---
@@ -443,6 +468,88 @@ else
 fi
 rm -rf "$dir"
 UNDER
+# The fake Responses API for section 10. It listens on all addresses (the
+# sandbox reaches it through host.openshell.internal, like the collector),
+# answers a streamed POST .../responses with response.created at once, holds
+# the stream open for STALL seconds and then completes it with usage, so
+# Codex runs for that long and exports its telemetry at the end.
+MOCK="$TMPDIR_E2E/mock_responses.py"
+cat > "$MOCK" <<'MOCK_PY'
+"""Usage: mock_responses.py STALL_SECONDS PORT_FILE LOG_FILE."""
+
+import http.server
+import json
+import sys
+import time
+
+stall, port_file, log_file = float(sys.argv[1]), sys.argv[2], sys.argv[3]
+
+
+def log(line):
+    with open(log_file, "a") as fh:
+        fh.write(f"{time.time():.3f} {line}\n")
+
+
+def event(kind, **fields):
+    data = json.dumps({"type": kind, **fields})
+    return f"event: {kind}\ndata: {data}\n\n".encode()
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        body = b'{"object": "list", "data": []}'
+        log(f"GET {self.path}")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        log(f"POST {self.path}")
+        if not self.path.endswith("/responses"):
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        response = {"id": "resp_e2e", "object": "response", "status": "in_progress"}
+        self.wfile.write(event("response.created", response=response))
+        self.wfile.flush()
+        time.sleep(stall)
+        item = {
+            "type": "message",
+            "id": "msg_e2e",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "pong", "annotations": []}],
+        }
+        self.wfile.write(event("response.output_item.done", output_index=0, item=item))
+        usage = {
+            "input_tokens": 21,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 3,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 24,
+        }
+        done = {**response, "status": "completed", "output": [item], "usage": usage}
+        self.wfile.write(event("response.completed", response=done))
+        self.wfile.flush()
+        log(f"COMPLETED {self.path}")
+
+    def log_message(self, format, *args):
+        pass
+
+
+server = http.server.ThreadingHTTPServer(("0.0.0.0", 0), Handler)
+with open(port_file, "w") as fh:
+    fh.write(str(server.server_address[1]))
+server.serve_forever()
+MOCK_PY
 PROBE="/sandbox/$(basename "$WORKDIR")/probe.py"
 PROCS="/sandbox/$(basename "$WORKDIR")/procs.py"
 UNDER_CLAUDE="/sandbox/$(basename "$WORKDIR")/under_claude.sh"
@@ -473,6 +580,10 @@ assert_ok "no profile: identity has no profile hash" \
     "$AGENTIC_CI_OPENSHELL_STATE"
 assert_ok "setup shim is in the sandbox image" \
     openshell sandbox exec --name "$SANDBOX" --no-tty -- test -x "$SHIM"
+# The workload has no network of its own; OpenShell writes resolv.conf for
+# its policy DNS relay (the sandbox images no longer bake one in).
+assert_ok "sandbox resolv.conf points at the policy DNS relay" \
+    openshell sandbox exec --name "$SANDBOX" --no-tty -- grep -qx "nameserver 127.0.0.53" /etc/resolv.conf
 
 expect DENIED "no profile: npm from bare exec" -- "${PY_PROBE[@]}" "$NPM_URL"
 expect DENIED "no profile: goproxy from bare exec" -- "${PY_PROBE[@]}" "$GOPROXY_URL"
@@ -881,7 +992,7 @@ else
     echo "  Got: $(sx cat "$PROFILE_HITS" | tr '\n' ' ')"
 fi
 assert_ok "validate: the switch confirmed the detach with the real probe" \
-    grep -q "API key provider detached for the validate phase" "$VALIDATE_LOG"
+    grep -q "Credential provider detached for the validate phase" "$VALIDATE_LOG"
 for marker in "sleep 3601" "sleep 3602" "sleep 3605" agentic-ci-e2e-poller; do
     got="$(procs "$marker")"
     if [[ "$got" == "0 " ]]; then pass "validate: '$marker' is gone"; else
@@ -994,7 +1105,7 @@ key_provider_checks() {
             cat "$phase_log"
         fi
         assert_ok "$a: $phase: the switch confirmed the detach" \
-            grep -q "API key provider detached for the $phase phase" "$phase_log"
+            grep -q "Credential provider detached for the $phase phase" "$phase_log"
         assert_ok "$a: $phase: a new exec gets no provider placeholder" \
             test -z "$(sx printenv "$KEY_VAR" | tr -d '\r\n')"
         key_check not-injected "$a: $phase: plain curl" -- "${KEY_PROBE[@]}"
@@ -1024,14 +1135,14 @@ key_provider_checks() {
                 cat "$control_log"
             fi
             assert_ok "$a: setup control: the switch detached the provider it saw attached" \
-                grep -q "API key provider detached for the setup phase" "$control_log"
+                grep -q "Credential provider detached for the setup phase" "$control_log"
             key_check not-injected "$a: setup control: $a -> curl after the switch" -- \
                 "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
         else
             # From setup the provider is detached; the switch attaches it
             # first, so the detach it confirms is a change it observed.
             assert_ok "$a: $phase: the provider not seen attached was attached before the detach" \
-                grep -q "API key provider attached for the $phase phase" "$phase_log"
+                grep -q "Credential provider attached for the $phase phase" "$phase_log"
         fi
     done
 
@@ -1043,7 +1154,12 @@ key_provider_checks() {
         cat "$agent_log"
     fi
     assert_ok "$a: agent again: the switch confirmed the attach" \
-        grep -q "API key provider attached for the agent phase" "$agent_log"
+        grep -q "Credential provider attached for the agent phase" "$agent_log"
+    # What an agent stored in the agent phase (Codex's auth.json, a Vertex
+    # bearer token in the env script) must still resolve after the detach
+    # and the attach, so the placeholder must not change.
+    assert_ok "$a: agent again: a new exec gets the same $KEY_VAR placeholder as before" \
+        test "$(sx printenv "$KEY_VAR" | tr -d '\r\n')" = "$placeholder"
     key_check injected "$a: agent again: $a -> curl authenticates after the re-attach" -- \
         "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
 
@@ -1064,7 +1180,9 @@ key_provider_checks() {
     assert_ok "$a: reuse: the existing sandbox is kept" \
         grep -q "Sandbox already exists" "$reattach_log"
     assert_ok "$a: reuse: the provider is attached again" \
-        grep -q "API key provider attached for the agent phase" "$reattach_log"
+        grep -q "Credential provider attached for the agent phase" "$reattach_log"
+    assert_ok "$a: reuse: a new exec still gets the same $KEY_VAR placeholder" \
+        test "$(sx printenv "$KEY_VAR" | tr -d '\r\n')" = "$placeholder"
     key_check injected "$a: reuse: $a -> curl authenticates" -- \
         "${AGENT_EXEC[@]}" "${KEY_PROBE[@]}"
 }
@@ -1126,6 +1244,151 @@ while pid > 1:
 else
     fail "claude: sandbox created with api-key auth and the profile"
     cat "$CLAUDE_LOG"
+fi
+
+# ============================================================================
+print_header "=== 10. Codex telemetry reaches the collector after a phase switch ==="
+# Back to Codex (openai auth), which recreates the sandbox and provider. The
+# driver starts agentic-ci's collector, creates the sandbox with its rule,
+# switches to setup and back to agent, and runs Codex through the harness
+# against the fake Responses API, which holds the response for STALL seconds.
+HARNESS=codex
+HARNESS_IMAGE="$CODEX_SANDBOX"
+unset ANTHROPIC_API_KEY
+STALL="${E2E_OTLP_STALL_SECONDS:-45}"
+MOCK_LOG="$TMPDIR_E2E/mock-responses.log"
+MOCK_PORT_FILE="$TMPDIR_E2E/mock-responses.port"
+python3 "$MOCK" "$STALL" "$MOCK_PORT_FILE" "$MOCK_LOG" &
+MOCK_PID=$!
+for _ in $(seq 50); do
+    [[ -s "$MOCK_PORT_FILE" ]] && break
+    sleep 0.1
+done
+MOCK_PORT="$(cat "$MOCK_PORT_FILE" 2>/dev/null || true)"
+OTLP_LOG="$TMPDIR_E2E/otlp-run.log"
+if [[ "$MOCK_PORT" =~ ^[0-9]+$ ]] &&
+    timeout $((STALL + 900)) "$(agentic_python)" "$SCRIPT_DIR/openshell_profile_driver.py" \
+        otlp-run --harness codex --image "$CODEX_SANDBOX" --workdir "$WORKDIR" \
+        --profile-json "$PROFILE" --mock-port "$MOCK_PORT" --stall-seconds "$STALL" \
+        > "$OTLP_LOG" 2>&1 && grep -q "^DRIVER_OK otlp-run" "$OTLP_LOG"; then
+    pass "otlp: Codex ran through the harness after the phase switches"
+else
+    fail "otlp: Codex ran through the harness after the phase switches"
+    tail -60 "$OTLP_LOG" 2>/dev/null || true
+fi
+kill "$MOCK_PID" 2>/dev/null || true
+MOCK_PID=""
+grep "^OTLP_" "$OTLP_LOG" 2>/dev/null || true
+assert_ok "otlp: the driver switched to the setup phase" \
+    grep -q "Switching sandbox egress to the setup phase" "$OTLP_LOG"
+assert_ok "otlp: and back to the agent phase before the run" \
+    grep -q "Switching sandbox egress to the agent phase" "$OTLP_LOG"
+# otlp_field LINE KEY: the value of KEY=... on the driver's OTLP_<LINE> line.
+otlp_field() { sed -n "s/^OTLP_$1 .*\b$2=\([^ ]*\).*/\1/p" "$OTLP_LOG" | head -1; }
+assert_ok "otlp: Codex reached the fake Responses API through host.openshell.internal" \
+    grep -q "POST /v1/responses" "$MOCK_LOG"
+assert_ok "otlp: the fake response was held for ${STALL}s and completed" \
+    grep -q "COMPLETED /v1/responses" "$MOCK_LOG"
+assert_ok "otlp: the Codex run exited 0 (got $(otlp_field RUN rc))" \
+    test "$(otlp_field RUN rc)" = 0
+RUN_SECONDS="$(otlp_field RUN seconds)"
+assert_ok "otlp: the Codex run lasted at least ${STALL}s (got ${RUN_SECONDS:-none})" \
+    test "${RUN_SECONDS:-0}" -ge "$STALL"
+LATE_LOGS="$(otlp_field RECORDS logs_after_stall)"
+assert_ok "otlp: /v1/logs reached the collector after the stall (got ${LATE_LOGS:-none})" \
+    test "${LATE_LOGS:-0}" -ge 1
+assert_ok "otlp: the collector saw the completed response's model" \
+    test "$(otlp_field RESPONSES models)" = e2e-mock-model
+assert_ok "otlp: the collector saw the completed response's tokens" \
+    test "$(otlp_field RESPONSES tokens)" -gt 0
+COLLECTOR_PORT="$(otlp_field RUN collector_port)"
+LOG_RC=0
+SANDBOX_LOG="$(openshell logs "$SANDBOX" --source sandbox --since 30m -n 10000 2>&1)" || LOG_RC=$?
+# A failed read would count 0 DNS denials below and pass.
+assert_ok "otlp: read the sandbox log" test "$LOG_RC" -eq 0
+assert_ok "otlp: the sandbox log shows Codex allowed to the collector" \
+    grep -qE "ALLOWED /usr/local/bin/codex\([0-9]+\) -> host\.openshell\.internal:${COLLECTOR_PORT:-none}\b" \
+    <<<"$SANDBOX_LOG"
+DNS_DENIALS="$(grep -c "policy_dns_trusted_gateway_unavailable" <<<"$SANDBOX_LOG" || true)"
+assert_ok "otlp: no policy_dns_trusted_gateway_unavailable in the sandbox log (got ${DNS_DENIALS:-0})" \
+    test "${DNS_DENIALS:-0}" -eq 0
+
+# Codex stored the provider placeholder in auth.json when it logged in. A
+# phase switch detaches and attaches the provider again; the stored value
+# must still be the placeholder a fresh exec gets.
+# shellcheck disable=SC2016 # expanded inside the sandbox
+AUTH_KEY_CMD=(python3 -c 'import json; print(json.load(open("/sandbox/.codex/auth.json")).get("OPENAI_API_KEY") or "")')
+AUTH_KEY="$(sx "${AUTH_KEY_CMD[@]}" | tr -d '\r\n')"
+assert_ok "otlp: Codex stored the provider placeholder in auth.json" \
+    grep -q '^openshell:resolve:env:' <<<"$AUTH_KEY"
+assert_ok "otlp: auth.json holds the placeholder a new exec gets" \
+    test "$(sx printenv OPENAI_API_KEY | tr -d '\r\n')" = "$AUTH_KEY"
+assert_ok "otlp: switch to the setup phase (provider detached)" \
+    driver phase setup --profile-json "$PROFILE"
+assert_ok "otlp: switch back to the agent phase (provider attached)" \
+    driver phase agent --profile-json "$PROFILE"
+assert_ok "otlp: after the re-attach a new exec still gets the placeholder in auth.json" \
+    test "$(sx printenv OPENAI_API_KEY | tr -d '\r\n')" = "$AUTH_KEY"
+assert_ok "otlp: auth.json is unchanged by the switch" \
+    test "$(sx "${AUTH_KEY_CMD[@]}" | tr -d '\r\n')" = "$AUTH_KEY"
+
+# ============================================================================
+print_header "=== 11. The Vertex AI provider (fake token) is detached too ==="
+# Vertex auth for the Claude Code harness (no ANTHROPIC_API_KEY or OAuth
+# token). agentic-ci creates the provider from a service account key and has
+# the gateway rotate its token right away, which needs real key material.
+# The provider is created here the same way, from agentic-ci's own profile,
+# with a fake access token and no rotation; setup then keeps it.
+HARNESS=claude-code
+HARNESS_IMAGE="$CLAUDE_SANDBOX"
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+openshell sandbox delete "$SANDBOX" >/dev/null 2>&1 || true
+openshell provider delete ci-gcp >/dev/null 2>&1 || true
+assert_ok "vertex: agentic-ci's Vertex profile is registered" \
+    "$(agentic_python)" -c 'from agentic_ci.backends.openshell import provider as p
+p.ensure_profile(p.VERTEX_PROFILE_ID)'
+VERTEX_TOKEN_VAR=GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN
+if env "$VERTEX_TOKEN_VAR=ya29.agentic-ci-e2e-fake-vertex-token" openshell provider create \
+    --name ci-gcp --type agentic-ci-google-vertex-ai --credential "$VERTEX_TOKEN_VAR" \
+    --config VERTEX_AI_PROJECT_ID=agentic-ci-e2e --config VERTEX_AI_REGION=global \
+    >/dev/null 2>&1; then
+    pass "vertex: provider created from agentic-ci-google-vertex-ai with a fake token"
+else
+    fail "vertex: provider created from agentic-ci-google-vertex-ai with a fake token"
+fi
+VERTEX_LOG="$TMPDIR_E2E/setup-vertex.log"
+if driver setup --profile-json "$PROFILE" > "$VERTEX_LOG" 2>&1; then
+    pass "vertex: sandbox created with Vertex auth and the profile"
+    assert_ok "vertex: setup kept the provider" \
+        grep -q "Provider 'ci-gcp' already exists" "$VERTEX_LOG"
+    # The last line: provider.auth_mode() logs the openshell command first.
+    assert_ok "vertex: setup reads the provider as Vertex auth" \
+        test "$("$(agentic_python)" -c 'from agentic_ci.backends.openshell import provider
+print(provider.auth_mode())' | tail -1)" = vertex
+    # OpenShell's google-cloud provider pointed SDKs at a metadata emulator
+    # that no longer exists; nothing in the sandbox may refer to it.
+    assert_ok "vertex: a new exec gets no metadata emulator variables" \
+        test -z "$(sx env | grep -E '^(GCE_METADATA_(HOST|IP)|METADATA_SERVER_DETECTION)=' || true)"
+    AGENT=claude
+    AGENT_EXEC=(bash "$UNDER_CLAUDE")
+    KEY_VAR="$VERTEX_TOKEN_VAR"
+    KEY_HOST=aiplatform.googleapis.com
+    # Google answers a bearer token it cannot validate with a 401 ("Request
+    # had invalid authentication credentials"), and the fake token is one, so
+    # the answer shows that the request went through the provider's rule to
+    # Google with the placeholder resolved (a placeholder the proxy cannot
+    # resolve gets its own 500 credential_unavailable instead). Whether Google
+    # saw the fake token or the placeholder is not visible in it.
+    # shellcheck disable=SC2016 # expanded inside the sandbox
+    KEY_PROBE=(bash -c 'curl -sS --max-time 20 \
+        https://aiplatform.googleapis.com/v1/projects/agentic-ci-e2e/locations/global/endpoints \
+        -H "Authorization: Bearer ${1:-$GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN}" 2>&1 |
+        head -c 400' key-probe)
+    INJECTED="Request had invalid authentication credentials"
+    key_provider_checks
+else
+    fail "vertex: sandbox created with Vertex auth and the profile"
+    cat "$VERTEX_LOG"
 fi
 
 echo ""

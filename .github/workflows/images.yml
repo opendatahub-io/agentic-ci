@@ -830,10 +830,11 @@ jobs:
         run: bash tests/e2e/e2e-openshell-sandbox.sh
 
       # Sandbox-profile egress: phase switches and the setup shim's binary
-      # binding, then the API key provider detach for Codex (openai) and
-      # Claude Code (api-key). No LLM call; the script creates the providers
-      # with fake keys. Runs even when the step above failed, so its result
-      # is never hidden.
+      # binding, then the credential provider detach for Codex (openai),
+      # Claude Code (api-key) and Vertex AI, and Codex telemetry after a
+      # phase switch against a fake Responses API. No LLM call; the script
+      # creates the providers with fake credentials. Runs even when the step
+      # above failed, so its result is never hidden.
       - name: Run sandbox profile e2e tests
         if: ${{ !cancelled() }}
         env:

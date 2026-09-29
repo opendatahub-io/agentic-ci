@@ -17,8 +17,8 @@
  * is no boundary against the agent. agentic-ci keeps the agent out by other
  * means: shim rules exist only in the setup and validate phases, the agent's
  * rules are parked then, every process an earlier exec left running is
- * killed before either phase opens, and the API key provider is detached
- * while it is open (agentic_ci.backends.openshell.sandbox).
+ * killed before either phase opens, and the credential provider (openai,
+ * api-key or vertex) is detached while it is open (agentic_ci.backends.openshell.sandbox).
  *
  * - The command runs in its own process group. SIGTERM, SIGINT, SIGHUP and
  *   SIGQUIT sent to the shim are forwarded to that whole group, so a step

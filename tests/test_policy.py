@@ -12,6 +12,7 @@ from agentic_ci.backends.openshell import policy
 from agentic_ci.backends.openshell.policy import (
     _AGENT_ONLY_HOSTS,
     AUTH_ENDPOINTS,
+    BASE_POLICY,
     DEFAULT_ENDPOINTS,
     EGRESS_PHASES,
     EGRESS_PRESETS,
@@ -19,7 +20,6 @@ from agentic_ci.backends.openshell.policy import (
     _agent_only,
     _agent_only_hosts,
     _hosts_overlap,
-    build_credential_binding_patch,
     phase_endpoints,
     resolve_endpoints,
 )
@@ -105,11 +105,13 @@ def test_duplicate_endpoints_deduplicated(tmp_path):
     assert result.count("github.com:443:full") == 1
 
 
-def test_endpoints_include_vertex_ai():
+def test_endpoints_for_vertex_leave_inference_hosts_to_the_provider_profile():
+    # The Vertex profile declares the aiplatform hosts as L7 endpoints;
+    # OpenShell rejects a sandbox endpoint for the same host with other
+    # metadata, and no OAuth exchange runs in the sandbox.
     result = resolve_endpoints(auth_mode="vertex")
-    assert any("aiplatform.googleapis.com" in ep for ep in result)
-    assert not any("api.anthropic.com" in ep for ep in result)
-    assert not any("api.openai.com" in ep for ep in result)
+    assert result == list(DEFAULT_ENDPOINTS)
+    assert AUTH_ENDPOINTS["vertex"] == []
 
 
 def test_endpoints_include_anthropic_api():
@@ -119,74 +121,24 @@ def test_endpoints_include_anthropic_api():
     assert not any("api.openai.com" in ep for ep in result)
 
 
-def test_credential_binding_patch_adds_binding_to_gcp():
-    policy_get_output = {
-        "scope": "sandbox",
-        "sandbox": "ci",
-        "version": 2,
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [
-                        {"host": "github.com", "port": 443, "access": "full"},
-                        {"host": "aiplatform.googleapis.com", "port": 443, "access": "read-write"},
-                        {"host": "oauth2.googleapis.com", "port": 443, "access": "read-write"},
-                    ],
-                    "binaries": [{"path": "/usr/local/bin/claude"}],
-                }
-            },
-        },
-    }
-    patched = build_credential_binding_patch(policy_get_output)
-    assert patched is not None
-    assert "scope" not in patched
-    endpoints = patched["network_policies"]["ci"]["endpoints"]
-    github_ep = [e for e in endpoints if e["host"] == "github.com"][0]
-    assert "credential_binding" not in github_ep
-    assert "allow_uninspected_credentials" not in github_ep
-    gcp_ep = [e for e in endpoints if e["host"] == "aiplatform.googleapis.com"][0]
-    assert gcp_ep["credential_binding"]["provider"] == "ci-gcp"
-    assert gcp_ep["allow_uninspected_credentials"] is True
-    oauth_ep = [e for e in endpoints if e["host"] == "oauth2.googleapis.com"][0]
-    assert oauth_ep["credential_binding"]["provider"] == "ci-gcp"
-    assert oauth_ep["allow_uninspected_credentials"] is True
+def _nulls(value, path="policy"):
+    """Paths of every None in a nested dict/list."""
+    if value is None:
+        return [path]
+    if isinstance(value, dict):
+        return [p for k, v in value.items() for p in _nulls(v, f"{path}.{k}")]
+    if isinstance(value, list):
+        return [p for i, v in enumerate(value) for p in _nulls(v, f"{path}[{i}]")]
+    return []
 
 
-def test_credential_binding_patch_returns_none_when_no_gcp():
-    policy_get_output = {
-        "scope": "sandbox",
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [{"host": "github.com", "port": 443, "access": "full"}],
-                }
-            },
-        },
-    }
-    assert build_credential_binding_patch(policy_get_output) is None
-
-
-def test_credential_binding_patch_preserves_existing_binding():
-    policy_get_output = {
-        "scope": "sandbox",
-        "policy": {
-            "version": 1,
-            "network_policies": {
-                "ci": {
-                    "endpoints": [
-                        {
-                            "host": "aiplatform.googleapis.com",
-                            "port": 443,
-                            "credential_binding": {"provider": "other-provider"},
-                        },
-                    ],
-                }
-            },
-        },
-    }
-    assert build_credential_binding_patch(policy_get_output) is None
+def test_base_policy_has_no_null_fields_and_no_network_rules():
+    # The v0.1.x policy schema refuses null and unknown fields.
+    assert _nulls(BASE_POLICY) == []
+    assert set(BASE_POLICY) == {"version", "filesystem_policy", "landlock"}
+    assert BASE_POLICY["version"] == 1
+    assert "/tmp" in BASE_POLICY["filesystem_policy"]["read_write"]
+    assert BASE_POLICY["filesystem_policy"]["include_workdir"] is True
 
 
 def test_endpoints_include_anthropic_api_for_oauth():
@@ -526,7 +478,7 @@ class TestPhaseEndpoints:
 
 
 # The inference hosts OpenShell's google-vertex-ai provider profile declares
-# (v0.1.2), for when agentic-ci vendors one.
+# (v0.1.2), which agentic-ci's Vertex profile keeps.
 VERTEX_PROFILE_HOSTS = frozenset(
     {
         "*-aiplatform.googleapis.com",
@@ -543,17 +495,44 @@ class TestAgentOnlyHosts:
         assert _AGENT_ONLY_HOSTS == frozenset(
             auth_hosts
             | profile_endpoint_hosts()
-            | {"oauth2.googleapis.com", "host.openshell.internal"}
+            | {"oauth2.googleapis.com", "*.aiplatform.googleapis.com", "host.openshell.internal"}
         )
         assert {"api.openai.com", "api.anthropic.com"} <= _AGENT_ONLY_HOSTS
 
+    def test_covers_every_vertex_inference_host(self):
+        # AUTH_ENDPOINTS lists no Vertex host any more; the vendored Vertex
+        # profile's hosts and the OAuth token endpoint keep them agent-only.
+        assert AUTH_ENDPOINTS["vertex"] == []
+        assert VERTEX_PROFILE_HOSTS | {"oauth2.googleapis.com"} <= _AGENT_ONLY_HOSTS
+        # Vertex API hosts no profile names stay agent-only as well, as they
+        # were while AUTH_ENDPOINTS listed *.aiplatform.googleapis.com.
+        assert _agent_only("us.aiplatform.googleapis.com:443:read-only")
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "us-central1-aiplatform.googleapis.com:443:read-only",
+            "aiplatform.googleapis.com:443:read-write",
+            "aiplatform.us.rep.googleapis.com:443:read-only",
+            "aiplatform.eu.rep.googleapis.com:443:read-only",
+            "oauth2.googleapis.com:443:read-only",
+        ],
+    )
+    def test_vertex_hosts_are_never_opened_to_the_shim(self, endpoint, capsys):
+        assert phase_endpoints(_profile(endpoint, RAW), "setup") == [RAW]
+        assert "1 egress endpoint(s) not opened in the setup phase" in capsys.readouterr().out
+
     def test_independent_of_auth_endpoints(self):
         # An inference host a provider profile declares stays agent-only
-        # even if it leaves AUTH_ENDPOINTS (a later OpenShell bump may move
-        # such hosts to provider profiles); the OAuth token endpoint and the
-        # OTel collector stay with no auth mode listing them.
+        # when AUTH_ENDPOINTS does not list it (the Vertex hosts); the OAuth
+        # token endpoint and the OTel collector stay with no auth mode
+        # listing them.
         hosts = _agent_only_hosts({"vertex": [], "openai": []}, VERTEX_PROFILE_HOSTS)
-        assert hosts == VERTEX_PROFILE_HOSTS | {"oauth2.googleapis.com", "host.openshell.internal"}
+        assert hosts == VERTEX_PROFILE_HOSTS | {
+            "oauth2.googleapis.com",
+            "*.aiplatform.googleapis.com",
+            "host.openshell.internal",
+        }
 
     def test_reads_the_vendored_profiles_by_default(self, monkeypatch):
         monkeypatch.setattr(policy, "profile_endpoint_hosts", lambda: frozenset({"x.example.com"}))

@@ -20,6 +20,22 @@ from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
 from agentic_ci.sandbox_profile import Resources, SandboxProfile
 
 
+@pytest.fixture(autouse=True)
+def gateway_config_current():
+    """Treat the on-disk gateway config as matching the environment by default."""
+    with mock.patch("agentic_ci.backends.openshell.gateway.config_is_current", return_value=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def provider_profile_current():
+    """Treat the gateway's copy of a reused provider's profile as current by default."""
+    with mock.patch(
+        "agentic_ci.backends.openshell.provider.ensure_auth_mode_profile", return_value=False
+    ) as ensure:
+        yield ensure
+
+
 @pytest.fixture()
 def harness():
     return create_harness("claude-code")
@@ -247,7 +263,9 @@ def _codex_identity(key="test-key", image=None):
     }
 
 
-def test_openshell_reuses_sandbox_when_auth_mode_matches(monkeypatch, tmp_path):
+def test_openshell_reuses_sandbox_when_auth_mode_matches(
+    monkeypatch, tmp_path, provider_profile_current
+):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     state_path = tmp_path / "openshell-state.json"
     state_path.write_text(json.dumps(_codex_identity()))
@@ -265,8 +283,110 @@ def test_openshell_reuses_sandbox_when_auth_mode_matches(monkeypatch, tmp_path):
     ):
         backend.setup()
 
+    provider_profile_current.assert_called_once_with("openai")
     setup_provider.assert_not_called()
     create_sandbox.assert_not_called()
+
+
+def test_openshell_recreates_sandbox_when_provider_profile_was_updated(
+    monkeypatch, tmp_path, provider_profile_current
+):
+    # The gateway's copy of the reused provider's profile differed from the
+    # packaged one (an older agentic-ci, a hand edit). The sandbox's rule was
+    # composed from that copy, so it is recreated even though its identity
+    # matches; the provider itself is kept.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(json.dumps(_codex_identity()))
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+    provider_profile_current.return_value = True
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.auth_mode", return_value="openai"),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch.object(backend, "_reuse_sandbox") as reuse_sandbox,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    provider_profile_current.assert_called_once_with("openai")
+    reuse_sandbox.assert_not_called()
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_not_called()
+    setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
+    create_sandbox.assert_called_once()
+
+
+def test_openshell_syncs_profile_of_provider_kept_without_sandbox(
+    monkeypatch, tmp_path, provider_profile_current
+):
+    # A provider left without a sandbox is reused too, so its profile is
+    # synced before the new sandbox composes its rule from it.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(tmp_path / "state.json"))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+    calls = mock.Mock()
+    provider_profile_current.side_effect = lambda mode: calls.sync(mode)
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.auth_mode", return_value="openai"),
+        mock.patch(
+            "agentic_ci.backends.openshell.provider.setup",
+            side_effect=lambda **kw: calls.setup(kw["auth_mode"]),
+        ),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    assert calls.mock_calls == [mock.call.sync("openai"), mock.call.setup("openai")]
+
+
+def test_openshell_skips_profile_sync_when_provider_is_replaced(
+    monkeypatch, tmp_path, provider_profile_current
+):
+    # A provider of another auth mode is deleted and recreated, and creation
+    # syncs the new mode's profile itself.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(tmp_path / "state.json"))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch(
+            "agentic_ci.backends.openshell.provider.auth_mode",
+            return_value="vertex-google-cloud-provider",
+        ),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.provider.setup"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    provider_profile_current.assert_not_called()
+    delete_provider.assert_called_once_with()
 
 
 @pytest.mark.parametrize(
@@ -377,6 +497,102 @@ def test_openshell_recreates_legacy_builtin_openai_provider(monkeypatch, tmp_pat
     delete_provider.assert_called_once_with()
     setup_provider.assert_called_once_with(auth_mode="openai", env=mock.ANY)
     create_sandbox.assert_called_once()
+
+
+@pytest.mark.parametrize("legacy_type", ["google-cloud", "google-vertex-ai"])
+def test_openshell_recreates_legacy_vertex_provider(monkeypatch, tmp_path, legacy_type):
+    # A provider an earlier release created as "google-cloud" (the removed
+    # metadata emulator) or from a builtin "google-vertex-ai" profile (curl
+    # in its binaries) must not be reused for Vertex auth.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    state_path = tmp_path / "openshell-state.json"
+    state_path.write_text(
+        json.dumps({"auth_mode": "vertex", "harness": "Claude Code", "image": None})
+    )
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+    listing = subprocess.CompletedProcess(
+        ["openshell"],
+        0,
+        stdout=json.dumps({"providers": [{"name": "ci-gcp", "type": legacy_type}]}),
+    )
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.provider._run", return_value=listing),
+        mock.patch("agentic_ci.backends.openshell.provider.delete") as delete_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.setup") as setup_provider,
+        mock.patch("agentic_ci.backends.openshell.sandbox.create") as create_sandbox,
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once_with()
+    delete_provider.assert_called_once_with()
+    setup_provider.assert_called_once_with(auth_mode="vertex", env=mock.ANY)
+    create_sandbox.assert_called_once()
+
+
+def test_openshell_restarts_gateway_when_config_changed(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    state_path = tmp_path / "openshell-state.json"
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.config_is_current", return_value=False),
+        mock.patch(
+            "agentic_ci.backends.openshell.gateway.is_running", side_effect=[True, True, False]
+        ),
+        mock.patch("agentic_ci.backends.openshell.gateway.stop") as stop_gateway,
+        mock.patch("agentic_ci.backends.openshell.gateway.start") as start_gateway,
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", side_effect=[True, False]),
+        mock.patch("agentic_ci.backends.openshell.sandbox.delete") as delete_sandbox,
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.setup"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+    ):
+        backend.setup()
+
+    delete_sandbox.assert_called_once()
+    stop_gateway.assert_called_once()
+    start_gateway.assert_called_once()
+
+
+def test_openshell_reuses_gateway_when_config_current(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    state_path = tmp_path / "openshell-state.json"
+    monkeypatch.setenv("AGENTIC_CI_OPENSHELL_STATE", str(state_path))
+
+    backend = OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness())
+
+    with (
+        mock.patch("agentic_ci.backends.openshell.gateway.is_running", return_value=True),
+        mock.patch("agentic_ci.backends.openshell.gateway.stop") as stop_gateway,
+        mock.patch("agentic_ci.backends.openshell.gateway.start") as start_gateway,
+        mock.patch("agentic_ci.backends.openshell.sandbox.exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.provider_exists", return_value=False),
+        mock.patch("agentic_ci.backends.openshell.provider.setup"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.create"),
+        mock.patch("agentic_ci.backends.openshell.sandbox.upload"),
+        mock.patch.object(backend, "_run_setup_steps"),
+        mock.patch.object(backend, "_upload_sandbox_config"),
+    ):
+        backend.setup()
+
+    stop_gateway.assert_not_called()
+    start_gateway.assert_not_called()
 
 
 def test_openshell_recreates_sandbox_when_identity_changes(monkeypatch, tmp_path):
