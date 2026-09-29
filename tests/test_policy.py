@@ -7,7 +7,7 @@ from fnmatch import fnmatchcase
 
 import pytest
 
-from agentic_ci import sandbox_profile
+from agentic_ci import sandbox_profile, toolchains
 from agentic_ci.backends.openshell import policy
 from agentic_ci.backends.openshell.policy import (
     _AGENT_ONLY_HOSTS,
@@ -663,3 +663,43 @@ class TestHostsOverlap:
                 first,
                 second,
             )
+
+
+class TestToolchainHostsStayOffTheSandboxPolicy:
+    """Toolchain archives are fetched by the host; their hosts are never opened to the sandbox."""
+
+    # Hosts only the host-side toolchain download contacts. github.com is a
+    # built-in agent default for git, and registry.npmjs.org comes only from
+    # the npm preset, never from a toolchain.
+    DOWNLOAD_ONLY = {"dl.google.com", "go.dev", "nodejs.org", "get.helm.sh"}
+    ALL = dict.fromkeys(sorted(toolchains.CATALOG), "auto")
+
+    def hosts(self, endpoints):
+        return {ep.split(":", 1)[0] for ep in endpoints}
+
+    def test_catalog_download_only_hosts(self):
+        catalog_hosts = set().union(*(e.hosts for e in toolchains.CATALOG.values()))
+        assert self.DOWNLOAD_ONLY <= catalog_hosts
+
+    @pytest.mark.parametrize("egress", [(), ("npm", "goproxy", "pypi", "github-release-assets")])
+    def test_agent_endpoints_do_not_change_with_toolchains(self, tmp_path, egress):
+        without = SandboxProfile(egress=egress)
+        with_toolchains = SandboxProfile(egress=egress, toolchains=self.ALL)
+        for auth_mode in AUTH_ENDPOINTS:
+            got = resolve_endpoints(
+                workdir=str(tmp_path), auth_mode=auth_mode, profile=with_toolchains
+            )
+            assert got == resolve_endpoints(
+                workdir=str(tmp_path), auth_mode=auth_mode, profile=without
+            )
+            assert not self.hosts(got) & self.DOWNLOAD_ONLY
+
+    @pytest.mark.parametrize("phase", ["setup", "validate"])
+    def test_shim_endpoints_do_not_change_with_toolchains(self, phase):
+        profile = SandboxProfile(egress=("goproxy",), toolchains=self.ALL)
+        got = phase_endpoints(profile, phase)
+        assert got == phase_endpoints(SandboxProfile(egress=("goproxy",)), phase)
+        assert not self.hosts(got) & (self.DOWNLOAD_ONLY | {"registry.npmjs.org", "github.com"})
+
+    def test_toolchains_alone_open_nothing_for_the_shim(self):
+        assert phase_endpoints(SandboxProfile(toolchains=self.ALL), "setup") == []

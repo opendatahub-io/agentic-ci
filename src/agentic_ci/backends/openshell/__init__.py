@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -12,10 +13,11 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentic_ci import log
+from agentic_ci import log, toolchains
 from agentic_ci.backend import Backend
 from agentic_ci.backends.openshell import gateway, provider, sandbox
 from agentic_ci.backends.openshell.policy import phase_endpoints
+from agentic_ci.backends.openshell.provision import OpenShellInstaller
 from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
 from agentic_ci.sandbox_profile import profile_hash
 
@@ -131,10 +133,36 @@ def _sandbox_identity(
 # rather than what it was asked for, so it is left out of identity matching.
 _MAIN_PROCESS_KEY = "main_process"
 
+# Key of the host's record of the toolchains provisioned in the sandbox
+# (target directory to archive sha256) in the saved identity. Recorded only
+# for a profile with toolchains. A reused sandbox skips a toolchain only when
+# this record and the in-sandbox marker agree (see provision.py): the marker
+# alone lives in a directory the agent can write. Like the main process, it
+# describes the sandbox and is left out of identity matching.
+_TOOLCHAINS_KEY = "toolchains"
+
+_DESCRIPTIVE_KEYS = frozenset({_MAIN_PROCESS_KEY, _TOOLCHAINS_KEY})
+
 
 def _identity_fields(identity: dict) -> dict:
-    """*identity* without the recorded main process, for matching."""
-    return {k: v for k, v in identity.items() if k != _MAIN_PROCESS_KEY}
+    """*identity* without what it records about the sandbox, for matching."""
+    return {k: v for k, v in identity.items() if k not in _DESCRIPTIVE_KEYS}
+
+
+def _toolchain_records(identity: dict | None) -> dict[str, str]:
+    """The valid entries of the saved toolchain record (target to sha256)."""
+    records = (identity or {}).get(_TOOLCHAINS_KEY)
+    if not isinstance(records, dict):
+        return {}
+    prefix = toolchains.SANDBOX_TOOLCHAIN_ROOT + "/"
+    return {
+        target: sha256
+        for target, sha256 in records.items()
+        if isinstance(target, str)
+        and target.startswith(prefix)
+        and isinstance(sha256, str)
+        and re.fullmatch(r"[0-9a-f]{64}", sha256)
+    }
 
 
 class OpenShellBackend(Backend):
@@ -162,6 +190,10 @@ class OpenShellBackend(Backend):
     not pass ``memory``, ``cpu`` or ``gpu`` explicitly, and its ``egress``
     presets open for the agent when the sandbox is created (the repo's
     ``.agentic-ci/openshell-policy.yml`` is then ignored).
+    Its ``toolchains`` are provisioned after the workdir upload (see
+    :meth:`_provision_toolchains`): the host downloads and verifies each
+    archive and the sandbox extracts it under ``/sandbox/.local/toolchains``;
+    :attr:`toolchain_env` then holds the variables the env script exports.
     :meth:`_set_egress_phase` switches the egress of the setup shim between
     the ``setup``, ``validate`` and ``agent`` phases. The shim is an extra
     layer, not isolation (see :data:`sandbox.SANDBOX_SETUP_SHIM`), so each
@@ -194,6 +226,10 @@ class OpenShellBackend(Backend):
         self.cpu = cpu
         self.gpu = gpu
         self.sandbox_profile = sandbox_profile
+        # Set by _provision_toolchains(); empty until then and without toolchains.
+        self.toolchain_env = toolchains.ToolchainEnv()
+        self.toolchain_results: tuple[toolchains.ToolchainResult, ...] = ()
+        self._toolchain_records: dict[str, str] = {}
         # Loaded from the saved identity on first use when this backend did
         # not create the sandbox itself.
         self._main_process: sandbox.MainProcess | None = None
@@ -303,6 +339,11 @@ class OpenShellBackend(Backend):
                 existing_auth_mode == auth_mode and _identity_fields(identity) == expected_identity
             )
             if identity_matches and main_known and not profile_updated and self._reuse_sandbox():
+                # Toolchains this sandbox already has (by the host's record and
+                # the marker) are skipped.
+                if self._provision_toolchains(_toolchain_records(identity)):
+                    identity[_TOOLCHAINS_KEY] = self._toolchain_records
+                    _save_sandbox_identity(identity)
                 return
 
             if existing_auth_mode != auth_mode:
@@ -353,6 +394,8 @@ class OpenShellBackend(Backend):
         log.section("Uploading workdir")
         sandbox.upload(self.workdir)
 
+        provisioned = self._provision_toolchains({})
+
         self._upload_sandbox_config(otel_enabled=otel_port is not None)
         identity = _sandbox_identity(
             self.harness.name,
@@ -363,6 +406,8 @@ class OpenShellBackend(Backend):
         )
         if self._main_process is not None:
             identity[_MAIN_PROCESS_KEY] = self._main_process.to_record()
+        if provisioned:
+            identity[_TOOLCHAINS_KEY] = self._toolchain_records
         _save_sandbox_identity(identity)
 
     def _reuse_sandbox(self) -> bool:
@@ -383,6 +428,79 @@ class OpenShellBackend(Backend):
             log.info(f"WARNING: could not prepare the existing sandbox: {exc}")
             return False
         return True
+
+    def _provision_toolchains(self, recorded: dict[str, str]) -> bool:
+        """Install the sandbox profile's toolchains in the sandbox; return whether it ran.
+
+        No-op (False) without a profile or without toolchains. The host
+        resolves each version (reading repo files for ``auto``), downloads the
+        archive from the tool's official host, verifies it against the
+        official checksum and caches it; the sandbox extracts it under
+        ``/sandbox/.local/toolchains/<name>-<version>``. One that *recorded*
+        (the host's record from the saved identity) and the in-sandbox marker
+        both show as installed with the same sha256 is skipped. A toolchain
+        that fails is recorded and skipped, and the run goes on. The results
+        go to ``<run_dir>/toolchains.json`` (when the caller set
+        :attr:`run_dir`) and the job log, the variables of the provisioned
+        ones to :attr:`toolchain_env`, and the updated record to
+        :attr:`_toolchain_records` for the saved identity.
+        """
+        profile = self.sandbox_profile
+        if profile is None or not profile.toolchains:
+            return False
+        log.section("Provisioning toolchains")
+        provisioned = toolchains.provision(
+            profile.toolchains,
+            workdir=Path(self.workdir),
+            installer=OpenShellInstaller(recorded=recorded),
+        )
+        self.toolchain_results = provisioned.results
+        self.toolchain_env = provisioned.env
+        records = dict(recorded)
+        for result in provisioned.results:
+            if not result.resolved:
+                continue
+            target = toolchains.sandbox_dir(result.name, result.resolved)
+            if result.status in ("installed", "present"):
+                records[target] = result.sha256
+            else:
+                # A failed install may have replaced or removed the directory.
+                records.pop(target, None)
+        self._toolchain_records = records
+        failed = sum(1 for r in provisioned.results if r.status == "failed")
+        if failed:
+            log.info(f"WARNING: {failed} toolchain(s) not provisioned; the run continues")
+        self._write_toolchain_results()
+        return True
+
+    def _write_toolchain_results(self) -> None:
+        """Write :attr:`toolchain_results` to ``<run_dir>/toolchains.json`` on the host.
+
+        Only for a profile with toolchains and a :attr:`run_dir`. ``run()``
+        calls it again after the workdir download, which would otherwise
+        replace the host's record with whatever the sandbox holds at that
+        path (the workdir's ``_run`` is downloaded back too). Best effort: a
+        directory or other non-file the agent left at that path is removed
+        first, and a write that still fails is logged, never raised, so it
+        cannot replace the run's exit code or hide a download error.
+        """
+        profile = self.sandbox_profile
+        if self.run_dir is None or profile is None or not profile.toolchains:
+            return
+        run_dir = Path(self.run_dir)
+        if run_dir.is_symlink():
+            log.info("WARNING: the run directory is a symlink; toolchains.json not written")
+            return
+        path = run_dir / "toolchains.json"
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.is_symlink() or (path.exists() and not path.is_file()):
+                path.unlink()
+            toolchains.write_results(path, self.toolchain_results)
+        except OSError as exc:
+            log.detail("toolchains.json write error", f"{type(exc).__name__}: {exc}")
+            log.info("WARNING: toolchains.json could not be written")
 
     def _profile_kwargs(self) -> dict:
         """``profile=`` for ``sandbox.create``, passed only when a profile is set."""
@@ -610,7 +728,12 @@ class OpenShellBackend(Backend):
             self._wait_for_otel_flush(otel_port)
 
             log.section("Downloading workdir")
-            sandbox.download(sandbox_workdir, self.workdir)
+            try:
+                sandbox.download(sandbox_workdir, self.workdir)
+            finally:
+                # The download brings the sandbox's _run back too; the host's
+                # record of the toolchains wins over anything written there.
+                self._write_toolchain_results()
 
             rc = self._resolve_exit_code(rc, stream_complete)
             return rc
@@ -672,6 +795,9 @@ class OpenShellBackend(Backend):
             if key == AGENT_EFFORT_ENV_VAR:
                 continue
             lines.append(f"export {key}={shlex.quote(val)}")
+
+        # Empty (no lines) without provisioned toolchains.
+        lines.extend(self.toolchain_env.script_lines())
 
         lines.append(f"export AGENT_MODEL={shlex.quote(model)}")
         if effort is not None:

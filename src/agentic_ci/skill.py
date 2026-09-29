@@ -221,6 +221,7 @@ class _AgentSession:
         )
         if verdict_path is not None:
             self.backend.verdict_path = verdict_path
+        self.backend.run_dir = self.run_dir
         self._otel_proc = None
         self.otel_port = None
         self._otel_log = None

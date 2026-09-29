@@ -532,3 +532,13 @@ class TestSandboxProfilePlumbing:
 
     def test_skill_config_defaults_to_no_profile(self):
         assert SkillConfig(skill_name="s").sandbox_profile is None
+
+    def test_session_gives_the_backend_its_run_dir(self, tmp_path):
+        harness = create_harness("claude-code")
+        backend = RecordingBackend()
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend),
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+        ):
+            session = _AgentSession(tmp_path)
+        assert backend.run_dir == tmp_path / "_run" == session.run_dir

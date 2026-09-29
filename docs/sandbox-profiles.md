@@ -8,15 +8,17 @@ before the workdir is copied back. Callers build one with
 as `SkillConfig.sandbox_profile`.
 
 !!! note "What takes effect in this release"
-    `resources` and `egress` take effect today: the OpenShell backend sizes
-    the sandbox with `resources` and opens the `egress` presets and raw
-    endpoints to the agent (see [Egress](#egress)). Every other field is
+    `resources`, `egress` and `toolchains` take effect today: the OpenShell
+    backend sizes the sandbox with `resources`, opens the `egress` presets
+    and raw endpoints to the agent (see [Egress](#egress)) and provisions
+    the `toolchains` (see [Toolchains](#toolchains)). Every other field is
     validated, merged and carried to the backend, but not yet acted on.
-    Toolchain provisioning, in-sandbox setup, validation runs and
-    `discard_before_download` land in the following releases.
+    In-sandbox setup, validation runs and `discard_before_download` land in
+    the following releases.
 
 Sandbox profiles apply only to the OpenShell backend. The Podman and local
-backends log a warning and ignore a profile.
+backends log a warning and ignore a profile (with a second warning counting
+the toolchains they do not provision).
 
 ## Schema
 
@@ -60,7 +62,7 @@ key) means its default.
 
 | Field | Rule |
 |-------|------|
-| `toolchains` | Name is one of `buf`, `go`, `golangci-lint`, `helm`, `kustomize`, `node`, `pnpm`, `protoc`, `python`, `shfmt`, `yq`. Version matches `^[0-9]+(\.[0-9]+){0,2}$` or is exactly `auto`. |
+| `toolchains` | Name is an entry of the [toolchain catalog](#catalog): `buf`, `go`, `golangci-lint`, `helm`, `kustomize`, `node`, `pnpm`, `protoc`, `python`, `shfmt`, `yq`. Version matches `^[0-9]{1,9}(\.[0-9]{1,9}){0,2}$` or is exactly `auto`; which forms resolve depends on the tool (see [Version forms](#version-forms)). |
 | `egress` | Preset names are `pypi`, `npm`, `goproxy`, `github-release-assets`. An entry containing `:` is a raw endpoint, `host:port:access[:protocol[:enforcement[:options]]]`, with no whitespace: `host` is an ASCII host name or IPv4 address, optionally starting with a `*.` wildcard; `port` is 1 to 65535; `access` is `read-only`, `read-write` or `full`; `protocol` is empty, `rest`, `websocket` or `sql`; `enforcement` is empty, `enforce` or `audit`, and needs a protocol; `options` is a comma-separated list of `allow-uninspected-credentials`, `websocket-credential-rewrite`, `request-body-credential-rewrite` and `allowed-ip=IPV4[/BITS]`, and must not be empty when the field is present. |
 | `setup`, `validate` | Each step has a `name` of letters, digits, `.`, `_` or `-`, unique within its list; a non-empty `run` string; and a `timeout` in seconds from 1 to 3600 (default 600). A `validate` step also has a `kind`: `lint`, `build`, `test` or `generated`. |
 | `skips` | Each entry has non-empty `match` and `reason` strings. |
@@ -329,3 +331,170 @@ the shim's rules; a bare process, or one the shim leaves behind after it
 exits, does not, and a process an earlier exec left running is killed before
 the phase opens anyway. Running setup and validate steps through the shim
 lands in a following release.
+
+## Toolchains
+
+The OpenShell backend provisions each toolchain of the profile right after
+the workdir upload, before any setup step (see
+[Setup order](backends/openshell.md#setup-order)). The work is split so that
+nothing from the repo or an archive ever runs on the host:
+
+1. **Host: resolve.** The requested version becomes an exact release. For
+   `auto`, the host reads repo files at the workdir root as data (see
+   [`auto` sources](#auto-sources)).
+2. **Host: download and verify.** The host fetches the tool's official
+   checksum source and the archive, over HTTPS, from the entry's fixed
+   hosts only (a redirect to any other host is refused), with size and
+   time limits (32 MiB and 120 s for indexes and checksum files, 512 MiB
+   and 900 s for archives). For a GitHub release, every github.com hop,
+   redirects included, must stay under the entry's own
+   `/<owner>/<repo>/releases/` path, so a renamed or transferred repo
+   cannot supply the archive or its checksum, and GitHub's asset hosts are
+   accepted only as the last hop of such a redirect. A connection error or
+   a 5xx status before the body starts is retried twice (after 2 s and
+   5 s, within the time limit). The archive is kept only if its digest
+   matches the official one; a mismatch, or a missing checksum, fails
+   closed and nothing is installed.
+3. **Host: cache.** Verified archives are stored in
+   `~/.cache/agentic-ci/toolchains/<sha256>` (`AGENTIC_CI_TOOLCHAIN_CACHE`
+   moves it), written to a temporary file and renamed, so a cache hit skips
+   the download. A cached archive is hashed again before use.
+4. **Sandbox: extract.** The archive is uploaded (900 s limit; a failed
+   upload is removed again) and extracted by the sandbox image's
+   `/usr/bin/python3` (`tarfile`, `zipfile`; the images ship python3, tar,
+   gzip and xz but no unzip) into
+   `/sandbox/.local/toolchains/<name>-<version>`. The upload is opened once
+   (not through a symlink, a regular file only) and copied into a fresh
+   private directory while it is hashed; only that copy, with the sha256
+   the host verified, is extracted. Every member is checked before anything
+   is extracted: no absolute path, no `..`, no member under a symlink, no
+   duplicate, no device, FIFO or other special file, and every symlink or
+   hard link must resolve inside the target directory. The extraction goes
+   to a temporary directory that is renamed into place with a marker file
+   recording the sha256.
+
+A reused sandbox skips a toolchain only when the host's record of that
+sandbox (the saved sandbox identity lists every toolchain directory it
+installed, with its sha256) and the marker agree; such a toolchain is not
+downloaded, and it is not even read from the host cache (pnpm, whose
+official digest is sha512, is read from the cache to learn its sha256).
+Anything else is installed again, which replaces the directory. The marker
+only records what was installed: it is not an integrity check of the
+installed files. `/sandbox/.local` is writable by the agent, so a directory
+an earlier agent planted (even with a matching marker) is never trusted,
+but files an earlier agent run changed inside a recorded toolchain are not
+detected either. A changed profile, toolchains included, recreates the
+sandbox and with it the record.
+
+A toolchain that cannot be resolved, downloaded, verified or extracted is
+recorded as `failed` and skipped; the other toolchains and the run go on.
+Results go to the job log and, for skill runs, to `_run/toolchains.json` on
+the host, one entry per toolchain:
+
+```json
+[
+  {"name": "go", "requested": "auto", "resolved": "1.26.5",
+   "sha256": "9fa5...", "status": "installed", "reason": ""}
+]
+```
+
+`status` is `installed`, `present` (a reused sandbox already had it, by
+the host's record and the marker) or `failed`, with `reason` saying why.
+`run()` writes the file again after the workdir download, since the
+workdir's `_run` comes back from the sandbox too and the host's record must
+win. Reasons are fixed messages plus validated
+versions and file names; they never contain repo file content, exception
+text or command output.
+
+The download hosts (`go.dev`, `dl.google.com`, `nodejs.org`,
+`registry.npmjs.org` as a download source, GitHub release downloads,
+`get.helm.sh`) are contacted by the host only. Toolchains add nothing to the
+sandbox policy: the sandbox reaches a registry only through an
+[egress preset](#egress).
+
+### Catalog
+
+| Name | Archive (host) | Checksum source | `PATH` entry |
+|------|----------------|-----------------|--------------|
+| `go` | `dl.google.com/go/go<v>.linux-<arch>.tar.gz` | `go.dev/dl/?mode=json&include=all` (`sha256`) | `go/bin` |
+| `node` | `nodejs.org/dist/v<v>/node-v<v>-linux-<arch>.tar.gz` | `SHASUMS256.txt` of the release | `node-v<v>-linux-<arch>/bin` |
+| `pnpm` | `registry.npmjs.org/pnpm/-/pnpm-<v>.tgz` | npm `dist.integrity` (sha512) | launchers `pnpm`, `pnpx` (run with `node`) |
+| `shfmt` | GitHub release of `mvdan/sh` | `sha256sums.txt` | the binary |
+| `golangci-lint` | GitHub release | `golangci-lint-<v>-checksums.txt` | `golangci-lint-<v>-linux-<arch>` |
+| `helm` | `get.helm.sh/helm-v<v>-linux-<arch>.tar.gz` | `.sha256sum` next to it | `linux-<arch>` |
+| `yq` | GitHub release of `mikefarah/yq` | `checksums` (the `SHA-256` column named by `checksums_hashes_order`) | the binary |
+| `kustomize` | GitHub release (`kustomize/v<v>` tag) | `checksums.txt` | the archive root |
+| `buf` | GitHub release | `sha256.txt` | `buf/bin` |
+| `protoc` | GitHub release of `protocolbuffers/protobuf` (zip) | `tool_integrity.bzl` from v36.0; a vendored table before | `bin` |
+| `python` | GitHub release of `astral-sh/python-build-standalone` (the `install_only` builds uv uses) | `SHA256SUMS` of the newest release | `python/bin` |
+
+protoc publishes no checksum manifest before v36.0, so agentic-ci vendors the
+sha256 of 28.3, 29.5, 30.2, 31.1, 32.1, 33.0, 33.6, 34.1 and 35.1
+(`agentic_ci.toolchains.PROTOC_SHA256`); any other version before 36.0 is
+refused. Every vendored sha256 was computed from the release download and
+cross-checked against a second source: 28.3 to 33.0 against the
+`aspect-build/toolchains_protoc` table, 33.6, 34.1 and 35.1 against the
+integrity table inside protobuf's own release source archive, whose digest
+the Bazel Central Registry pins. protoc versions are exactly `MAJOR.MINOR`
+(`33.0`, not `33.0.0`). The machine is the host's (`x86_64` or `aarch64`), since OpenShell
+runs the sandbox natively.
+
+### Version forms
+
+- **Exact** (`1.26.5`, `22.19.0`, protoc `33.0`): every tool.
+- **Partial** (`22`, `1.26`): resolves to the newest matching release for
+  `go` (stable releases in the go.dev JSON), `node` (`index.json`, releases
+  with a Linux build for the machine), `pnpm` (the npm registry, no
+  prereleases) and `python` (the builds in the newest python-build-standalone
+  release). For every other tool a partial version is an error that asks
+  for an exact version.
+- **`auto`**: see below; the version read is then resolved like a requested
+  one, so `go 1.26` in go.mod gives the newest 1.26.x.
+
+A partial `python` version resolves against the newest
+python-build-standalone release, which carries one patch release per minor
+version. An exact version it lacks (`3.12.3`, say, once a newer 3.12 ships)
+resolves through `agentic_ci.toolchains.PYTHON_BUILD_TAGS`, a vendored table
+of the release that holds each CPython 3.9 and later version's newest build
+(taken from uv's download metadata); its sha256 still comes from that
+release's `SHA256SUMS`. A version released after agentic-ci and already
+superseded in the newest release is an error until the table is updated.
+
+### `auto` sources
+
+Files are read from the workdir root, at most 256 KiB each (1 MiB for
+`package.json`), as UTF-8 text. A symlink is followed only while it stays
+inside the workdir, and anything but a regular file is refused. Every value
+read must match the version regex; nothing is ever executed.
+
+| Tool | Sources, first found wins |
+|------|---------------------------|
+| `go` | `go.mod`: the higher of the `toolchain goX.Y.Z` and `go` lines, as the go command needs both (`toolchain default` counts as absent) |
+| `node` | `.nvmrc`, `.node-version` (a leading `v` is dropped), `package.json` `engines.node`, `.tool-versions` (`nodejs` or `node`) |
+| `pnpm` | `package.json` `packageManager`: `pnpm@X.Y.Z` or `pnpm@X.Y.Z+sha512.<hex>`; with the hash, the registry's sha512 must match it too |
+| `python` | `.python-version`, `.tool-versions` (`python`) |
+
+`engines.node` accepts only simple forms: an exact or partial version, or
+`^`, `~` or `>=` followed by a major (`>=22` resolves the newest 22.x).
+Anything else, such as `>=22.18.0 <23` or `lts/*` in `.nvmrc`, is an error
+naming the file. `auto` for any other tool is an error.
+
+### Where things live and the environment
+
+| Path | What |
+|------|------|
+| `/sandbox/.local/toolchains/<name>-<version>/` | extracted toolchain, with `.agentic-ci-toolchain.json` (the marker) |
+| `/sandbox/.local/gopath` | `GOPATH` (its `bin` is on `PATH`) |
+| `/sandbox/.cache/go-mod`, `/sandbox/.cache/go-build` | `GOMODCACHE`, `GOCACHE` |
+| `/sandbox/.cache/npm` | `npm_config_cache` |
+| `/sandbox/.cache/pnpm-store` | `npm_config_store_dir` (pnpm 10 and earlier), `pnpm_config_store_dir` (pnpm 11) |
+
+All of it is outside the workdir, so none of it is downloaded back or
+committed. The env script sourced before the agent prepends each
+provisioned toolchain's `PATH` entries and exports `GOTOOLCHAIN=local`,
+`GOPATH`, `GOMODCACHE` and `GOCACHE` (with go), `npm_config_cache` (with
+node or pnpm) and the pnpm store variables (with pnpm). A toolchain that
+failed exports nothing. `GOTOOLCHAIN=local` makes a go.mod that needs a
+newer Go fail (`go.mod requires go >= ...; GOTOOLCHAIN=local`) instead of
+downloading that toolchain. `OpenShellBackend.toolchain_env` holds the same
+variables for the in-sandbox setup steps of the following release.

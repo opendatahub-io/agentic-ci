@@ -34,6 +34,11 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             f"WARNING: sandbox profiles only apply to the OpenShell backend; "
             f"ignoring the profile for the {name} backend"
         )
+        if sandbox_profile.toolchains:
+            log.info(
+                f"WARNING: {len(sandbox_profile.toolchains)} sandbox profile toolchain(s) "
+                f"not provisioned: the {name} backend does not provision toolchains"
+            )
     if name == "local":
         return LocalBackend(
             workdir=kwargs.get("workdir", "."),

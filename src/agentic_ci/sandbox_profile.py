@@ -17,11 +17,12 @@ download exclusions for one target repo. The same shape is used in two places:
 with an overlay, and :func:`profile_to_dict` / :func:`profile_hash` serialize
 one. ``SkillConfig.sandbox_profile`` carries the result to the backend.
 
-In this release ``resources`` and ``egress`` take effect: ``OpenShellBackend``
-sizes the sandbox with ``resources`` and opens the ``egress`` presets and raw
-endpoints to the agent (``agentic_ci.backends.openshell.policy`` holds the
-preset endpoints). The other fields are validated and carried but not yet
-acted on.
+In this release ``resources``, ``egress`` and ``toolchains`` take effect:
+``OpenShellBackend`` sizes the sandbox with ``resources``, opens the
+``egress`` presets and raw endpoints to the agent
+(``agentic_ci.backends.openshell.policy`` holds the preset endpoints) and
+provisions the ``toolchains`` from :mod:`agentic_ci.toolchains`. The other
+fields are validated and carried but not yet acted on.
 
 Error and warning messages name the field path (for example
 ``validate[2].kind``) and the rule broken. They never include ``env`` values
@@ -39,22 +40,11 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar
 
-KNOWN_TOOLCHAINS = frozenset(
-    {
-        "buf",
-        "go",
-        "golangci-lint",
-        "helm",
-        "kustomize",
-        "node",
-        "pnpm",
-        "protoc",
-        "python",
-        "shfmt",
-        "yq",
-    }
-)
-"""Toolchain names a profile may request. A later release replaces this with a catalog."""
+from agentic_ci.toolchains import CATALOG as TOOLCHAIN_CATALOG
+from agentic_ci.toolchains import VERSION_RE as _VERSION_RE
+
+KNOWN_TOOLCHAINS = frozenset(TOOLCHAIN_CATALOG)
+"""Toolchain names a profile may request: the entries of ``agentic_ci.toolchains.CATALOG``."""
 
 KNOWN_EGRESS_PRESETS = frozenset({"github-release-assets", "goproxy", "npm", "pypi"})
 """Egress preset names a profile may request.
@@ -94,7 +84,6 @@ _RESOURCE_KEYS = frozenset({"memory", "cpu", "gpu"})
 _ACCESS_LEVELS = ("read-only", "read-write", "full")
 
 # All patterns are used with ``fullmatch``: ``$`` would also accept a trailing newline.
-_VERSION_RE = re.compile(r"[0-9]+(\.[0-9]+){0,2}")
 _STEP_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
 _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # ``pat`` (personal access token) only counts as a whole ``_``-separated word,

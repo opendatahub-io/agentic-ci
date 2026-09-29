@@ -47,6 +47,15 @@
 # real key material), and the sandbox must carry no metadata emulator
 # variables.
 #
+# Section 12 provisions toolchains (go from a fixture go.mod, node 22, pnpm
+# from package.json packageManager, shfmt pinned) with real downloads on the
+# host, and checks them from a plain exec and from a codex descendant through
+# the env script (as a `bash -lc` login shell, like codex's shell tool),
+# GOTOOLCHAIN=local, that dl.google.com and nodejs.org stay denied from the
+# sandbox, that the toolchains and caches stay out of the downloaded workdir,
+# that a reused sandbox skips re-provisioning, and that a profile change to
+# the toolchains alone recreates the sandbox, which then installs them again.
+#
 # No LLM call is made. The providers need a credential to be created, so fake
 # ones are used and a real OPENAI_API_KEY, ANTHROPIC_API_KEY or Google
 # credential is never read. The key checks send the fake key to the
@@ -57,7 +66,10 @@
 # from a SessionStart hook that stops claude before it sends its prompt.
 #
 # Requires: podman, openshell, openshell-gateway, agentic-ci (the ci-openshell
-# image provides all of them), network access to the probed registries.
+# image provides all of them), network access to the probed registries and,
+# from the host, to go.dev, dl.google.com, nodejs.org, registry.npmjs.org and
+# GitHub release downloads. E2E_TOOLCHAIN_CACHE keeps downloaded toolchain
+# archives across runs.
 # Images: CODEX_SANDBOX_IMAGE and CLAUDE_SANDBOX_IMAGE, each built from the
 # repo when unset.
 #
@@ -1390,6 +1402,208 @@ else
     fail "vertex: sandbox created with Vertex auth and the profile"
     cat "$VERTEX_LOG"
 fi
+
+# ============================================================================
+print_header "=== 12. Toolchains are provisioned in the sandbox, never downloaded by it ==="
+# Back to Codex (openai auth) with a profile of toolchains only, which
+# recreates the sandbox and provider. The host reads go from the fixture's
+# go.mod and pnpm (with its sha512) from package.json, resolves node 22 on
+# nodejs.org, downloads every archive from its official host, verifies it
+# against the official checksum and caches it; the sandbox extracts it under
+# /sandbox/.local/toolchains. The sandbox itself never reaches the download
+# hosts. E2E_TOOLCHAIN_CACHE keeps the host cache across runs.
+HARNESS=codex
+HARNESS_IMAGE="$CODEX_SANDBOX"
+unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN
+export AGENTIC_CI_TOOLCHAIN_CACHE="${E2E_TOOLCHAIN_CACHE:-$TMPDIR_E2E/toolchain-cache}"
+TC_GO=1.26.5
+TC_PNPM=11.22.0
+TC_PNPM_SHA512=1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621
+TC_SHFMT=3.12.0
+TC_PROFILE="{\"toolchains\": {\"go\": \"auto\", \"node\": \"22\", \"pnpm\": \"auto\", \"shfmt\": \"$TC_SHFMT\"}}"
+TC_SANDBOX_WORKDIR="/sandbox/$(basename "$WORKDIR")"
+printf 'module example.com/agentic-ci-e2e\n\ngo 1.26\n\ntoolchain go%s\n' "$TC_GO" > "$WORKDIR/go.mod"
+printf 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("hello from the provisioned go") }\n' \
+    > "$WORKDIR/main.go"
+printf '{"name": "agentic-ci-e2e", "private": true, "packageManager": "pnpm@%s+sha512.%s"}\n' \
+    "$TC_PNPM" "$TC_PNPM_SHA512" > "$WORKDIR/package.json"
+TC_ENV="$TMPDIR_E2E/toolchain-env.sh"
+TC_LOG="$TMPDIR_E2E/setup-toolchains.log"
+tc_start=$(date +%s)
+if driver setup --profile-json "$TC_PROFILE" --run-dir "$TMPDIR_E2E/tc-run-1" \
+    --env-out "$TC_ENV" > "$TC_LOG" 2>&1; then
+    pass "toolchains: sandbox created with the toolchain profile ($(($(date +%s) - tc_start))s)"
+else
+    fail "toolchains: sandbox created with the toolchain profile"
+    cat "$TC_LOG"
+fi
+assert_ok "toolchains: go read from go.mod" grep -q "go: auto read $TC_GO from go.mod" "$TC_LOG"
+assert_ok "toolchains: pnpm read from package.json" \
+    grep -q "pnpm: auto read $TC_PNPM from package.json" "$TC_LOG"
+# toolchains.json names every toolchain, installed, with its sha256.
+TC_RESULTS_CHECK='
+import json, re, sys
+results = {r["name"]: r for r in json.load(open(sys.argv[1]))}
+go, pnpm, shfmt = sys.argv[2:5]
+assert set(results) == {"go", "node", "pnpm", "shfmt"}, results
+for r in results.values():
+    assert r["status"] == sys.argv[5], r
+    assert re.fullmatch("[0-9a-f]{64}", r["sha256"]) and r["reason"] == "", r
+assert results["go"]["requested"] == "auto" and results["go"]["resolved"] == go
+assert results["pnpm"]["requested"] == "auto" and results["pnpm"]["resolved"] == pnpm
+assert results["shfmt"]["resolved"] == shfmt
+assert results["node"]["requested"] == "22" and results["node"]["resolved"].startswith("22.")
+'
+assert_ok "toolchains: toolchains.json records all four as installed" \
+    python3 -c "$TC_RESULTS_CHECK" "$TMPDIR_E2E/tc-run-1/toolchains.json" \
+    "$TC_GO" "$TC_PNPM" "$TC_SHFMT" installed
+TC_NODE="$(python3 -c 'import json,sys; print({r["name"]: r for r in json.load(open(sys.argv[1]))}["node"]["resolved"])' \
+    "$TMPDIR_E2E/tc-run-1/toolchains.json" 2>/dev/null || echo unknown)"
+echo "  node 22 resolved to $TC_NODE; host cache: $AGENTIC_CI_TOOLCHAIN_CACHE"
+
+# tc SCRIPT: run SCRIPT in a plain exec with the toolchain variables the env
+# script exports (what the setup shim's steps get too).
+tc() { sx bash -c "$(cat "$TC_ENV")"$'\n'"$1"; }
+assert_ok "plain exec: go version is the go.mod toolchain" \
+    grep -q "^go version go$TC_GO linux/" <<<"$(tc 'go version')"
+assert_ok "plain exec: node is the provisioned 22.x, not the image's" \
+    test "$(tc 'node --version' | tr -d '\r')" = "v$TC_NODE"
+assert_ok "plain exec: pnpm is the packageManager version" \
+    test "$(tc 'pnpm --version' | tail -1 | tr -d '\r')" = "$TC_PNPM"
+assert_ok "plain exec: shfmt is the pinned version, not the image's" \
+    test "$(tc 'shfmt --version' | tr -d '\r')" = "v$TC_SHFMT"
+assert_ok "plain exec: go env GOTOOLCHAIN is local" \
+    test "$(tc 'go env GOTOOLCHAIN' | tr -d '\r')" = local
+TC_GOENV="$(tc 'go env GOROOT GOPATH GOMODCACHE GOCACHE; pnpm store path' | tr -d '\r')"
+echo "  go env and pnpm store: $(tr '\n' ' ' <<<"$TC_GOENV")"
+assert_ok "plain exec: GOROOT, caches and the pnpm store are outside the workdir" \
+    python3 -c '
+import sys
+paths = sys.argv[1].split()
+assert len(paths) == 5, paths
+assert paths[0] == "/sandbox/.local/toolchains/go-" + sys.argv[2] + "/go", paths
+for path in paths:
+    assert path.startswith(("/sandbox/.local/", "/sandbox/.cache/")), path
+    assert not path.startswith(sys.argv[3] + "/"), path
+' "$TC_GOENV" "$TC_GO" "$TC_SANDBOX_WORKDIR"
+
+# A go.mod that needs a newer Go fails instead of fetching that toolchain.
+NEWER_MARK="$(denial_mark '[^ ]+' proxy.golang.org)"
+NEWER_OUT="$(tc 'mkdir -p /tmp/tc-newer && cd /tmp/tc-newer &&
+    printf "module example.com/newer\n\ngo 1.99.0\n" > go.mod && go list; echo "rc=$?"')"
+if grep -q "GOTOOLCHAIN=local" <<<"$NEWER_OUT" && grep -q "^rc=1" <<<"$NEWER_OUT"; then
+    pass "go.mod needing go 1.99.0 fails under GOTOOLCHAIN=local"
+else
+    fail "go.mod needing go 1.99.0 fails under GOTOOLCHAIN=local"
+    echo "  Got: $(tr '\n' ' ' <<<"$NEWER_OUT" | cut -c1-240)"
+fi
+sleep 5
+if read_log | python3 "$DENIALS" "$NEWER_MARK" '[^ ]+' proxy.golang.org >/dev/null ||
+    read_log | python3 "$DENIALS" "$NEWER_MARK" '[^ ]+' dl.google.com >/dev/null; then
+    fail "the newer go.mod made no toolchain download attempt"
+else
+    pass "the newer go.mod made no toolchain download attempt (no DENIED line)"
+fi
+
+# The download hosts stay closed to the sandbox, for the agent too.
+expect DENIED "toolchains: dl.google.com from bare exec" -- \
+    "${PY_PROBE[@]}" https://dl.google.com/go/
+expect DENIED "toolchains: nodejs.org from bare exec" -- "${PY_PROBE[@]}" https://nodejs.org/dist/
+expect DENIED "toolchains: dl.google.com from codex" -- \
+    "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" https://dl.google.com/go/
+expect DENIED "toolchains: nodejs.org from codex" -- \
+    "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" https://nodejs.org/dist/
+
+# From a codex descendant through the env script, on the reused sandbox:
+# setup finds every toolchain already provisioned (the host's record of the
+# sandbox and the marker agree) and installs nothing. The script runs as
+# `bash -lc` under codex, like codex's own shell tool, so /etc/profile and the
+# login files are sourced after the env script.
+# shellcheck disable=SC2016 # expanded inside the sandbox
+TC_AGENT_SCRIPT='
+python3 -c "
+import os
+pid = os.getppid()
+while pid > 1:
+    if os.readlink(f\"/proc/{pid}/exe\") == \"/usr/local/bin/codex\":
+        print(\"UNDER_CODEX\")
+        break
+    with open(f\"/proc/{pid}/stat\") as fh:
+        pid = int(fh.read().rpartition(\")\")[2].split()[1])
+"
+echo "GO=$(go version)"
+echo "NODE=$(node --version)"
+echo "PNPM=$(pnpm --version | tail -1)"
+echo "SHFMT=$(shfmt --version)"
+echo "GOTOOLCHAIN=$(go env GOTOOLCHAIN)"
+echo "PWD=$PWD"
+echo "LOGIN=$(shopt -q login_shell && echo on || echo off)"
+go build -o hello . && echo "BUILD=$(./hello)"
+'
+TC_AGENT_LOG="$TMPDIR_E2E/agent-exec-toolchains.log"
+driver agent-exec --profile-json "$TC_PROFILE" --run-dir "$TMPDIR_E2E/tc-run-2" \
+    --agent-script "$TC_AGENT_SCRIPT" > "$TC_AGENT_LOG" 2>&1 || true
+TC_AGENT_OUT="$(tr -d '\r' < "$TC_AGENT_LOG")"
+assert_ok "reuse: the existing sandbox is kept" grep -q "Sandbox already exists" <<<"$TC_AGENT_OUT"
+assert_ok "reuse: every toolchain is already present" \
+    python3 -c "$TC_RESULTS_CHECK" "$TMPDIR_E2E/tc-run-2/toolchains.json" \
+    "$TC_GO" "$TC_PNPM" "$TC_SHFMT" present
+assert_ok "reuse: nothing is uploaded or extracted again" \
+    test "$(grep -c 'toolchain install' <<<"$TC_AGENT_OUT")" -eq 0
+# go, node and shfmt are checked against the host record and the marker before
+# any fetch; only pnpm (an npm sha512) needs its archive, from the host cache.
+assert_ok "reuse: nothing is downloaded, and only pnpm's archive is read from the cache" \
+    test "$(grep -c 'host cache hit' <<<"$TC_AGENT_OUT")" -eq 1 -a \
+        "$(grep -c 'downloaded and verified' <<<"$TC_AGENT_OUT")" -eq 0
+assert_ok "codex: the script runs under the codex binary" grep -q "^UNDER_CODEX" <<<"$TC_AGENT_OUT"
+assert_ok "codex: the script runs in a login shell" grep -qx "LOGIN=on" <<<"$TC_AGENT_OUT"
+assert_ok "codex: go version through the env script" \
+    grep -q "^GO=go version go$TC_GO linux/" <<<"$TC_AGENT_OUT"
+assert_ok "codex: node --version through the env script" grep -qx "NODE=v$TC_NODE" <<<"$TC_AGENT_OUT"
+assert_ok "codex: pnpm --version through the env script" grep -qx "PNPM=$TC_PNPM" <<<"$TC_AGENT_OUT"
+assert_ok "codex: shfmt --version through the env script" grep -qx "SHFMT=v$TC_SHFMT" <<<"$TC_AGENT_OUT"
+assert_ok "codex: GOTOOLCHAIN is local" grep -qx "GOTOOLCHAIN=local" <<<"$TC_AGENT_OUT"
+assert_ok "codex: go build in the workdir works" \
+    grep -qx "BUILD=hello from the provisioned go" <<<"$TC_AGENT_OUT"
+assert_ok "codex: the agent-exec driver succeeded" grep -q "DRIVER_OK agent-exec" <<<"$TC_AGENT_OUT"
+
+# The build filled GOCACHE, and pnpm has a store dir; none of it, and no
+# toolchain, is in the workdir that is downloaded back.
+assert_ok "the Go build cache is filled, outside the workdir" \
+    test -n "$(sx find /sandbox/.cache/go-build -type f -name '*-d' -print -quit)"
+TC_DL="$TMPDIR_E2E/tc-download"
+mkdir -p "$TC_DL"
+openshell sandbox download "$SANDBOX" "$TC_SANDBOX_WORKDIR" "$TC_DL" >/dev/null 2>&1 || true
+assert_ok "download: the workdir comes back with the build output" \
+    test -n "$(find "$TC_DL" -name hello -type f -print -quit)"
+assert_ok "download: no toolchain, Go cache, GOPATH or pnpm store in it" \
+    test -z "$(find "$TC_DL" \( -name toolchains -o -name go-build -o -name go-mod -o \
+        -name gopath -o -name pnpm-store -o -name .agentic-ci-toolchain.json -o \
+        -name .agentic-ci-bin \) -print -quit)"
+
+# A profile that differs only in its toolchains (shfmt dropped) recreates the
+# sandbox: the profile hash covers them, and nothing else changed (same
+# harness, auth mode and image as the setup above). The new sandbox trusts
+# none of the old one's toolchains and installs the rest again, from the host
+# cache, with no download.
+TC_PROFILE_2='{"toolchains": {"go": "auto", "node": "22", "pnpm": "auto"}}'
+TC_LOG_2="$TMPDIR_E2E/setup-toolchains-2.log"
+driver setup --profile-json "$TC_PROFILE_2" --run-dir "$TMPDIR_E2E/tc-run-3" \
+    > "$TC_LOG_2" 2>&1 || true
+assert_ok "toolchains: a toolchain-only profile change recreated the sandbox" \
+    grep -q "Sandbox identity changed; recreating OpenShell sandbox" "$TC_LOG_2"
+assert_ok "toolchains: that was not an auth mode or provider change" \
+    test "$(grep -cE 'Auth mode changed|Provider profile updated' "$TC_LOG_2")" -eq 0
+assert_ok "toolchains: the new sandbox installed go, node and pnpm again" \
+    python3 -c '
+import json, sys
+results = {r["name"]: r for r in json.load(open(sys.argv[1]))}
+assert set(results) == {"go", "node", "pnpm"}, results
+assert all(r["status"] == "installed" for r in results.values()), results
+' "$TMPDIR_E2E/tc-run-3/toolchains.json"
+assert_ok "toolchains: from the host cache, with no download" \
+    test "$(grep -c 'host cache hit' "$TC_LOG_2")" -eq 3 -a \
+        "$(grep -c 'downloaded and verified' "$TC_LOG_2")" -eq 0
 
 echo ""
 print_header "=== All test sections complete ==="

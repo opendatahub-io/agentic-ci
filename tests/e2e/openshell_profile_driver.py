@@ -18,6 +18,14 @@ flags) against a fake Responses API that the shell script serves on
 ``host.openshell.internal:<mock-port>``. It prints ``OTLP_*`` lines that
 describe what reached the collector.
 
+With toolchains in the profile, ``setup`` also provisions them (real
+downloads on the host); ``--run-dir`` receives ``toolchains.json`` and
+``--env-out`` the toolchain lines the env script exports. ``agent-exec``
+sets the sandbox up (a reuse, so provisioning skips what the sandbox has),
+writes the env script and runs ``--agent-script`` under ``codex sandbox``
+through it, the way the agent itself is started, in a ``bash -lc`` login
+shell like the one codex's shell tool gives the agent's commands.
+
 No LLM is called: the credential provider needs a key to be created, and the
 shell script passes a fake one.
 
@@ -30,6 +38,8 @@ Usage::
         --profile-json '{"egress": ["npm", "goproxy"]}'
     python3 tests/e2e/openshell_profile_driver.py otlp-run --image IMG --workdir DIR \\
         --profile-json '{"egress": ["npm"]}' --mock-port PORT --stall-seconds SECONDS
+    python3 tests/e2e/openshell_profile_driver.py agent-exec --image IMG --workdir DIR \\
+        --profile-json '{"toolchains": {"go": "auto"}}' --agent-script 'go version'
 
 The Claude Code harness selects api-key auth only when ANTHROPIC_API_KEY is
 set in the environment, and Vertex auth when neither it nor
@@ -41,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -48,7 +59,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agentic_ci import otel
-from agentic_ci.backends.openshell import OpenShellBackend
+from agentic_ci.backends.openshell import OpenShellBackend, sandbox
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, Harness
 from agentic_ci.sandbox_profile import parse_profile
 
@@ -63,13 +74,61 @@ def _backend(args: argparse.Namespace, policy: str | None = None) -> OpenShellBa
     profile = None
     if args.profile_json:
         profile = parse_profile(json.loads(args.profile_json), source="central").profile
-    return OpenShellBackend(
+    backend = OpenShellBackend(
         workdir=str(args.workdir),
         image=args.image,
         policy=policy,
         harness=_HARNESSES[args.harness](),
         sandbox_profile=profile,
     )
+    backend.run_dir = args.run_dir
+    return backend
+
+
+def _setup(backend: OpenShellBackend, args: argparse.Namespace) -> None:
+    """``backend.setup()``, then write the toolchain env lines to ``--env-out``."""
+    backend.setup()
+    if args.env_out is not None:
+        lines = backend.toolchain_env.script_lines()
+        args.env_out.write_text("".join(f"{line}\n" for line in lines))
+
+
+def _agent_exec(backend: OpenShellBackend, args: argparse.Namespace) -> int:
+    """Run ``--agent-script`` as ``bash -lc`` under ``codex sandbox`` through the env script."""
+    _setup(backend, args)
+    backend._write_env_script("e2e-model")
+    command = backend._agent_command(
+        f"/sandbox/{args.workdir.name}",
+        [
+            "codex",
+            "sandbox",
+            "-c",
+            'sandbox_mode="danger-full-access"',
+            "--",
+            # A login shell, as codex's shell tool runs the agent's commands.
+            "bash",
+            "-lc",
+            args.agent_script,
+        ],
+    )
+    result = subprocess.run(
+        [
+            "openshell",
+            "sandbox",
+            "exec",
+            "--name",
+            sandbox.SANDBOX_NAME,
+            "--no-tty",
+            "--",
+            *command,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    print(result.stdout, end="", flush=True)
+    print(result.stderr, end="", file=sys.stderr, flush=True)
+    return result.returncode
 
 
 def _mock_provider_args(mock_port: int) -> list[str]:
@@ -129,7 +188,7 @@ def _otlp_run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="E2E driver for sandbox-profile egress.")
-    parser.add_argument("command", choices=["setup", "phase", "otlp-run"])
+    parser.add_argument("command", choices=["setup", "phase", "otlp-run", "agent-exec"])
     parser.add_argument("phase", nargs="?", choices=["setup", "validate", "agent"])
     parser.add_argument("--image", required=True)
     parser.add_argument("--workdir", required=True, type=Path)
@@ -137,6 +196,9 @@ def main() -> int:
     parser.add_argument("--profile-json", default=None)
     parser.add_argument("--mock-port", type=int, default=0)
     parser.add_argument("--stall-seconds", type=int, default=0)
+    parser.add_argument("--run-dir", type=Path, default=None)
+    parser.add_argument("--env-out", type=Path, default=None)
+    parser.add_argument("--agent-script", default="")
     args = parser.parse_args()
 
     if args.command == "otlp-run":
@@ -149,8 +211,12 @@ def main() -> int:
         print("DRIVER_OK otlp-run", flush=True)
         return 0
     backend = _backend(args)
+    if args.command == "agent-exec":
+        rc = _agent_exec(backend, args)
+        print(f"DRIVER_{'OK' if rc == 0 else 'FAIL'} agent-exec rc={rc}", flush=True)
+        return 0 if rc == 0 else 1
     if args.command == "setup":
-        backend.setup()
+        _setup(backend, args)
     else:
         if args.phase is None:
             parser.error("phase needs setup, validate or agent")

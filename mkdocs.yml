@@ -82,6 +82,7 @@ nav:
           - Gates: api/gates.md
           - Skill Runner: api/skill.md
           - Sandbox Profile: api/sandbox_profile.md
+          - Toolchains: api/toolchains.md
           - Model Routing: api/routing.md
           - Model Registry: api/models.md
           - Verdict: api/verdict.md

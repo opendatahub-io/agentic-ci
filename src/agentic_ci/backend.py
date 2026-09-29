@@ -39,6 +39,9 @@ class Backend(ABC):
         self.harness = harness
         self.verdict_path: Path | None = None
         self.output_file: Path | None = None
+        # Host directory for run records (the skill session's ``_run``);
+        # None writes none.
+        self.run_dir: Path | None = None
         self._host_git: GitControlSnapshot | None = None
 
     @abstractmethod
