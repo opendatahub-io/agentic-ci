@@ -326,11 +326,20 @@ class Harness(ABC):
         """
         return []
 
+    sandbox_credential_files: tuple[str, ...] = ()
+    """Absolute paths where this harness's CLI may store a credential in the OpenShell sandbox.
+
+    ``OpenShellBackend`` deletes them before the profile's validate commands
+    run, since those commands are repository code that runs after the agent.
+    """
+
 
 class ClaudeCodeHarness(Harness):
     """Claude Code CLI harness."""
 
     registry_key = "claude-code"
+    # Written by ``claude /login``; CLAUDE_CONFIG_DIR is /sandbox/.claude.
+    sandbox_credential_files = ("/sandbox/.claude/.credentials.json",)
 
     @property
     def name(self) -> str:
@@ -585,6 +594,8 @@ class OpenCodeHarness(Harness):
     """OpenCode CLI harness."""
 
     registry_key = "opencode"
+    # ``opencode auth login`` stores keys under $XDG_DATA_HOME/opencode.
+    sandbox_credential_files = ("/sandbox/.local/share/opencode/auth.json",)
 
     @property
     def name(self) -> str:
@@ -904,6 +915,9 @@ class CodexHarness(Harness):
     """OpenAI Codex CLI harness."""
 
     registry_key = "codex"
+    # ``codex login`` (run before every agent start) writes $CODEX_HOME/auth.json;
+    # the env script sets CODEX_HOME to /sandbox/.codex.
+    sandbox_credential_files = ("/sandbox/.codex/auth.json",)
 
     _CREDENTIAL_ENV_VARS = ("OPENAI_API_KEY",)
 

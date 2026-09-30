@@ -1171,7 +1171,12 @@ def _hash_file(path: Path, algorithm: str) -> tuple[str, str]:
     return sha256.hexdigest(), other.hexdigest()
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
+def write_atomic(path: Path, data: bytes) -> None:
+    """Write *data* to *path* atomically, through a fresh ``mkstemp`` name in its directory.
+
+    Nothing left at another name in the directory (a symlink, say) is
+    written through; *path* itself is replaced, never followed.
+    """
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".partial-")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -1254,7 +1259,7 @@ def fetch_archive(resolved: Resolved, *, fetcher: Fetcher, cache_dir: Path) -> t
         raise
     if resolved.algorithm != "sha256":
         (cache_dir / resolved.algorithm).mkdir(exist_ok=True)
-        _write_atomic(cache_dir / resolved.algorithm / resolved.digest, digest.encode("ascii"))
+        write_atomic(cache_dir / resolved.algorithm / resolved.digest, digest.encode("ascii"))
     log.info(f"{resolved.name} {resolved.version}: downloaded and verified ({size} bytes)")
     return blob, digest
 
@@ -1543,4 +1548,4 @@ def write_results(path: Path, results: Sequence[ToolchainResult]) -> None:
     """Write *results* as a JSON list to *path* (``_run/toolchains.json``)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps([r.to_dict() for r in results], indent=2, sort_keys=True) + "\n"
-    _write_atomic(path, data.encode("utf-8"))
+    write_atomic(path, data.encode("utf-8"))

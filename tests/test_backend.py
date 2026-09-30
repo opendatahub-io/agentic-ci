@@ -17,7 +17,7 @@ from agentic_ci.backends.openshell import (
 )
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
-from agentic_ci.sandbox_profile import Resources, SandboxProfile
+from agentic_ci.sandbox_profile import Resources, SandboxProfile, SetupStep, ValidateStep
 from agentic_ci.toolchains import ToolchainEnv
 
 
@@ -1219,19 +1219,23 @@ class TestToolchainEnvScript:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         return OpenShellBackend(workdir=str(tmp_path), harness=CodexHarness(), **kwargs)
 
-    def test_toolchain_variables_are_exported_before_the_model(self, monkeypatch, tmp_path):
+    def test_toolchain_variables_are_exported_last(self, monkeypatch, tmp_path):
+        # After every command the script runs (enable-plugins), so they reach
+        # the agent only.
         backend = self._backend(monkeypatch, tmp_path)
         backend.toolchain_env = TOOLCHAIN_ENV
         lines = self._script(backend).splitlines()
-        start = lines.index(
+        assert lines[-3:] == [
             "export PATH=/sandbox/.local/toolchains/go-1.26.5/go/bin:"
-            '/sandbox/.local/gopath/bin:"$PATH"'
-        )
-        assert lines[start + 1 : start + 3] == [
+            '/sandbox/.local/gopath/bin:"$PATH"',
             "export GOTOOLCHAIN=local",
             "export GOPATH=/sandbox/.local/gopath",
         ]
-        assert lines[start + 3] == "export AGENT_MODEL=gpt-5.6-sol"
+        assert lines[-6:-3] == [
+            "if command -v agentic-ci >/dev/null 2>&1; then",
+            "    agentic-ci enable-plugins",
+            "fi",
+        ]
 
     def test_no_toolchains_leaves_the_script_unchanged(self, monkeypatch, tmp_path):
         plain = self._script(self._backend(monkeypatch, tmp_path))
@@ -1265,6 +1269,28 @@ class TestToolchainsOnOtherBackends:
             and f"the {name} backend does not provision toolchains" in m
             for m in messages
         )
+
+    @pytest.mark.parametrize(
+        ("name", "cls_name"), [("podman", "PodmanBackend"), ("local", "LocalBackend")]
+    )
+    def test_setup_and_validate_steps_are_ignored_with_a_warning(self, harness, name, cls_name):
+        profile = SandboxProfile(
+            setup=(SetupStep("deps", "npm ci"),),
+            validate=(ValidateStep("unit", "test", "npm test"), ValidateStep("l", "lint", "x")),
+        )
+        with (
+            mock.patch(f"agentic_ci.backends.{cls_name}") as cls,
+            mock.patch("agentic_ci.backends.log.info") as logged,
+        ):
+            create_backend(name, harness=harness, sandbox_profile=profile)
+        assert "sandbox_profile" not in cls.call_args.kwargs
+        messages = [c.args[0] for c in logged.call_args_list]
+        assert (
+            "WARNING: 1 sandbox profile setup step(s) and 2 validate command(s) not run: "
+            "they run only inside an OpenShell sandbox"
+        ) in messages
+        # Neither the commands nor the step names are logged.
+        assert not any("npm" in m or "deps" in m for m in messages)
 
     def test_podman_setup_never_provisions(self, harness, tmp_path):
         profile = SandboxProfile(toolchains={"go": "1.26.5"})

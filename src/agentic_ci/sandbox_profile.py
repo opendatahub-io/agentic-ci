@@ -17,12 +17,13 @@ download exclusions for one target repo. The same shape is used in two places:
 with an overlay, and :func:`profile_to_dict` / :func:`profile_hash` serialize
 one. ``SkillConfig.sandbox_profile`` carries the result to the backend.
 
-In this release ``resources``, ``egress`` and ``toolchains`` take effect:
-``OpenShellBackend`` sizes the sandbox with ``resources``, opens the
-``egress`` presets and raw endpoints to the agent
-(``agentic_ci.backends.openshell.policy`` holds the preset endpoints) and
-provisions the ``toolchains`` from :mod:`agentic_ci.toolchains`. The other
-fields are validated and carried but not yet acted on.
+Every field takes effect in ``OpenShellBackend``: it sizes the sandbox with
+``resources``, opens the ``egress`` presets and raw endpoints
+(``agentic_ci.backends.openshell.policy`` holds the preset endpoints),
+provisions the ``toolchains`` from :mod:`agentic_ci.toolchains`, runs the
+``setup`` steps in the sandbox before the agent and the ``validate`` commands
+after it, records the ``skips``, exports ``env`` and removes the
+``discard_before_download`` paths (``agentic_ci.backends.openshell.steps``).
 
 Error and warning messages name the field path (for example
 ``validate[2].kind``) and the rule broken. They never include ``env`` values
@@ -89,11 +90,14 @@ _ENV_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # ``pat`` (personal access token) only counts as a whole ``_``-separated word,
 # so GH_PAT is denied while GOPATH, PYTHONPATH and NODE_PATH are allowed.
 _ENV_DENY_RE = re.compile(r"(?i)(token|secret|key|password|credential)|(?:^|_)pat(?:_|$)")
-# Names that reach the harness, its telemetry and credentials, the dynamic
-# loader, the shell running the env script, git, or TLS and proxy settings.
-# Compared case-insensitively.
+# Names that reach the harness (Claude Code, Codex, OpenCode), agentic-ci,
+# OpenShell, telemetry and credentials, the dynamic loader, the shell running
+# the env script, git, the XDG base directories the harnesses keep their
+# config and credentials in, or TLS and proxy settings. Compared
+# case-insensitively.
 _ENV_DENY_PREFIXES = (
     "AGENT_",
+    "AGENTIC_CI_",
     "ANTHROPIC_",
     "CLAUDE_",
     "CLOUD_ML_",
@@ -103,18 +107,24 @@ _ENV_DENY_PREFIXES = (
     "GOOGLE_",
     "LD_",
     "OPENAI_",
+    "OPENCODE_",
+    "OPENSHELL_",
     "OTEL_",
     "VERTEX_",
+    "XDG_",
 )
 _ENV_DENY_NAMES = frozenset(
     {
         "ALL_PROXY",
         "BASH_ENV",
+        "CURL_CA_BUNDLE",
+        "DENO_CERT",
         "ENV",
         "HOME",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "IFS",
+        "METADATA_SERVER_DETECTION",
         "NODE_EXTRA_CA_CERTS",
         "NODE_OPTIONS",
         "NO_PROXY",
@@ -124,6 +134,8 @@ _ENV_DENY_NAMES = frozenset(
         "REQUESTS_CA_BUNDLE",
         "SSL_CERT_DIR",
         "SSL_CERT_FILE",
+        "TERM",
+        "USER",
     }
 )
 _MEMORY_RE = re.compile(r"([0-9]+)(Ki|Mi|Gi|Ti)?")

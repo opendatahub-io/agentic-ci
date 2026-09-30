@@ -45,6 +45,7 @@ class FakeSession:
         self.span_id = SPAN_ID
         self.runs = []
         self.completion_files = []
+        self.validates = []
         self.entered = 0
         self.exited = 0
         FakeSession.instances.append(self)
@@ -59,7 +60,15 @@ class FakeSession:
         return False
 
     def run(
-        self, prompt, *, model, effort=None, extra_args=None, output_file=None, completion_file=None
+        self,
+        prompt,
+        *,
+        model,
+        effort=None,
+        extra_args=None,
+        output_file=None,
+        completion_file=None,
+        validate=True,
     ):
         self.runs.append(
             {
@@ -71,6 +80,7 @@ class FakeSession:
             }
         )
         self.completion_files.append(completion_file)
+        self.validates.append(validate)
         if "TASK TO RATE" in prompt:
             if FakeSession.difficulty is not None:
                 route_path(self.work_dir).write_text(
@@ -154,6 +164,8 @@ class TestRunRoutedSkill:
         assert main["output_file"] == tmp_path / "agent-output.txt"
         # The classifier completes on its route file; the skill run keeps the verdict.
         assert session.completion_files == [tmp_path / "_run" / "route.json", None]
+        # The classifier changes no code: sandbox validation waits for the skill run.
+        assert session.validates == [False, True]
         assert result.route == RouteDecision(
             model="claude-sonnet-4-5", effort="high", tier="medium", source="classifier", reason="r"
         )
@@ -325,6 +337,8 @@ class RecordingBackend:
         self.efforts = []
         self.output_file = None
         self.verdict_path = None
+        self.validate_after_run = True
+        self.validated = []
 
     def setup(self, otel_port=None):
         self.calls.append(("setup", otel_port))
@@ -332,6 +346,7 @@ class RecordingBackend:
     def run(self, prompt, model, otel_port=None, traceparent=None, extra_args=None, **kw):
         self.calls.append(("run", prompt, model, extra_args, self.output_file))
         self.efforts.append(kw.get("effort"))
+        self.validated.append(self.validate_after_run)
         return 0
 
     def stop(self):
@@ -402,6 +417,24 @@ class TestAgentSession:
 
         assert seen == [route, tmp_path / "v.json"]
         assert backend.verdict_path == tmp_path / "v.json"
+
+    def test_validate_false_skips_profile_validation_for_one_run(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("CLAUDE_REASONING_EFFORT", raising=False)
+        backend = RecordingBackend()
+        harness = create_harness("claude-code")
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend),
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+            mock.patch.object(
+                type(harness), "supports_otel", new_callable=mock.PropertyMock
+            ) as otel,
+        ):
+            otel.return_value = False
+            with _AgentSession(tmp_path) as session:
+                session.run("classify", model="a", validate=False)
+                session.run("skill", model="b")
+        assert backend.validated == [False, True]
+        assert backend.validate_after_run is True
 
     def test_env_effort_override_and_root_span_attributes(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CODEX_REASONING_EFFORT", "medium")

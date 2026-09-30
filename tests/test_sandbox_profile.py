@@ -517,6 +517,23 @@ class TestEnv:
             "NODE_OPTIONS",
             "PYTHONSTARTUP",
             "PYTHONHOME",
+            # OpenCode's config, plugins and permissions; agentic-ci's own
+            # variables; OpenShell's; the XDG directories the harnesses keep
+            # config and credentials in.
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_PERMISSION",
+            "opencode_x",
+            "AGENTIC_CI_VERTEX_TOKEN",
+            "OPENSHELL_SANDBOX",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "METADATA_SERVER_DETECTION",
+            # Variables a setup step inherits from OpenShell.
+            "CURL_CA_BUNDLE",
+            "DENO_CERT",
+            "TERM",
+            "USER",
         ],
     )
     def test_denied_names_error_for_central(self, name):
