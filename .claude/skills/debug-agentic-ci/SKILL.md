@@ -16,10 +16,10 @@ Investigate failures in the CI infrastructure layer: container backends, skill e
 | Skill engine | `src/agentic_ci/skill.py` (`run_skill()`, `SkillConfig`) |
 | Podman backend | `src/agentic_ci/backends/podman.py` |
 | OpenShell backend | `src/agentic_ci/backends/openshell/` |
-| Forge (MR/PR) | `src/agentic_ci/forge.py` |
+| Forge (MR/PR) | `src/agentic_ci/forge/` |
 | Git operations | `src/agentic_ci/git.py` |
 | Gates | `src/agentic_ci/gates.py` |
-| Jira client | `src/agentic_ci/jira.py` |
+| Jira client | `src/agentic_ci/jira/` |
 | Stream parsing | `src/agentic_ci/stream.py` |
 | OTEL telemetry | `src/agentic_ci/otel.py` |
 | Container images | `images/` |
