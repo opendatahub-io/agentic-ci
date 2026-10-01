@@ -54,7 +54,9 @@ assert_ok() {
 
 assert_contains() {
     local desc="$1" output="$2" pattern="$3"
-    if echo "$output" | grep -qi "$pattern"; then
+    # A here-string, not a pipe: with pipefail, grep -q exiting on an early
+    # match kills echo with SIGPIPE on large output and fails the check.
+    if grep -qi -- "$pattern" <<<"$output"; then
         print_success "PASS: $desc"
         PASS=$((PASS + 1))
     else
