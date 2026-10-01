@@ -32,6 +32,10 @@ src/agentic_ci/
             sandbox.py  # OpenShell sandbox lifecycle
             policy.py   # Policy resolution, built-in default, egress presets
             provision.py # In-sandbox toolchain extraction (OpenShellInstaller)
+            provider.py # Provider profiles, credential handling, profile import/update
+            profiles/   # Vendored provider profile YAMLs (Anthropic, OpenAI, Vertex)
+            steps.py    # Setup/validate step execution inside the sandbox
+            environment.py # ENVIRONMENT.md and environment.json generation
     config.py           # Project config loader (.agentic-ci/config.yml)
     sandbox_profile.py  # Sandbox profile schema, parsing, merge and hashing
     toolchains.py       # Toolchain catalog, version resolution, verified downloads, host cache
@@ -64,7 +68,7 @@ src/agentic_ci/
 
 - **`config.py`**: Loads project configuration from `.agentic-ci/config.yml` in the workdir. Currently supports a `setup` key with a list of commands (bare strings or `{name, run}` objects) that run on the host before sandbox upload, enabling dependency installation for repos whose agents need it.
 
-- **`backends/openshell/`**: `OpenShellBackend` runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `oauth`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. `oauth` (a Claude subscription token) creates no provider, so its mode is recorded only in the sandbox identity file. Submodules: `gateway.py`, `sandbox.py`, `policy.py`, `provision.py`.
+- **`backends/openshell/`**: `OpenShellBackend` runs the agent in an OpenShell sandbox. Uploads the workdir into the sandbox on `setup()` and downloads it back after `run()` completes. Only changes inside the workdir are reflected back to the host; files written elsewhere in the sandbox are not retrieved. Manages gateway lifecycle, sandbox creation with network policy, credential injection, and setup steps. Network policies are scoped by harness authentication mode (`vertex`, `api-key`, `oauth`, `openai`); the backend detects mode changes between runs and recreates the sandbox when modes differ. `oauth` (a Claude subscription token) creates no provider, so its mode is recorded only in the sandbox identity file. Submodules: `gateway.py`, `sandbox.py`, `policy.py`, `provision.py`, `provider.py`, `profiles/`, `steps.py`, `environment.py`.
 
 - **`stream.py`**: `ClaudeCodeStreamProcessor` parses Claude Code's `stream-json` output. `OpenCodeStreamProcessor` parses OpenCode's JSON event output. `CodexStreamProcessor` parses Codex JSONL events. All produce human-readable CI logs with colored ANSI output, tool call summaries, and token display.
 
@@ -228,5 +232,5 @@ When investigating this repo specifically, focus on these areas by symptom:
 - **Skills not found / wrong skills loaded**: Check `plugins.py` for install-time skill discovery (`install_opencode_skills` fallback dirs, `install_codex_plugins` native/compatibility paths, manifest generation) and runtime filtering (`enable_plugins` reads `AGENT_ENABLED_PLUGINS`). Check `harness.py` `build_env_args()` and `build_env_script_lines()` for env var forwarding to the container. Claude Code disables unwanted plugins in `settings.json`; OpenCode deletes unwanted skill directories; Codex removes unwanted native plugins and only manifest-managed compatibility skills.
 - **Skill engine failure**: Check `skill.py` for the `run_skill()` flow: pre-gates, container launch, post-gates, verdict loading. Check which phase returned an error.
 - **Routed run used the wrong model**: Check `routing.py` (`classify()`, `load_route()`) and `skill.py` `run_routed_skill()`. `_run/route.json` holds the classifier rating, `_run/classifier-output.txt` its raw stream, and the `skill.routed` event in `_run/claude-otel.jsonl` records the decision (`source=fallback` means the classifier failed and the default model was used). Tier defaults and accepted effort values live in `models.py` (`MODEL_REGISTRY`); the effort flag shape lives in `harness.py` (`effort_args()`).
-- **MR/PR operations failed**: Check `forge.py` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
+- **MR/PR operations failed**: Check `forge/` and the `forge` CLI subcommands. Check `git.py` for clone/push/branch operations. Check error handling in `ForgeError`.
 - **Gate framework issues**: Check `gates.py` for the gate registry and execution order. Check if a gate was added or changed that altered behavior. Gates run as pre/post hooks around the agent; the wiring is in the calling repo (autofix), but the gate implementations may be here.
