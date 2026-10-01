@@ -195,7 +195,8 @@ Behind that one command, `agentic-ci`:
    `ci`, unless a gateway is already running
 2. Creates a credential provider from your environment
 3. Creates a sandbox named `ci` and applies the network policy
-4. Runs your project's setup steps on the host, if it has any
+4. Runs your project's `.agentic-ci/config.yml` setup steps on the host,
+   only if it has any and you pass the deprecated `--allow-host-setup`
    ([Step 7](#step-7-tailor-the-sandbox-to-your-project))
 5. Uploads your repository to `/sandbox/<repo-name>`
 6. Runs the agent and streams its output
@@ -343,16 +344,32 @@ endpoints:
   - "registry.npmjs.org:443:read-only"
 ```
 
-`.agentic-ci/config.yml` lists setup steps. They run directly on your
-machine, outside the sandbox and with full network access, before the
-repository is uploaded. Use them to install dependencies the agent needs
-but cannot download itself, and only run repositories you trust:
+`.agentic-ci/config.yml` lists setup steps. They are off by default:
+without `--allow-host-setup`, agentic-ci only logs how many it skipped.
+With that flag (deprecated, and refused when `CI`, `GITLAB_CI` or
+`GITHUB_ACTIONS` is set) they run directly on your machine, outside the
+sandbox and with full network access, before the repository is uploaded:
 
 ```yaml
 setup:
   - name: Install dependencies
     run: npm ci
 ```
+
+```bash
+agentic-ci run --backend openshell --allow-host-setup "..."
+```
+
+Each step gets a clean environment (a fixed `PATH`, a temporary `HOME`, no
+global git config), so tokens in your shell are not handed to it, and
+agentic-ci kills its process group and restores your workdir's `.git`
+control files afterwards. This is cleanup, not a sandbox: a step can still
+read any file you can read, and a process that leaves the step's process
+group (`setsid`, `setpgid`, or `set -m`) is not killed, so only run
+repositories you trust. For
+dependencies the agent needs in CI, use a
+[sandbox profile](../sandbox-profiles.md)'s `setup` steps, which run inside
+the sandbox.
 
 Both files are read when the sandbox is created, so run
 `openshell sandbox delete ci` after editing them. To try out a policy

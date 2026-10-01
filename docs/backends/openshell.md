@@ -32,7 +32,8 @@ environment). On each `agentic-ci run --backend openshell`, it:
 3. Creates a sandbox container from the specified image, with an explicit
    base policy
 4. Applies a network policy and waits for it to activate
-5. Runs setup steps on the host (if configured in `.agentic-ci/config.yml`)
+5. Runs the `.agentic-ci/config.yml` setup steps on the host, only with the
+   deprecated local opt-in `--allow-host-setup` (see [Setup Steps](#setup-steps))
 6. Uploads the workdir (including setup step outputs) into the sandbox
 7. Provisions the sandbox profile's toolchains, runs its setup steps in the
    sandbox and writes `ENVIRONMENT.md`, if the profile has them (see
@@ -412,7 +413,9 @@ openshell sandbox exec --name ci --no-tty -- \
 
 1. `sandbox.create` with the resources and the agent-phase egress (with a
    sandbox profile, its main process is recorded right after).
-2. Host setup steps from `.agentic-ci/config.yml` (legacy, host side).
+2. Host setup steps from `.agentic-ci/config.yml` (legacy, host side), only
+   with the deprecated local opt-in `--allow-host-setup` (refused in CI);
+   otherwise only the step count is logged. See [Setup Steps](#setup-steps).
 3. `sandbox.upload(workdir)`.
 4. Toolchain provisioning, when the [sandbox profile](../sandbox-profiles.md#toolchains)
    has toolchains: for each one the host resolves the version, downloads
@@ -541,12 +544,26 @@ host.
 ## Setup Steps
 
 Because the sandbox has no internet access by default, repositories that
-need dependency installation (e.g. `npm ci` for Node.js projects) can
-define **setup steps** that run on the host before the workdir is
-uploaded. See [Project Configuration](../configuration.md#setup-steps)
-for full details. These host steps run with the host's environment; a
-[sandbox profile](../sandbox-profiles.md#setup-validation-and-records)'s
-`setup` steps run inside the sandbox instead, with no credential.
+need dependency installation (e.g. `npm ci` for Node.js projects) declare
+it as a [sandbox profile](../sandbox-profiles.md#setup-validation-and-records)'s
+`setup` steps, which run inside the sandbox with only the profile's egress
+presets open and no credential.
+
+The older **host setup steps** in `.agentic-ci/config.yml` run on the host
+before the workdir is uploaded, and only when the caller opts in with
+`--allow-host-setup` (or `SkillConfig.allow_host_setup=True`). The opt-in is
+deprecated and meant for local use: it is refused when `CI`, `GITLAB_CI` or
+`GITHUB_ACTIONS` is set, and it logs a deprecation warning. Without it the
+backend logs `Host setup is disabled: N setup step(s) ... not run` and runs
+nothing. With it, each step gets a clean environment (fixed `PATH`, a
+temporary `HOME`, no global or system git config), its process group is
+killed when it ends, and the workdir's `.git` control files are restored
+afterwards. That limits accidental exposure but is not containment: a step
+can still read any file the user can read, and a process that leaves the
+step's process group (`setsid`, `setpgid`, or shell job control such as
+`set -m`) is not killed. See
+[Project Configuration](../configuration.md#setup-steps-deprecated-host-path)
+for full details.
 
 ```yaml
 # .agentic-ci/config.yml

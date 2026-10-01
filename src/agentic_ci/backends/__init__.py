@@ -25,6 +25,9 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             is passed only to the OpenShell backend; other backends log a
             warning and ignore it, including its toolchains and its setup
             and validate steps (never run on the host).
+            ``allow_host_setup=True`` (deprecated, refused in CI) lets the backend
+            run the repo's ``.agentic-ci/config.yml`` setup steps on this host;
+            it is passed on only when it is exactly ``True``.
 
     Returns:
         A Backend instance.
@@ -46,11 +49,17 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
                 f"{len(sandbox_profile.validate)} validate command(s) not run: they run only "
                 "inside an OpenShell sandbox"
             )
+    # Passed only when set, so a default call constructs each backend exactly
+    # as before.
+    host_setup_kwargs: dict[str, Any] = (
+        {"allow_host_setup": True} if kwargs.get("allow_host_setup") is True else {}
+    )
     if name == "local":
         return LocalBackend(
             workdir=kwargs.get("workdir", "."),
             extra_env=kwargs.get("extra_env"),
             harness=harness,
+            **host_setup_kwargs,
         )
     elif name == "podman":
         return PodmanBackend(
@@ -59,6 +68,7 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             timeout=kwargs.get("timeout", 1200),
             extra_env=kwargs.get("extra_env"),
             harness=harness,
+            **host_setup_kwargs,
         )
     elif name == "openshell":
         # The profile is passed only when set, so a run without one constructs
@@ -75,6 +85,7 @@ def create_backend(name: str, *, harness: Harness, **kwargs: Any) -> Backend:
             gpu=kwargs.get("gpu"),
             harness=harness,
             **profile_kwargs,
+            **host_setup_kwargs,
         )
     else:
         raise ValueError(f"Unknown backend: {name!r}. Choose 'local', 'podman', or 'openshell'.")

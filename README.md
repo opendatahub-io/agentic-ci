@@ -128,6 +128,7 @@ agentic-ci {setup,run,stop} [options]
 | `--post-gates GATES` | — | Comma-separated post-agent gates (`run` only) |
 | `--policy PATH` | — | OpenShell policy file override (`openshell` backend only) |
 | `--timeout SECS` | `1200` | Container timeout (`podman` backend only) |
+| `--allow-host-setup` | off | Deprecated: run the repo's `.agentic-ci/config.yml` setup steps on this host, outside any sandbox (`setup` and `run` only). Refused in CI (`CI`, `GITLAB_CI` or `GITHUB_ACTIONS` set). Steps get a clean env, but this is not containment; use a [sandbox profile](docs/sandbox-profiles.md) instead. See [Setup Steps](docs/configuration.md#setup-steps-deprecated-host-path) |
 
 Extra arguments after the prompt are passed through to the selected agent CLI.
 

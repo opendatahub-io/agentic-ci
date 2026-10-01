@@ -10,6 +10,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from agentic_ci import log, mlflow, otel, plugins, vertex_token_stub
+from agentic_ci.backend import HostSetupRefusedError
 from agentic_ci.backends import create_backend
 from agentic_ci.container import configure_podman_storage
 from agentic_ci.forge.cli import register_subcommands
@@ -22,6 +23,12 @@ def _parse_gate_list(value: str | None) -> list[str]:
     if not value:
         return []
     return [g.strip() for g in value.split(",") if g.strip()]
+
+
+_ALLOW_HOST_SETUP_HELP = (
+    "Deprecated: run the repo's .agentic-ci/config.yml setup steps on this host, "
+    "outside any sandbox (refused in CI)"
+)
 
 
 def cmd_setup(args, backend):
@@ -278,7 +285,10 @@ def main():
     )
     p_stub.add_argument("--port", type=int, default=vertex_token_stub.DEFAULT_PORT)
 
-    sub.add_parser("setup", parents=[common], help="Prepare the AI agent sandbox environment")
+    p_setup = sub.add_parser(
+        "setup", parents=[common], help="Prepare the AI agent sandbox environment"
+    )
+    p_setup.add_argument("--allow-host-setup", action="store_true", help=_ALLOW_HOST_SETUP_HELP)
     sub.add_parser("stop", parents=[common], help="Tear down the sandbox environment")
 
     p_forge = sub.add_parser("forge", help="Git forge (GitLab/GitHub) MR/PR operations")
@@ -288,6 +298,7 @@ def main():
         "run", parents=[common], help="Execute a prompt in a sandbox environment"
     )
     p_run.add_argument("prompt", help="Prompt to send to the agent")
+    p_run.add_argument("--allow-host-setup", action="store_true", help=_ALLOW_HOST_SETUP_HELP)
     p_run.add_argument(
         "--no-streaming", action="store_true", help="Disable pretty-printed stream output"
     )
@@ -418,14 +429,22 @@ def main():
     }.get(harness.auth_mode, harness.auth_mode)
     log.detail("Auth", auth_label)
     log.detail("Workdir", os.path.abspath(args.workdir))
-    backend = create_backend(
-        args.backend,
-        harness=harness,
-        workdir=args.workdir,
-        image=args.image,
-        policy=args.policy,
-        timeout=args.timeout,
+    # Passed only when set, so a default run creates the backend as before.
+    host_setup_kwargs = (
+        {"allow_host_setup": True} if getattr(args, "allow_host_setup", False) else {}
     )
+    try:
+        backend = create_backend(
+            args.backend,
+            harness=harness,
+            workdir=args.workdir,
+            image=args.image,
+            policy=args.policy,
+            timeout=args.timeout,
+            **host_setup_kwargs,
+        )
+    except HostSetupRefusedError as exc:
+        parser.error(str(exc))
 
     if args.backend in ("podman", "openshell"):
         configure_podman_storage()

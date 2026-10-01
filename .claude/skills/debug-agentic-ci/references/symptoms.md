@@ -16,6 +16,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Podman backend was injecting OpenShell-style `/sandbox` paths into config dirs. Fixed to use container-appropriate paths.
 - **Where to look**: `backends/podman.py` config dir setup, `harness.py` path resolution
 
+### `.agentic-ci/config.yml` setup steps no longer run ("Host setup is disabled: N setup step(s) ... not run")
+- **Likely cause**: Host setup is off by default (RHAI-2619). `Backend._run_setup_steps()` runs the repo's `setup:` on the host only when the backend was built with `allow_host_setup=True` (`--allow-host-setup` on `setup`/`run`, or `SkillConfig.allow_host_setup`); otherwise it logs only the step count. The opt-in is deprecated and meant for local use. Move the steps to a sandbox profile's `setup` (OpenShell, runs in the sandbox). No log line while `config.yml` has setup steps means `AGENTIC_CI_SKIP_SETUP=1` is set, which wins over the flag (autofix sets it).
+- **Related**: `--allow-host-setup is refused in CI` (CLI exit 2, or `HostSetupRefusedError` from `create_backend`) means `CI`, `GITLAB_CI` or `GITHUB_ACTIONS` is set to something other than empty, `0` or `false`; the opt-in is never allowed in CI. A step that worked before but now fails with the flag may depend on the host env it no longer gets (only `PATH=/usr/local/bin:/usr/bin:/bin`, a temporary `HOME` and git config vars pointing at `/dev/null`), on a background process it started (its process group is killed after the step), or on a `.git/config` or hook change it made (the workdir's git control files are restored after the steps; changes are logged as `restored: ...`). This is cleanup, not containment.
+- **Where to look**: `backend.py` (`_run_setup_steps`, `_run_host_setup_step`, `running_in_ci`), `backends/__init__.py` (`create_backend` passes the flag only when `is True`), `skill.py` (`allow_host_setup` threading), `cli.py`
+
 ### AGENT_ENABLED_PLUGINS not working in OpenShell
 - **Likely cause**: Plugin env var wasn't being passed through to the sandbox environment. Fixed by explicitly forwarding it.
 - **Where to look**: `backends/openshell/sandbox.py` env var injection, `harness.py`

@@ -575,3 +575,73 @@ class TestSandboxProfilePlumbing:
         ):
             session = _AgentSession(tmp_path)
         assert backend.run_dir == tmp_path / "_run" == session.run_dir
+
+
+class TestAllowHostSetupPlumbing:
+    """SkillConfig.allow_host_setup reaches create_backend, and only when true."""
+
+    def _session_create_backend_kwargs(self, tmp_path, **session_kwargs):
+        harness = create_harness("claude-code")
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=RecordingBackend()) as cb,
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+        ):
+            _AgentSession(tmp_path, **session_kwargs)
+        return cb.call_args.kwargs
+
+    def test_session_passes_the_flag_to_create_backend(self, tmp_path):
+        kwargs = self._session_create_backend_kwargs(tmp_path, allow_host_setup=True)
+        assert kwargs["allow_host_setup"] is True
+
+    @pytest.mark.parametrize("value", [False, None, "yes", 1])
+    def test_session_omits_anything_but_true(self, tmp_path, value):
+        kwargs = self._session_create_backend_kwargs(tmp_path, allow_host_setup=value)
+        assert "allow_host_setup" not in kwargs
+
+    def test_default_runner_passes_the_flag_to_session(self, tmp_path):
+        _default_run_container(tmp_path, "p", tmp_path / "out.txt", allow_host_setup=True)
+        assert FakeSession.instances[0].kwargs["allow_host_setup"] is True
+
+    def test_default_runner_without_the_flag_omits_it(self, tmp_path):
+        _default_run_container(tmp_path, "p", tmp_path / "out.txt")
+        assert "allow_host_setup" not in FakeSession.instances[0].kwargs
+
+    def test_run_skill_default_runner_carries_the_flag(self, tmp_path):
+        run_skill(
+            _config(allow_host_setup=True),
+            ticket_key="TEST-1",
+            work_dir=tmp_path,
+            config_dir=tmp_path,
+        )
+        assert FakeSession.instances[0].kwargs["allow_host_setup"] is True
+
+    def test_routed_skill_carries_the_flag(self, tmp_path):
+        _run(_config(allow_host_setup=True, backend_name="openshell"), tmp_path)
+        session = FakeSession.instances[0]
+        assert session.kwargs["allow_host_setup"] is True
+        assert session.kwargs["backend_name"] == "openshell"
+
+    def test_routed_skill_without_the_flag_omits_it(self, tmp_path):
+        _run(_config(), tmp_path)
+        assert "allow_host_setup" not in FakeSession.instances[0].kwargs
+
+    def test_custom_runner_gets_the_flag_only_when_true(self, tmp_path):
+        seen = []
+
+        def runner(work_dir, prompt, output_file, **kwargs):
+            seen.append(kwargs)
+            (work_dir / "verdict.json").write_text('{"verdict": "committed"}')
+            return 0
+
+        for allow in (False, True):
+            run_skill(
+                _config(container_runner=runner, allow_host_setup=allow),
+                ticket_key="TEST-1",
+                work_dir=tmp_path,
+                config_dir=tmp_path,
+            )
+        assert seen[0] == {"image": None}
+        assert seen[1] == {"image": None, "allow_host_setup": True}
+
+    def test_skill_config_defaults_to_no_host_setup(self):
+        assert SkillConfig(skill_name="s").allow_host_setup is False

@@ -27,8 +27,12 @@ class LocalBackend(Backend):
     restored after the run, unlike the Podman and OpenShell backends.
     """
 
-    def __init__(self, workdir=".", extra_env=None, *, harness: Harness):
-        super().__init__(workdir=workdir, image=None, harness=harness)
+    def __init__(
+        self, workdir=".", extra_env=None, *, harness: Harness, allow_host_setup: bool = False
+    ):
+        super().__init__(
+            workdir=workdir, image=None, harness=harness, allow_host_setup=allow_host_setup
+        )
         self._extra_env = extra_env or {}
 
     def setup(self, otel_port=None):

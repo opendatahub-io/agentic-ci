@@ -772,9 +772,11 @@ POLICY
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
     # --- Setup steps test ---
-    # Verifies that .agentic-ci/config.yml setup steps run on the host
-    # before the workdir is uploaded. The setup step creates a marker file;
-    # the agent checks whether it exists inside the sandbox.
+    # Verifies that, with the deprecated --allow-host-setup opt-in,
+    # .agentic-ci/config.yml setup steps run on the host before the workdir
+    # is uploaded. The setup step creates a marker file; the agent checks
+    # whether it exists inside the sandbox. The opt-in is refused in CI, so
+    # the CI markers are unset for this run.
     print_header "=== agentic-ci run: setup steps ==="
 
     WORKDIR="$TMPDIR_E2E/setup-steps"
@@ -785,11 +787,13 @@ setup:
     run: echo "setup-complete" > .setup-marker
 CONFIG
 
-    print_step "Running Claude Code with setup steps..."
+    print_step "Running Claude Code with setup steps (--allow-host-setup)..."
     SETUP_LOG="$TMPDIR_E2E/setup-steps.log"
     RC=0
+    env -u CI -u GITLAB_CI -u GITHUB_ACTIONS \
     agentic-ci run \
         "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
+        --allow-host-setup \
         --backend openshell \
         --image "$CLAUDE_SANDBOX" \
         --harness claude-code \
@@ -800,13 +804,16 @@ CONFIG
     assert_ok "setup-steps run exited successfully" test "$RC" -eq 0
     assert_contains "setup-steps: marker file found in sandbox" "$OUTPUT" "pong"
     assert_contains "setup-steps: setup section logged" "$OUTPUT" "Running setup steps"
+    assert_contains "setup-steps: deprecation warning logged" "$OUTPUT" \
+        "WARNING: host setup (--allow-host-setup) is deprecated"
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
 
     # --- AGENTIC_CI_SKIP_SETUP test ---
-    # Verifies that AGENTIC_CI_SKIP_SETUP=1 skips setup steps entirely.
-    # Uses the same config as above but the marker file should NOT exist.
+    # Verifies that AGENTIC_CI_SKIP_SETUP=1 skips setup steps entirely, even
+    # with --allow-host-setup. Uses the same config as above but the marker
+    # file should NOT exist and no deprecation warning is logged.
     print_header "=== agentic-ci run: AGENTIC_CI_SKIP_SETUP ==="
 
     WORKDIR="$TMPDIR_E2E/skip-setup"
@@ -817,12 +824,14 @@ setup:
     run: echo "setup-complete" > .setup-marker
 CONFIG
 
-    print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1..."
+    print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1 and --allow-host-setup..."
     SKIP_LOG="$TMPDIR_E2E/skip-setup.log"
     RC=0
     AGENTIC_CI_SKIP_SETUP=1 \
+    env -u CI -u GITLAB_CI -u GITHUB_ACTIONS \
     agentic-ci run \
         "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
+        --allow-host-setup \
         --backend openshell \
         --image "$CLAUDE_SANDBOX" \
         --harness claude-code \
@@ -832,6 +841,8 @@ CONFIG
     OUTPUT="$(cat "$SKIP_LOG")"
     assert_ok "skip-setup run exited successfully" test "$RC" -eq 0
     assert_contains "skip-setup: marker file NOT created" "$OUTPUT" "pong"
+    assert_ok "skip-setup: no deprecation warning" \
+        test "$(grep -cF -- "WARNING: host setup (--allow-host-setup) is deprecated" "$SKIP_LOG" || true)" = 0
     dump_gateway_log
 
     agentic-ci stop --backend openshell --harness claude-code 2>/dev/null || true
