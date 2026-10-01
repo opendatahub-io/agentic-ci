@@ -16,8 +16,11 @@ as `SkillConfig.sandbox_profile`.
     `skips`, exports `env`, removes the `discard_before_download` paths and
     tells the agent all of it in `ENVIRONMENT.md` (see
     [Setup, validation and records](#setup-validation-and-records)). The
-    host-side `setup:` of `.agentic-ci/config.yml` is unchanged in this
-    release.
+    host-side `setup:` of `.agentic-ci/config.yml` no longer runs by default:
+    it is deprecated, runs only with the local opt-in `--allow-host-setup`
+    (`SkillConfig.allow_host_setup`), which is refused in CI, and is not
+    containment (see [Setup Steps](configuration.md#setup-steps-deprecated-host-path)).
+    A profile's `setup` steps are the replacement.
 
 Sandbox profiles apply only to the OpenShell backend. The Podman and local
 backends log a warning and ignore a profile (with further warnings counting

@@ -50,7 +50,9 @@ assert_ok() {
 
 assert_contains() {
     local desc="$1" output="$2" pattern="$3"
-    if echo "$output" | grep -qi "$pattern"; then
+    # A here-string, not a pipe: with pipefail, grep -q exiting on an early
+    # match kills echo with SIGPIPE on large output and fails the check.
+    if grep -qi -- "$pattern" <<<"$output"; then
         print_success "PASS: $desc"
         PASS=$((PASS + 1))
     else
@@ -298,10 +300,13 @@ setup:
     run: echo "setup-complete" > .setup-marker
 CONFIG
 
-print_step "Running Claude Code with setup steps (local)..."
+print_step "Running Claude Code with setup steps (local, --allow-host-setup)..."
+# Host setup is opt-in and refused in CI, so the CI markers are unset here.
 RC=0
+env -u CI -u GITLAB_CI -u GITHUB_ACTIONS \
 agentic-ci run --backend local \
     "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
+    --allow-host-setup \
     --harness claude-code \
     --workdir "$WORKDIR" \
     --no-otel \
@@ -311,6 +316,8 @@ agentic-ci run --backend local \
 assert_ok "setup-steps local run exited successfully" test "$RC" -eq 0
 assert_contains "setup-steps: marker file found by agent" \
     "$(cat "$TMPDIR_E2E/setup-out.txt")" "pong"
+assert_contains "setup-steps: deprecation warning logged" \
+    "$(cat "$TMPDIR_E2E/setup-out.txt")" "WARNING: host setup (--allow-host-setup) is deprecated"
 
 # -- AGENTIC_CI_SKIP_SETUP test -----------------------------------------------
 print_header "=== agentic-ci run --backend local: AGENTIC_CI_SKIP_SETUP ==="
@@ -323,11 +330,14 @@ setup:
     run: echo "setup-complete" > .setup-marker
 CONFIG
 
-print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1 (local)..."
+print_step "Running Claude Code with AGENTIC_CI_SKIP_SETUP=1 and --allow-host-setup (local)..."
+# The env var wins over the opt-in: no step runs and no warning is logged.
 RC=0
 AGENTIC_CI_SKIP_SETUP=1 \
+env -u CI -u GITLAB_CI -u GITHUB_ACTIONS \
 agentic-ci run --backend local \
     "Check if the file .setup-marker exists. If yes, reply with only the word fail. If not, reply with only the word pong." \
+    --allow-host-setup \
     --harness claude-code \
     --workdir "$WORKDIR" \
     --no-otel \
@@ -337,6 +347,8 @@ agentic-ci run --backend local \
 assert_ok "skip-setup local run exited successfully" test "$RC" -eq 0
 assert_contains "skip-setup: marker file NOT created" \
     "$(cat "$TMPDIR_E2E/skip-setup-out.txt")" "pong"
+assert_ok "skip-setup: no deprecation warning" \
+    test "$(grep -cF -- "WARNING: host setup (--allow-host-setup) is deprecated" "$TMPDIR_E2E/skip-setup-out.txt" || true)" = 0
 
 echo ""
 print_header "=== All test sections complete ==="

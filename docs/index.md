@@ -10,7 +10,7 @@ simplicity and security.
 
 - **Multiple backends**: Local (direct execution), Podman containers, or OpenShell sandboxes with network policy enforcement
 - **Multiple harnesses**: Claude Code, OpenCode, and Codex agent CLIs
-- **Setup steps**: Pre-sandbox dependency installation for repos that need it
+- **Setup steps**: Dependency installation inside the sandbox through [sandbox profiles](sandbox-profiles.md) (the older host-side `.agentic-ci/config.yml` setup is deprecated and opt-in)
 - **Streaming output**: Colored, parsed CI logs with tool call summaries and token tracking
 - **OTEL telemetry**: Token usage, cost tracking, and metrics collection
 - **Gates**: Pre- and post-agent validation (sensitive files, commit checks, secret scanning)

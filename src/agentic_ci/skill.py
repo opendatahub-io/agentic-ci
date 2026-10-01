@@ -137,6 +137,13 @@ class SkillConfig:
     ``container_runner`` receives it as the ``sandbox_profile`` keyword, and
     only when it is set."""
 
+    allow_host_setup: bool = False
+    """Deprecated: run the target repo's ``.agentic-ci/config.yml`` setup steps
+    on this host, outside any sandbox (local use only; the backend refuses it
+    in CI). Reaches the backend through the container runner like
+    ``sandbox_profile``; a custom ``container_runner`` receives it as the
+    ``allow_host_setup`` keyword, and only when it is true."""
+
 
 @dataclass(frozen=True)
 class RoutedSkillResult:
@@ -199,6 +206,7 @@ class _AgentSession:
         backend_name="podman",
         harness_name="claude-code",
         sandbox_profile=None,
+        allow_host_setup=False,
     ):
         self.work_dir = Path(work_dir)
         self.run_dir = self.work_dir / "_run"
@@ -211,6 +219,9 @@ class _AgentSession:
         # The profile is passed only when set, so a run without one creates the
         # backend exactly as before. It never goes into extra_env.
         profile_kwargs = {} if sandbox_profile is None else {"sandbox_profile": sandbox_profile}
+        # Likewise passed only when true.
+        if allow_host_setup is True:
+            profile_kwargs["allow_host_setup"] = True
         self.backend = create_backend(
             backend_name,
             harness=self.harness,
@@ -367,16 +378,19 @@ def _default_run_container(
     effort=None,
     router=None,
     sandbox_profile=None,
+    allow_host_setup=False,
 ):
     """Default container runner using the configured backend.
 
     *model* defaults to the harness env var or default model. *router*, when
     given, is called as ``router(session, prompt)`` before the main run and
     must return a :class:`~agentic_ci.routing.RouteDecision` whose model and
-    effort are then used for the run. *sandbox_profile* is handed to the
-    backend (see :class:`SkillConfig`).
+    effort are then used for the run. *sandbox_profile* and *allow_host_setup*
+    are handed to the backend (see :class:`SkillConfig`).
     """
     session_kwargs = {} if sandbox_profile is None else {"sandbox_profile": sandbox_profile}
+    if allow_host_setup is True:
+        session_kwargs["allow_host_setup"] = True
     with _AgentSession(
         work_dir,
         image=image,
@@ -487,6 +501,8 @@ def run_skill(
         runner_kwargs["container_env"] = config.container_env
     if config.sandbox_profile is not None:
         runner_kwargs["sandbox_profile"] = config.sandbox_profile
+    if config.allow_host_setup is True:
+        runner_kwargs["allow_host_setup"] = True
     if config.container_runner is None:
         runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
         runner_kwargs["backend_name"] = config.backend_name

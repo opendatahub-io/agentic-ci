@@ -264,8 +264,11 @@ class OpenShellBackend(Backend):
         *,
         harness: Harness,
         sandbox_profile: SandboxProfile | None = None,
+        allow_host_setup: bool = False,
     ):
-        super().__init__(workdir=workdir, image=image, harness=harness)
+        super().__init__(
+            workdir=workdir, image=image, harness=harness, allow_host_setup=allow_host_setup
+        )
         self.policy_path = policy
         self._extra_env = extra_env or {}
         self.approval_mode = approval_mode

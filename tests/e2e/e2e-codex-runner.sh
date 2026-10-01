@@ -50,7 +50,9 @@ assert_ok() {
 
 assert_contains() {
     local desc="$1" output="$2" pattern="$3"
-    if echo "$output" | grep -qi "$pattern"; then
+    # A here-string, not a pipe: with pipefail, grep -q exiting on an early
+    # match kills echo with SIGPIPE on large output and fails the check.
+    if grep -qi -- "$pattern" <<<"$output"; then
         print_success "PASS: $desc"
         PASS=$((PASS + 1))
     else
@@ -153,11 +155,14 @@ setup:
     run: echo "setup-complete" > .setup-marker
 CONFIG
 
-print_step "Running Codex with setup steps (podman)..."
+print_step "Running Codex with setup steps (podman, --allow-host-setup)..."
 SETUP_LOG="$TMPDIR_E2E/setup-steps-out.txt"
+# Host setup is opt-in and refused in CI, so the CI markers are unset here.
 RC=0
+env -u CI -u GITLAB_CI -u GITHUB_ACTIONS \
 agentic-ci run \
     "Check if the file .setup-marker exists and contains 'setup-complete'. If yes, reply with only the word pong. If not, reply with only the word fail." \
+    --allow-host-setup \
     --image "$IMAGE" \
     --harness codex \
     --workdir "$WORKDIR" \
@@ -167,6 +172,8 @@ agentic-ci run \
 OUTPUT="$(cat "$SETUP_LOG")"
 assert_ok "setup-steps run exited successfully" test "$RC" -eq 0
 assert_contains "setup-steps: marker file found by agent" "$OUTPUT" "pong"
+assert_contains "setup-steps: deprecation warning logged" "$OUTPUT" \
+    "WARNING: host setup (--allow-host-setup) is deprecated"
 
 agentic-ci stop --harness codex 2>/dev/null || true
 

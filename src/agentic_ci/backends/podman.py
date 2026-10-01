@@ -43,8 +43,11 @@ class PodmanBackend(Backend):
         extra_env=None,
         *,
         harness: Harness,
+        allow_host_setup: bool = False,
     ):
-        super().__init__(workdir=workdir, image=image, harness=harness)
+        super().__init__(
+            workdir=workdir, image=image, harness=harness, allow_host_setup=allow_host_setup
+        )
         self.timeout = timeout
         self._container_name = f"agentic-ci-{uuid4().hex}"
         self._config_dir = None

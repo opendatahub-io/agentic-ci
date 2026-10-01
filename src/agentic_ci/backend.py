@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,6 +27,54 @@ from agentic_ci.git import (
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
 
+# Environment variables that mark a CI job. ``allow_host_setup`` is refused
+# when any of them is set to a value other than ``0`` or ``false``.
+CI_ENV_MARKERS = ("CI", "GITLAB_CI", "GITHUB_ACTIONS")
+
+# Seconds one host setup step may run before it is stopped.
+HOST_SETUP_TIMEOUT = 600
+
+# The only PATH a host setup step gets.
+HOST_SETUP_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+
+class HostSetupRefusedError(ValueError):
+    """``allow_host_setup`` was requested in a CI job, where it is never allowed."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "--allow-host-setup is refused in CI (CI, GITLAB_CI or GITHUB_ACTIONS is set); "
+            "use a sandbox profile's setup steps instead"
+        )
+
+
+def running_in_ci(env: Mapping[str, str] | None = None) -> bool:
+    """Whether *env* (default ``os.environ``) marks a CI job.
+
+    A marker counts when it is set to a non-empty value other than ``0`` or
+    ``false`` (any case).
+    """
+    env = os.environ if env is None else env
+    for name in CI_ENV_MARKERS:
+        value = env.get(name, "")
+        if value and value.lower() not in ("0", "false"):
+            return True
+    return False
+
+
+def _kill_process_group(pgid: int) -> None:
+    """Kill every process left in the process group *pgid*, if any.
+
+    Best effort: an empty group, or one whose remaining processes cannot be
+    signalled (for example a backgrounded ``sudo`` child), is not an error.
+    """
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        log.info("WARNING: could not kill the processes left by a host setup step")
+
 
 class Backend(ABC):
     """Base class for sandbox backends.
@@ -33,7 +85,11 @@ class Backend(ABC):
 
     collector_bind_address: str = "127.0.0.1"
 
-    def __init__(self, workdir=".", image=None, *, harness: Harness):
+    def __init__(
+        self, workdir=".", image=None, *, harness: Harness, allow_host_setup: bool = False
+    ):
+        if allow_host_setup and running_in_ci():
+            raise HostSetupRefusedError()
         self.workdir = os.path.abspath(workdir)
         self.image = image
         self.harness = harness
@@ -47,6 +103,10 @@ class Backend(ABC):
         # profile steps ignore it.
         self.validate_after_run = True
         self._host_git: GitControlSnapshot | None = None
+        # Deprecated: run the repo's .agentic-ci/config.yml setup steps on
+        # this host (see _run_setup_steps). Never true in CI.
+        self.allow_host_setup = allow_host_setup
+        self._host_setup_warned = False
 
     @abstractmethod
     def setup(self, otel_port: int | None = None):
@@ -196,26 +256,111 @@ class Backend(ABC):
         return "".join(filtered).encode("utf-8") if filtered else b""
 
     def _run_setup_steps(self):
-        """Run repo-defined setup commands on the host before the agent starts.
+        """Run the repo's ``.agentic-ci/config.yml`` setup steps on the host (deprecated).
 
-        Setup steps execute with full network access outside any sandbox,
-        allowing dependency installation (e.g. ``npm ci``) whose outputs
-        are available to the agent at runtime.
+        Off by default: without ``allow_host_setup`` nothing runs and only the
+        number of steps is logged. A sandbox profile's setup steps run inside
+        the OpenShell sandbox instead.
 
-        Skipped when ``AGENTIC_CI_SKIP_SETUP=1`` is set, allowing
-        lightweight consumers (e.g. triage) to opt out.
+        With ``allow_host_setup`` (local CLI use only; refused in CI), each
+        step runs in the workdir with an environment built from scratch: a
+        fixed ``PATH``, a temporary ``HOME`` removed afterwards, and no global
+        or system git config, so no inherited secret or host git setting
+        reaches it. Each step runs in its own session and process group,
+        which is killed once its shell exits or times out; a process that
+        leaves the step's process group (``setsid``, ``setpgid``, or shell job
+        control such as ``set -m``) is not killed. The
+        workdir's ``.git`` control files are recorded before the first step
+        and restored after the last one, also when a step fails. None of this
+        is a sandbox: a step can still read every file the user can read.
+
+        ``AGENTIC_CI_SKIP_SETUP=1`` skips this entirely, even when allowed.
         """
         if os.environ.get("AGENTIC_CI_SKIP_SETUP") == "1":
             return
 
         config = load_config(self.workdir)
+        if not self.allow_host_setup:
+            if config.setup:
+                log.info(
+                    f"Host setup is disabled: {len(config.setup)} setup step(s) in "
+                    ".agentic-ci/config.yml not run (a sandbox profile's setup steps "
+                    "run in the sandbox)"
+                )
+            return
+
+        # Checked again here, not only in __init__: the attribute is public
+        # and the environment can change after construction. Fail closed.
+        if running_in_ci():
+            raise HostSetupRefusedError()
+
+        if not self._host_setup_warned:
+            self._host_setup_warned = True
+            log.info(
+                "WARNING: host setup (--allow-host-setup) is deprecated: it runs the repo's "
+                ".agentic-ci/config.yml setup steps on this host, outside any sandbox; "
+                "use a sandbox profile's setup steps instead"
+            )
         if not config.setup:
             return
 
         log.section("Running setup steps")
-        for step in config.setup:
-            log.info(f"  {step.name}: {step.run}")
-            subprocess.run(step.run, shell=True, cwd=self.workdir, check=True, timeout=600)
+        git_snapshot = snapshot_git_control(Path(self.workdir))
+        home = tempfile.mkdtemp(prefix="agentic-ci-setup-home-")
+        env = {
+            "PATH": HOST_SETUP_PATH,
+            "HOME": home,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+        try:
+            for index, step in enumerate(config.setup, start=1):
+                label = f"Setup step {index}/{len(config.setup)}"
+                log.detail(label, f"{step.name}: {step.run}")
+                self._run_host_setup_step(step.run, env, label=label)
+        finally:
+            try:
+                shutil.rmtree(home)
+            except OSError:
+                log.info("WARNING: could not remove the temporary HOME of the host setup steps")
+                log.detail("Temporary HOME left behind", home)
+            changed = restore_git_control(git_snapshot)
+            if changed:
+                log.info(
+                    "WARNING: host setup steps changed the workdir's git control files; "
+                    f"restored: {', '.join(changed)}"
+                )
+
+    def _run_host_setup_step(self, command: str, env: dict[str, str], *, label: str) -> None:
+        """Run one host setup step and kill its process group afterwards.
+
+        Raises :class:`subprocess.CalledProcessError` when the step fails and
+        :class:`subprocess.TimeoutExpired` when it runs too long, like
+        ``subprocess.run(..., check=True, timeout=...)``. Both carry *label*
+        as their command instead of the repo's command text, which is logged
+        only through ``log.detail``.
+        """
+        # shell=True: the repo controls the command either way. The clean env
+        # limits accidental exposure; it is not a sandbox.
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=self.workdir,
+            env=env,
+            start_new_session=True,
+        )
+        try:
+            returncode = proc.wait(timeout=HOST_SETUP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise subprocess.TimeoutExpired(label, HOST_SETUP_TIMEOUT) from None
+        finally:
+            # The shell leads the group (start_new_session), so its pid is the
+            # group id; this also stops a shell that is still running.
+            _kill_process_group(proc.pid)
+            proc.wait()
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, label)
 
     def _snapshot_host_git(self):
         """Record the workdir's git control files before the agent can write them.
