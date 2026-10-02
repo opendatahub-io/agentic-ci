@@ -1,0 +1,3352 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run AI coding agents in sandboxed CI environments">
+      
+      
+      
+        <link rel="canonical" href="https://opendatahub-io.github.io/agentic-ci/backends/openshell/">
+      
+      
+        <link rel="prev" href="../podman/">
+      
+      
+        <link rel="next" href="../../sandbox-profiles/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>OpenShell - agentic-ci</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#openshell-backend" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="agentic-ci" class="md-header__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            agentic-ci
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              OpenShell
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="agentic-ci" class="md-nav__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    agentic-ci
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/openshell-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Development with OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Container Images
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Container Images
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Sandbox Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../podman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openshell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenShell Commands
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenShell Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gateway-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gateway Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-sandbox-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Sandbox Policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Profiles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vertex-ai-with-user-oauth-local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vertex AI with User OAuth (local development)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vertex-ai-with-service-account-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vertex AI with Service Account (CI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-vertex-credentials-reach-the-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Vertex credentials reach the agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key-direct-anthropic-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key (direct Anthropic API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth-token-claude-subscription" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth Token (Claude subscription)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox Resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#teardown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Teardown
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-git-after-the-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host git after the run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network Policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network Policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-specific-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project-specific endpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#egress-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Egress phases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openshell-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenShell Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supervisor-and-sandbox-runtime-images" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supervisor and Sandbox Runtime Images
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-issues-and-workarounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Issues and Workarounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Issues and Workarounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-binary-does-not-work-for-connect-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --binary "*" does not work for CONNECT requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-from-gcloud-adc-rejects-service-account-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --from-gcloud-adc rejects service account keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#credential-refresh-worker-does-not-mint-initial-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credential refresh worker does not mint initial tokens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openshell_supervisor_image-and-openshell_sandbox_runtime_image-are-not-gateway-env-vars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OPENSHELL_SUPERVISOR_IMAGE and OPENSHELL_SANDBOX_RUNTIME_IMAGE are not gateway env vars
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sandbox-profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stream Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/otel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTEL Collector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generic Event Transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factory & Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sandbox_profile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/toolchains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/redact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/verdict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verdict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/git/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Git Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/forge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forge (GitHub/GitLab)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/jira/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jira
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Utilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/skill_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openshell-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenShell Commands
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpenShell Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gateway-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gateway Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#base-sandbox-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Sandbox Policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-profiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Profiles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vertex-ai-with-user-oauth-local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vertex AI with User OAuth (local development)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vertex-ai-with-service-account-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vertex AI with Service Account (CI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-vertex-credentials-reach-the-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Vertex credentials reach the agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-key-direct-anthropic-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Key (direct Anthropic API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#oauth-token-claude-subscription" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth Token (Claude subscription)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox Resources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run order
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#teardown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Teardown
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-git-after-the-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host git after the run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Steps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#network-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Network Policy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Network Policy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#project-specific-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project-specific endpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#egress-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Egress phases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#openshell-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenShell Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supervisor-and-sandbox-runtime-images" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supervisor and Sandbox Runtime Images
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-issues-and-workarounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Issues and Workarounds
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Issues and Workarounds">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#-binary-does-not-work-for-connect-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --binary "*" does not work for CONNECT requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#-from-gcloud-adc-rejects-service-account-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --from-gcloud-adc rejects service account keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#credential-refresh-worker-does-not-mint-initial-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credential refresh worker does not mint initial tokens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openshell_supervisor_image-and-openshell_sandbox_runtime_image-are-not-gateway-env-vars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OPENSHELL_SUPERVISOR_IMAGE and OPENSHELL_SANDBOX_RUNTIME_IMAGE are not gateway env vars
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="openshell-backend">OpenShell Backend<a class="headerlink" href="#openshell-backend" title="Permanent link">&para;</a></h1>
+<p>The OpenShell backend runs AI agents inside
+<a href="https://github.com/NVIDIA/OpenShell">OpenShell</a> sandboxes with network
+policy enforcement, filesystem isolation, and Landlock-based access
+control.</p>
+<p>New to OpenShell? Start with
+<a href="../../guides/openshell-local/">Local Development with OpenShell</a>, a
+step-by-step guide to running agents in a sandbox on your workstation.</p>
+<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
+<p>OpenShell <code>0.1.2</code> or later, for both the <code>openshell</code> CLI and the
+<code>openshell-gateway</code> binary (the CI image pins <code>v0.1.2-rhaiv.0</code>). Before it
+starts a gateway, agentic-ci reads <code>openshell --version</code> and
+<code>openshell-gateway --version</code> and stops with
+<code>OpenShell &gt;= 0.1.2 required; &lt;binary&gt; is &lt;version&gt;</code> when either is older
+(<code>gateway.MIN_OPENSHELL_VERSION</code>). Older runtimes lack gateway.toml schema
+version 2, <code>sandbox provider attach|detach --wait</code> and the profile fields
+agentic-ci uses.</p>
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<p>The backend manages three components: a <strong>gateway</strong> (control plane),
+a <strong>provider</strong> (credentials), and a <strong>sandbox</strong> (isolated execution
+environment). On each <code>agentic-ci run --backend openshell</code>, it:</p>
+<ol>
+<li>Starts the OpenShell gateway with TLS and mTLS auth</li>
+<li>Creates a Vertex AI, Anthropic, or OpenAI credential provider from one of
+   agentic-ci's provider profiles (none for a Claude subscription OAuth token)</li>
+<li>Creates a sandbox container from the specified image, with an explicit
+   base policy</li>
+<li>Applies a network policy and waits for it to activate</li>
+<li>Runs the <code>.agentic-ci/config.yml</code> setup steps on the host, only with the
+   deprecated local opt-in <code>--allow-host-setup</code> (see <a href="#setup-steps">Setup Steps</a>)</li>
+<li>Uploads the workdir (including setup step outputs) into the sandbox</li>
+<li>Provisions the sandbox profile's toolchains, runs its setup steps in the
+   sandbox and writes <code>ENVIRONMENT.md</code>, if the profile has them (see
+   <a href="#setup-order">Setup order</a>)</li>
+<li>Uploads an env script with agent configuration</li>
+<li>Executes the agent inside the sandbox</li>
+<li>Runs the sandbox profile's validate commands in the sandbox and removes
+   its <code>discard_before_download</code> paths (see <a href="#run-order">Run order</a>)</li>
+<li>Downloads the workdir back to the host and restores the host's git
+   control files (see <a href="#host-git-after-the-run">Host git after the run</a>)</li>
+<li>Tears everything down on completion</li>
+</ol>
+<h2 id="openshell-commands">OpenShell Commands<a class="headerlink" href="#openshell-commands" title="Permanent link">&para;</a></h2>
+<p>Below is the exact sequence of <code>openshell</code> CLI commands that <code>agentic-ci</code>
+executes. All management commands go through the <code>openshell</code> client CLI,
+which talks to the running <code>openshell-gateway</code> server over gRPC.</p>
+<h3 id="gateway-setup">Gateway Setup<a class="headerlink" href="#gateway-setup" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Check the runtime version (before a gateway is started)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>openshell<span class="w"> </span>--version
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>openshell-gateway<span class="w"> </span>--version
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Check if gateway is already running</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>openshell<span class="w"> </span>status
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1"># Generate TLS certificates for sandbox JWT auth</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>openshell-gateway<span class="w"> </span>generate-certs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span>--output-dir<span class="w"> </span>~/.local/state/openshell/tls<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span>--server-san<span class="w"> </span>host.openshell.internal
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># Start the gateway server (background process)</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1"># Reads config from ~/.config/openshell/gateway.toml</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>openshell-gateway<span class="w"> </span>--db-url<span class="w"> </span>sqlite::memory:<span class="w"> </span>--log-level<span class="w"> </span>info
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="c1"># Register the gateway with the CLI</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>openshell<span class="w"> </span>gateway<span class="w"> </span>add<span class="w"> </span>https://localhost:17670<span class="w"> </span>--local<span class="w"> </span>--name<span class="w"> </span>ci
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># Wait for the gateway to become healthy (retries)</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>openshell<span class="w"> </span>status
+</code></pre></div>
+<p>The gateway config (<code>gateway.toml</code>) is generated by agentic-ci:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[openshell]</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">[openshell.gateway]</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">bind_address</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.0.0.0:17670"</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">compute_driver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"podman"</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># Only added when OPENSHELL_SUPERVISOR_IMAGE and/or</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># OPENSHELL_SANDBOX_RUNTIME_IMAGE are set</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="k">[openshell.drivers.podman]</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">supervisor_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"quay.io/opendatahub/odh-openshell-supervisor:&lt;tag&gt;"</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">sandbox_runtime_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"quay.io/opendatahub/odh-openshell-sandbox:&lt;tag&gt;"</span>
+</code></pre></div>
+<p>Schema version 2 (required since OpenShell <code>v0.0.116-rhaiv.8</code>) takes a
+singular <code>compute_driver</code> and rejects the version 1 <code>compute_drivers</code> list.
+agentic-ci leaves <code>host_gateway_ip</code> unset: on v0.1.x the podman driver's
+trusted host gateway defaults to <code>127.0.0.1</code>, which lets the sandbox's policy
+DNS map <code>host.openshell.internal</code> (the OTel collector's address). The gateway
+reads <code>gateway.toml</code> only at startup, so when <code>setup()</code> finds a running
+gateway whose file no longer matches the environment (for example after
+either image variable changed), it deletes the sandbox, stops the gateway
+and starts a fresh one.</p>
+<h3 id="base-sandbox-policy">Base Sandbox Policy<a class="headerlink" href="#base-sandbox-policy" title="Permanent link">&para;</a></h3>
+<p><code>openshell sandbox create</code> is always given <code>--policy</code> with a base policy
+(<code>policy.BASE_POLICY</code>: <code>version: 1</code>, a read-only system path list, <code>/tmp</code>
+read-write, the workdir included, Landlock <code>best_effort</code>), which matches the
+restrictive default of the OpenShell release agentic-ci used before. Without
+it, OpenShell discovers the image's own <code>/etc/openshell/policy.yaml</code>; the
+Hummingbird agentic images ship one in a different schema, and the
+supervisor rejects the sandbox with <code>Image policy is invalid</code> rather than
+falling back. The file never contains a null field: the v0.1.x policy schema
+refuses null and unknown fields. Network endpoints and binaries are layered
+on afterwards with <code>openshell policy update</code>, exactly as before.</p>
+<h3 id="provider-profiles">Provider Profiles<a class="headerlink" href="#provider-profiles" title="Permanent link">&para;</a></h3>
+<p>OpenShell ships no provider profiles in the gateway, so agentic-ci imports
+its own before it creates a provider (<code>provider.ensure_profile()</code>), from
+<code>src/agentic_ci/backends/openshell/profiles/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Profile</th>
+<th>Auth mode</th>
+<th>Endpoints</th>
+<th>Binaries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>agentic-ci-google-vertex-ai</code></td>
+<td><code>vertex</code></td>
+<td><code>*-aiplatform.googleapis.com</code>, <code>aiplatform.googleapis.com</code>, <code>aiplatform.{us,eu}.rep.googleapis.com</code> (L7 <code>rest</code>, <code>enforce</code>)</td>
+<td>claude, opencode, codex</td>
+</tr>
+<tr>
+<td><code>agentic-ci-anthropic</code></td>
+<td><code>api-key</code></td>
+<td><code>api.anthropic.com</code> (L4, uninspected credentials allowed)</td>
+<td>claude, opencode</td>
+</tr>
+<tr>
+<td><code>agentic-ci-openai</code></td>
+<td><code>openai</code></td>
+<td><code>api.openai.com</code> (L4, uninspected credentials allowed)</td>
+<td>codex</td>
+</tr>
+</tbody>
+</table>
+<p>The binaries are the agent launchers under <code>/usr/local/bin</code> and
+<code>/usr/local/sbin</code>, never curl: OpenShell composes a network rule from the
+attached provider's profile (<code>_provider_ci_gcp</code>), which the sandbox policy
+cannot remove, and the proxy injects the credential for any caller that rule
+admits. The Vertex profile is OpenShell's <code>google-vertex-ai</code> example
+(unchanged from <code>v0.0.116-rhaiv.11</code> to <code>v0.1.2-rhaiv.0</code>) with agentic-ci's
+id and binaries; the example declares no binaries.</p>
+<p>A provider kept on a running gateway composes that rule from the gateway's
+copy of its profile, which an older agentic-ci or a hand edit may have
+changed. Before it reuses a provider, agentic-ci therefore checks the copy of
+that auth mode's profile (<code>provider.ensure_auth_mode_profile()</code>); when it had
+to import or update it, the sandbox is recreated ("Provider profile updated;
+recreating OpenShell sandbox"). v0.1.2 recomposes a running sandbox's rule
+as soon as the profile changes (seen live for a curl binary added by hand),
+so the recreation keeps a sandbox that ran under the drifted rule from
+being reused rather than being the only fix.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>openshell<span class="w"> </span>provider<span class="w"> </span>profile<span class="w"> </span><span class="nb">export</span><span class="w"> </span>agentic-ci-google-vertex-ai<span class="w"> </span>-o<span class="w"> </span>yaml<span class="w">   </span><span class="c1"># import if missing</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>openshell<span class="w"> </span>provider<span class="w"> </span>profile<span class="w"> </span>import<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>-f<span class="w"> </span>src/agentic_ci/backends/openshell/profiles/agentic-ci-google-vertex-ai.yaml
+</code></pre></div>
+<h3 id="provider-setup">Provider Setup<a class="headerlink" href="#provider-setup" title="Permanent link">&para;</a></h3>
+<p>The provider injects credentials into the sandbox. The setup differs by
+auth mode.</p>
+<h4 id="vertex-ai-with-user-oauth-local-development">Vertex AI with User OAuth (local development)<a class="headerlink" href="#vertex-ai-with-user-oauth-local-development" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>openshell<span class="w"> </span>provider<span class="w"> </span>get<span class="w"> </span>ci-gcp<span class="w">                    </span><span class="c1"># check if exists</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--name<span class="w"> </span>ci-gcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--type<span class="w"> </span>agentic-ci-google-vertex-ai<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--from-gcloud-adc<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>--config<span class="w"> </span><span class="nv">VERTEX_AI_PROJECT_ID</span><span class="o">=</span>&lt;PROJECT&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--config<span class="w"> </span><span class="nv">VERTEX_AI_REGION</span><span class="o">=</span>global
+</code></pre></div>
+<p>Requires <code>gcloud auth application-default login</code> to have been run
+first. The <code>--from-gcloud-adc</code> flag reads the user's OAuth refresh token
+from <code>~/.config/gcloud/application_default_credentials.json</code> and mints
+an initial access token synchronously. The sandbox receives
+<code>GOOGLE_VERTEX_AI_TOKEN</code> as an opaque placeholder.</p>
+<h4 id="vertex-ai-with-service-account-ci">Vertex AI with Service Account (CI)<a class="headerlink" href="#vertex-ai-with-service-account-ci" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>openshell<span class="w"> </span>provider<span class="w"> </span>get<span class="w"> </span>ci-gcp<span class="w">                    </span><span class="c1"># check if exists</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--name<span class="w"> </span>ci-gcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--type<span class="w"> </span>agentic-ci-google-vertex-ai<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--credential<span class="w"> </span><span class="nv">GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN</span><span class="o">=</span>placeholder<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>--config<span class="w"> </span><span class="nv">VERTEX_AI_PROJECT_ID</span><span class="o">=</span>&lt;PROJECT&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--config<span class="w"> </span><span class="nv">VERTEX_AI_REGION</span><span class="o">=</span>global
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># Configure JWT-based token refresh from the service account key</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>openshell<span class="w"> </span>provider<span class="w"> </span>refresh<span class="w"> </span>configure<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span>--credential-key<span class="w"> </span>GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">  </span>--strategy<span class="w"> </span>google-service-account-jwt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">  </span>--material<span class="w"> </span><span class="nv">client_email</span><span class="o">=</span>&lt;EMAIL&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">  </span>--material<span class="w"> </span><span class="nv">private_key</span><span class="o">=</span>&lt;PRIVATE_KEY&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">  </span>--secret-material-key<span class="w"> </span>private_key<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">  </span>ci-gcp
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="c1"># Mint the initial token immediately (refresh worker runs on 60s interval)</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>openshell<span class="w"> </span>provider<span class="w"> </span>refresh<span class="w"> </span>rotate<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">  </span>--credential-key<span class="w"> </span>GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">  </span>ci-gcp
+</code></pre></div>
+<p>The three-step flow is needed because <code>--from-gcloud-adc</code> rejects service
+account keys. The <code>refresh rotate</code> call triggers immediate token minting
+instead of waiting for the 60-second background sweep.</p>
+<p>A provider an earlier agentic-ci created as <code>google-cloud</code> (or from an
+imported <code>google-vertex-ai</code> profile) is not reused: <code>setup()</code> deletes it and
+the sandbox and creates both again. OpenShell removed the GCE metadata
+emulator the <code>google-cloud</code> provider relied on, but still injects
+<code>GCE_METADATA_HOST=127.0.0.1:8174</code> and <code>METADATA_SERVER_DETECTION=assume-present</code>
+for such a provider, pointing SDKs at a port nothing serves.</p>
+<h4 id="how-vertex-credentials-reach-the-agent">How Vertex credentials reach the agent<a class="headerlink" href="#how-vertex-credentials-reach-the-agent" title="Permanent link">&para;</a></h4>
+<p>There is no metadata server in the sandbox, so SDK-side Application Default
+Credentials cannot mint a token there. Instead the gateway injects the
+placeholder variable above, and the Claude Code env script sets
+<code>CLAUDE_CODE_SKIP_VERTEX_AUTH=1</code>, <code>ANTHROPIC_AUTH_TOKEN=&lt;placeholder&gt;</code> and
+<code>ANTHROPIC_VERTEX_BASE_URL</code> (host plus <code>/v1</code>), so Claude Code sends the
+placeholder as a bearer token and the supervisor proxy substitutes the real
+access token on the profile's aiplatform endpoints. Because the profile
+declares those hosts, <code>policy.AUTH_ENDPOINTS</code> lists none for Vertex: the
+gateway rejects a sandbox endpoint for the same host with conflicting
+metadata. The profile's hosts, every other <code>*.aiplatform.googleapis.com</code>
+host and <code>oauth2.googleapis.com</code> stay agent-only in the egress phases.</p>
+<p>OpenCode cannot send the placeholder directly: its <code>@ai-sdk/google-vertex</code>
+provider always asks <code>google-auth-library</code> for a token first, and that
+library has no static-token mode. The OpenCode env script therefore writes
+an <code>external_account</code> ADC file whose <code>token_url</code> points at
+<code>agentic-ci vertex-token-stub</code>, a loopback HTTP server started in the
+sandbox that answers every token exchange with the placeholder. The SDK
+"mints" the placeholder, sends it as the bearer token, and the proxy swaps
+in the real one. The stub reads the placeholder from
+<code>AGENTIC_CI_VERTEX_TOKEN</code> and refuses to start when it is empty.</p>
+<h4 id="api-key-direct-anthropic-api">API Key (direct Anthropic API)<a class="headerlink" href="#api-key-direct-anthropic-api" title="Permanent link">&para;</a></h4>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>openshell<span class="w"> </span>provider<span class="w"> </span>profile<span class="w"> </span><span class="nb">export</span><span class="w"> </span>agentic-ci-anthropic<span class="w">   </span><span class="c1"># import if missing</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>openshell<span class="w"> </span>provider<span class="w"> </span>profile<span class="w"> </span>import<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>-f<span class="w"> </span>src/agentic_ci/backends/openshell/profiles/agentic-ci-anthropic.yaml
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>openshell<span class="w"> </span>provider<span class="w"> </span>get<span class="w"> </span>ci-gcp<span class="w">                    </span><span class="c1"># check if exists</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span>--name<span class="w"> </span>ci-gcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span>--type<span class="w"> </span>agentic-ci-anthropic<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span>--credential<span class="w"> </span>ANTHROPIC_API_KEY
+</code></pre></div>
+<p>For Codex, agentic-ci creates an OpenAI provider from its
+<code>agentic-ci-openai</code> profile and uses <code>OPENAI_API_KEY</code>. The sandbox env
+script does not carry the key: the provider sets <code>OPENAI_API_KEY</code> in the
+sandbox to an OpenShell placeholder, Codex's <code>login --with-api-key</code> stores
+that placeholder, and the proxy swaps it for the real key only on requests
+to <code>api.openai.com</code>, for any caller the provider's rule admits (a descendant
+of an agent binary included, such as <code>codex sandbox -- curl</code>), which is why
+agentic-ci detaches the provider while the setup shim's egress is open. The
+endpoint is L4, but the proxy still terminates TLS
+and replaces the placeholder in the headers of every request on the tunnel,
+including the WebSocket upgrade that carries Codex's <code>Authorization</code>
+header. The <code>websocket-credential-rewrite</code> and
+<code>request-body-credential-rewrite</code> endpoint options are not needed, and
+OpenShell accepts them only on L7 (<code>rest</code> or <code>websocket</code>) endpoints.</p>
+<p>OpenShell refuses to inject a key that contains a line break or NUL and
+answers the request with HTTP 500 (<code>credential_unavailable</code>), which Codex
+reports as "We're currently experiencing high demand". A key copied into a
+CI secret often ends with a newline, so agentic-ci strips surrounding
+whitespace from <code>OPENAI_API_KEY</code> before it stores the key in the provider,
+the same way <code>codex login --with-api-key</code> does, and stops with an error if
+a line break remains inside the key. When it strips anything, the run log
+shows <code>Stripped surrounding whitespace (a line break) from OPENAI_API_KEY</code>
+(or <code>spaces or tabs</code>), never the key itself.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>openshell<span class="w"> </span>provider<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--name<span class="w"> </span>ci-gcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--type<span class="w"> </span>agentic-ci-openai<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--credential<span class="w"> </span>OPENAI_API_KEY
+</code></pre></div>
+<p>agentic-ci ships its own provider profiles
+(<code>src/agentic_ci/backends/openshell/profiles/</code>) because OpenShell's example
+<code>openai</code> and <code>anthropic</code> profiles add a rule that lets <code>/usr/bin/curl</code> and
+<code>/usr/local/bin/curl</code> reach the API host with the key injected, and a
+sandbox policy cannot remove that rule. agentic-ci's profiles drop that curl
+rule, and for Codex the raw OpenAI key no longer enters the sandbox. The key
+can still be spent through an agent binary, for example
+<code>codex sandbox -- curl</code>, because agentic-ci's own policy lets the agent
+binaries reach the API host and the proxy injects the key for any of them.
+The profiles live in the gateway database, so agentic-ci imports them
+before it creates the provider, and it replaces a provider created from a
+builtin profile by an earlier release. The sandbox identity file records a
+short SHA-256 fingerprint of <code>OPENAI_API_KEY</code> (never the key), so after a key
+rotation agentic-ci recreates the sandbox and stores the new key in the
+existing provider. Updating the provider alone would not be enough: a running
+sandbox picks the update up only after about ten seconds, and a placeholder
+issued before the update keeps resolving to the old key.</p>
+<h4 id="oauth-token-claude-subscription">OAuth Token (Claude subscription)<a class="headerlink" href="#oauth-token-claude-subscription" title="Permanent link">&para;</a></h4>
+<p>When the Claude Code harness runs with <code>CLAUDE_CODE_OAUTH_TOKEN</code> and no
+<code>ANTHROPIC_API_KEY</code>, agentic-ci creates no provider. OpenShell's Anthropic
+provider profiles only carry <code>ANTHROPIC_API_KEY</code> as an <code>x-api-key</code> header,
+and no profile covers a subscription bearer token. The sandbox is created
+without <code>--provider</code>, the token is exported by the sandbox env script, and
+the <code>oauth</code> auth mode is recorded only in the sandbox identity file
+(<code>~/.config/agentic-ci/openshell-sandbox.json</code>).</p>
+<!-- markdownlint-disable MD046 -->
+<div class="admonition warning">
+<p class="admonition-title">API-key exposure</p>
+<p>With the Anthropic API key, or the Claude subscription OAuth token, the
+sandbox env script still exports the real credential, so the agent and
+its child processes can read it. Only Codex's OpenAI key is kept out of
+the sandbox so far.</p>
+</div>
+<!-- markdownlint-enable MD046 -->
+
+<h3 id="sandbox-resources">Sandbox Resources<a class="headerlink" href="#sandbox-resources" title="Permanent link">&para;</a></h3>
+<p>When these are omitted, no <code>--memory</code>, <code>--cpu</code> or <code>--gpu</code> flag is passed and the
+effective limits come from the compute driver and host configuration rather than
+from agentic-ci. That limit can sit far below what the host has: a sandbox created
+without <code>--memory</code> on a 16 GB host was OOM-killed by its memory cgroup at under
+4 GiB. Pass <code>memory</code>, <code>cpu</code> and <code>gpu</code> to size the sandbox explicitly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">backend</span> <span class="o">=</span> <span class="n">create_backend</span><span class="p">(</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="s2">"openshell"</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">harness</span><span class="o">=</span><span class="n">harness</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">memory</span><span class="o">=</span><span class="s2">"8Gi"</span><span class="p">,</span>  <span class="c1"># accepts 512Mi, 4Gi, 8G</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">cpu</span><span class="o">=</span><span class="s2">"4"</span><span class="p">,</span>  <span class="c1"># accepts 500m, 1, 2.5</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">gpu</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>  <span class="c1"># GPU count</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">)</span>
+</code></pre></div>
+<p>All three default to <code>None</code>, which passes no flag and leaves current behavior
+unchanged. A <a href="../../sandbox-profiles/">sandbox profile</a> with <code>resources</code> fills
+in any of the three the caller did not pass (<code>sandbox_profile=</code> on
+<code>create_backend</code>, or <code>SkillConfig.sandbox_profile</code>); explicit values win.</p>
+<p>Resource limits are fixed when the sandbox is created. <code>setup()</code> reuses an
+existing sandbox rather than recreating it, so these values do not apply to one
+that already exists; the backend logs a warning saying so. Delete the sandbox to
+apply new values.</p>
+<p>Two failure modes worth recognizing, because neither says what it is:</p>
+<ul>
+<li><strong>Exceeding a memory limit</strong> does not raise. The cgroup OOM-kills the process,
+  the supervisor log stops mid-line, and the next command reports <code>sandbox is not
+  ready</code>. The kernel is the only witness — <code>journalctl -k</code> on the host shows
+  <code>Memory cgroup out of memory: Killed process</code>.</li>
+<li><strong>Not requesting a GPU</strong> leaves the accelerator invisible to the agent even
+  when the host has one and the container running agentic-ci can see it.
+  <code>nvidia-smi -L</code> inside the sandbox returns nothing.</li>
+</ul>
+<h3 id="sandbox-lifecycle">Sandbox Lifecycle<a class="headerlink" href="#sandbox-lifecycle" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>get<span class="w"> </span>ci<span class="w">                         </span><span class="c1"># check if exists</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Create sandbox with the provider attached (omitted for OAuth token auth).</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># --memory / --cpu / --gpu are only passed when the caller sets them.</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span>--name<span class="w"> </span>ci<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span>--no-tty<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span>--no-auto-providers<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">  </span>--provider<span class="w"> </span>ci-gcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">  </span>--from<span class="w"> </span>&lt;SANDBOX_IMAGE&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">  </span>--memory<span class="w"> </span>8Gi<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">  </span>--cpu<span class="w"> </span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">  </span>--gpu<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">  </span>--policy<span class="w"> </span>&lt;base-policy.yaml&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">  </span>--detach<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">  </span>--<span class="w"> </span>sleep<span class="w"> </span>infinity
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="c1"># Keep the sandbox's main process alive; agent commands run via exec.</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="c1"># Apply network policy and wait for the supervisor to compile and load it.</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="c1"># Built-in defaults are always included. If .agentic-ci/openshell-policy.yml</span>
+<a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a><span class="c1"># exists in the workdir, its endpoints are merged in automatically, unless a</span>
+<a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a><span class="c1"># sandbox profile is set (its agent-phase egress is added instead).</span>
+<a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>openshell<span class="w"> </span>policy<span class="w"> </span>update<span class="w"> </span>--wait<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a><span class="w">  </span>--binary<span class="w"> </span>/usr/local/bin/claude<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a><span class="w">  </span>--binary<span class="w"> </span>/usr/bin/opencode<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>github.com:443:full<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>*.github.com:443:full<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>gitlab.com:443:full<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>pypi.org:443:read-only<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>files.pythonhosted.org:443:read-only<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a><span class="w">  </span>--add-endpoint<span class="w"> </span>api.anthropic.com:443:read-write:::allow-uninspected-credentials<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a><span class="w">  </span>ci
+<a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a>
+<a id="__codelineno-8-35" name="__codelineno-8-35" href="#__codelineno-8-35"></a><span class="c1"># Upload env script with agent configuration</span>
+<a id="__codelineno-8-36" name="__codelineno-8-36" href="#__codelineno-8-36"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>upload<span class="w"> </span>--no-git-ignore<span class="w"> </span>ci<span class="w"> </span>&lt;env-script-file&gt;
+<a id="__codelineno-8-37" name="__codelineno-8-37" href="#__codelineno-8-37"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>--name<span class="w"> </span>ci<span class="w"> </span>--no-tty<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-38" name="__codelineno-8-38" href="#__codelineno-8-38"></a><span class="w">  </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">"mv &lt;filename&gt; /tmp/.agentic-ci-env.sh"</span>
+<a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a>
+<a id="__codelineno-8-40" name="__codelineno-8-40" href="#__codelineno-8-40"></a><span class="c1"># Run the agent</span>
+<a id="__codelineno-8-41" name="__codelineno-8-41" href="#__codelineno-8-41"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>--name<span class="w"> </span>ci<span class="w"> </span>--no-tty<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-42" name="__codelineno-8-42" href="#__codelineno-8-42"></a><span class="w">  </span>bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">". /tmp/.agentic-ci-env.sh &amp;&amp; exec \"</span><span class="nv">$@</span><span class="s2">\""</span><span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-43" name="__codelineno-8-43" href="#__codelineno-8-43"></a><span class="w">  </span>claude<span class="w"> </span>--permission-mode<span class="w"> </span>bypassPermissions<span class="w"> </span>--model<span class="w"> </span>&lt;MODEL&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-44" name="__codelineno-8-44" href="#__codelineno-8-44"></a><span class="w">  </span>--output-format<span class="w"> </span>stream-json<span class="w"> </span>--verbose<span class="w"> </span>-p<span class="w"> </span><span class="s2">"&lt;PROMPT&gt;"</span>
+</code></pre></div>
+<h3 id="setup-order">Setup order<a class="headerlink" href="#setup-order" title="Permanent link">&para;</a></h3>
+<p><code>OpenShellBackend.setup()</code> runs these steps for a new sandbox:</p>
+<ol>
+<li><code>sandbox.create</code> with the resources and the agent-phase egress (with a
+   sandbox profile, its main process is recorded right after).</li>
+<li>Host setup steps from <code>.agentic-ci/config.yml</code> (legacy, host side), only
+   with the deprecated local opt-in <code>--allow-host-setup</code> (refused in CI);
+   otherwise only the step count is logged. See <a href="#setup-steps">Setup Steps</a>.</li>
+<li><code>sandbox.upload(workdir)</code>.</li>
+<li>
+<p>Toolchain provisioning, when the <a href="../../sandbox-profiles/#toolchains">sandbox profile</a>
+   has toolchains: for each one the host resolves the version, downloads
+   and verifies the archive (host cache in <code>~/.cache/agentic-ci/toolchains</code>)
+   and the sandbox extracts it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Is it already there? Asked only when the host's record of this sandbox</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="c1"># (the saved identity) lists it with the same sha256; the marker must agree.</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>--name<span class="w"> </span>ci<span class="w"> </span>--no-tty<span class="w"> </span>--no-login-shell<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span>/usr/bin/python3<span class="w"> </span>-I<span class="w"> </span>-S<span class="w"> </span>-c<span class="w"> </span>&lt;install<span class="w"> </span>script&gt;<span class="w"> </span>check<span class="w"> </span>&lt;plan&gt;<span class="w"> </span>/sandbox/.local/toolchains
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># If not: upload the verified archive (named by its sha256) and extract it</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>upload<span class="w"> </span>--no-git-ignore<span class="w"> </span>ci<span class="w"> </span>~/.cache/agentic-ci/toolchains/&lt;sha256&gt;
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>--name<span class="w"> </span>ci<span class="w"> </span>--no-tty<span class="w"> </span>--no-login-shell<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">  </span>/usr/bin/python3<span class="w"> </span>-I<span class="w"> </span>-S<span class="w"> </span>-c<span class="w"> </span>&lt;install<span class="w"> </span>script&gt;<span class="w"> </span>install<span class="w"> </span>&lt;plan&gt;<span class="w"> </span>/sandbox/.local/toolchains<span class="w"> </span>&lt;sha256&gt;
+</code></pre></div>
+<p>Results go to the log and <code>_run/toolchains.json</code>; a toolchain that fails
+is skipped and the run continues.
+5. Setup steps, when the profile has them: switch to the <code>setup</code> egress
+   phase (kill leftovers, detach the provider, setup-phase policy), run each
+   step through the setup shim with its timeout, in the workdir and with an
+   environment agentic-ci builds (toolchain variables and the profile's
+   <code>env</code>, no credential), record them in <code>_run/sandbox-setup.json</code>, then
+   switch to the <code>agent</code> phase (see
+   <a href="../../sandbox-profiles/#setup-validation-and-records">Setup, validation and records</a>).
+   A failed or timed-out step is recorded and the next one still runs.
+6. <code>/sandbox/.agentic-ci/ENVIRONMENT.md</code> and <code>environment.json</code>, for every
+   sandbox profile: toolchains, setup results, validate commands, skips and
+   open presets.
+7. Harness config upload, then the sandbox identity (with the profile hash,
+   so a changed profile, toolchains included, recreates the sandbox, the
+   record of the provisioned toolchains and the setup results) is saved.</p>
+</li>
+</ol>
+<p>Without a profile, steps 4 to 6 do nothing; a profile without setup steps
+switches no phase.</p>
+<p>A reused sandbox (same identity) is switched to the <code>agent</code> egress phase
+and then provisioned again, which skips every toolchain that both the
+host's record and the marker show as installed with the same sha256 (the
+marker alone is in a directory the agent can write, so it is never trusted
+by itself), and saves the updated record. Its setup steps are not run again:
+the results saved when it was created go to <code>_run/sandbox-setup.json</code> and
+<code>ENVIRONMENT.md</code>, which is written again. The toolchain variables (<code>PATH</code>
+prepends, <code>GOTOOLCHAIN=local</code>, the Go and npm caches and the pnpm store) and
+the profile's <code>env</code> are added to the env script that <code>run()</code> uploads before
+the agent starts.</p>
+<h3 id="run-order">Run order<a class="headerlink" href="#run-order" title="Permanent link">&para;</a></h3>
+<p><code>OpenShellBackend.run()</code>:</p>
+<ol>
+<li>Switches the sandbox to the <code>agent</code> phase first when an earlier switch
+   back to it failed (and raises if that fails again, so no agent starts),
+   moves back what the previous run on this sandbox discarded (see step 3),
+   uploads the env script and starts the agent; waits for it and for the
+   OTel flush.</li>
+<li>Validate commands, when the profile has them: switch to the <code>validate</code>
+   phase, which kills every leftover process, then deletes the harness
+   credential files (Codex's <code>auth.json</code> and the others, plus the env
+   script), then detaches the provider and applies the validate-phase
+   policy; run each command through the setup shim; switch back to the
+   <code>agent</code> phase. Results, with the declared skips, go to
+   <code>_run/sandbox-validation.json</code>. None of this changes the exit code. A
+   classifier run skips this step and writes no validation record.</li>
+<li>Moves the <code>discard_before_download</code> paths out of the workdir, to
+   <code>/sandbox/.agentic-ci/discarded</code> (<code>_run/sandbox-discard.json</code>). When no
+   validate phase ran (a classifier run, or a profile without validate
+   commands), the leftover processes are killed first, so none can recreate
+   a discarded path before the download.</li>
+<li>Downloads the workdir, then writes this run's records (<code>toolchains.json</code>,
+   <code>sandbox-setup.json</code>, <code>sandbox-validation.json</code>, <code>sandbox-discard.json</code>)
+   over whatever the download brought back, removes every one of those names
+   this run did not write, replaces a <code>_run</code> the agent turned into a symlink
+   or file with a directory, and restores the host's git control files.</li>
+</ol>
+<h3 id="teardown">Teardown<a class="headerlink" href="#teardown" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>get<span class="w"> </span>ci<span class="w">                         </span><span class="c1"># check if exists</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span>delete<span class="w"> </span>ci
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>openshell<span class="w"> </span>gateway<span class="w"> </span>remove<span class="w"> </span>ci<span class="w">                      </span><span class="c1"># deregister from CLI</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Gateway and podman service processes are killed by PID</span>
+</code></pre></div>
+<h2 id="host-git-after-the-run">Host git after the run<a class="headerlink" href="#host-git-after-the-run" title="Permanent link">&para;</a></h2>
+<p>The workdir download copies the sandbox's <code>.git</code> over the host repository,
+and the agent can write that <code>.git</code>. Host-side git that runs afterwards
+(<code>git rm --cached</code>, <code>git commit --amend</code>, <code>git push</code>) would otherwise honor
+whatever the agent configured: <code>core.hooksPath</code>, <code>core.fsmonitor</code>,
+<code>core.sshCommand</code>, credential helpers, filter and diff drivers, aliases,
+<code>include.path</code>, <code>url.*.insteadOf</code> rewrites, hook scripts, and so on, with
+every secret the host job holds.</p>
+<p><code>run()</code> therefore records the host's git control files before the agent
+starts and puts them back once the download finishes, even if it fails
+(<code>snapshot_git_control()</code> and <code>restore_git_control()</code> in
+<code>agentic_ci/git.py</code>). The restored paths under <code>.git</code> are <code>config</code>,
+<code>config.worktree</code>, <code>commondir</code> (which redirects git to another config and
+hooks directory), <code>hooks/</code>, and <code>info/</code> (which holds <code>attributes</code>). Objects,
+refs and the index come back from the sandbox unchanged, so the agent's
+commits are kept. Any hardening applied before the run, such as
+<code>harden_git_config()</code>, is part of the restored config.</p>
+<p>Restoring first renames each path into a quarantine directory inside
+<code>.git</code>, which git never reads, and then rewrites it from the recorded copy,
+so a symlink the agent planted is never written through. Nothing the agent
+wrote is read or walked before that rename, so a deeply nested tree or a
+huge file cannot make the restore fail while the agent's config is still
+live. The quarantine is compared with the recorded copy only for the log
+line below and is then deleted. If the host copy cannot be written back,
+<code>.git</code> is moved aside and deleted and the run raises
+<code>GitControlTamperError</code>, so host git finds no repository rather than the
+agent's config. If the agent replaced
+<code>.git</code> itself with a file or symlink, the run raises
+<code>GitControlTamperError</code> and removes that entry. A <code>.git</code> the agent created
+in a workdir that had none is removed, since host git run from the workdir
+would otherwise use it even when the workdir sits inside another
+repository. When the restore runs as root, the recorded owner of each path
+is put back as well. Changes the agent made are
+logged as <code>Agent changed git control files in ...; restored host copy of:
+...</code>. That comparison covers entry names and kinds, file contents, symlink
+targets and the owner's execute bit, not other permission bits: the upload
+is extracted under the sandbox user's umask, so every round trip narrows
+the modes of <code>.git</code> files (for example 0644 to 0640) without the agent
+touching them. The host's modes are restored either way. Git config the
+agent sets for its own use does not persist to the host.</p>
+<h2 id="setup-steps">Setup Steps<a class="headerlink" href="#setup-steps" title="Permanent link">&para;</a></h2>
+<p>Because the sandbox has no internet access by default, repositories that
+need dependency installation (e.g. <code>npm ci</code> for Node.js projects) declare
+it as a <a href="../../sandbox-profiles/#setup-validation-and-records">sandbox profile</a>'s
+<code>setup</code> steps, which run inside the sandbox with only the profile's egress
+presets open and no credential.</p>
+<p>The older <strong>host setup steps</strong> in <code>.agentic-ci/config.yml</code> run on the host
+before the workdir is uploaded, and only when the caller opts in with
+<code>--allow-host-setup</code> (or <code>SkillConfig.allow_host_setup=True</code>). The opt-in is
+deprecated and meant for local use: it is refused when <code>CI</code>, <code>GITLAB_CI</code> or
+<code>GITHUB_ACTIONS</code> is set, and it logs a deprecation warning. Without it the
+backend logs <code>Host setup is disabled: N setup step(s) ... not run</code> and runs
+nothing. With it, each step gets a clean environment (fixed <code>PATH</code>, a
+temporary <code>HOME</code>, no global or system git config), its process group is
+killed when it ends, and the workdir's <code>.git</code> control files are restored
+afterwards. That limits accidental exposure but is not containment: a step
+can still read any file the user can read, and a process that leaves the
+step's process group (<code>setsid</code>, <code>setpgid</code>, or shell job control such as
+<code>set -m</code>) is not killed. See
+<a href="../../configuration/#setup-steps-deprecated-host-path">Project Configuration</a>
+for full details.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># .agentic-ci/config.yml</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nt">setup</span><span class="p">:</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Install dependencies</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">npm ci</span>
+</code></pre></div>
+<h2 id="network-policy">Network Policy<a class="headerlink" href="#network-policy" title="Permanent link">&para;</a></h2>
+<p>Endpoints are applied via <code>openshell policy update --wait</code> after sandbox
+creation. The <code>--wait</code> flag blocks until the supervisor confirms the
+policy rules are compiled and active. This prevents a race condition
+where the agent starts before the policy is ready.</p>
+<p>Each endpoint must specify explicit binary paths (<code>--binary
+/usr/local/bin/claude</code>). Using <code>--binary "*"</code> as a wildcard does not
+work for CONNECT tunnel requests, which is how HTTPS clients establish
+connections through the supervisor proxy.</p>
+<p>The default endpoints cover:</p>
+<table>
+<thead>
+<tr>
+<th>Endpoint</th>
+<th>Access</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>github.com:443</code></td>
+<td>full</td>
+<td>GitHub API and git operations</td>
+</tr>
+<tr>
+<td><code>*.github.com:443</code></td>
+<td>full</td>
+<td>GitHub subdomains (raw, API, etc.)</td>
+</tr>
+<tr>
+<td><code>gitlab.com:443</code></td>
+<td>full</td>
+<td>GitLab API and git operations</td>
+</tr>
+<tr>
+<td><code>pypi.org:443</code></td>
+<td>read-only</td>
+<td>Python package index</td>
+</tr>
+<tr>
+<td><code>files.pythonhosted.org:443</code></td>
+<td>read-only</td>
+<td>Python package downloads</td>
+</tr>
+<tr>
+<td><code>api.anthropic.com:443</code></td>
+<td>read-write</td>
+<td>Anthropic API (API key or OAuth token auth)</td>
+</tr>
+<tr>
+<td><code>api.openai.com:443</code></td>
+<td>read-write</td>
+<td>OpenAI API (Codex, API key auth)</td>
+</tr>
+<tr>
+<td><code>chatgpt.com:443</code></td>
+<td>read-write</td>
+<td>Codex ChatGPT backend API</td>
+</tr>
+</tbody>
+</table>
+<p>The Vertex AI hosts are not in this list: the rule OpenShell composes from
+the <code>agentic-ci-google-vertex-ai</code> profile admits the agent binaries to them,
+and a sandbox endpoint for the same host with other metadata makes the
+gateway reject the policy ("network endpoint ambiguity validation failed").
+The Anthropic and OpenAI profiles declare their hosts as L4 endpoints that
+allow uninspected credentials, and the <code>api.anthropic.com</code> and
+<code>api.openai.com</code> entries above carry the same
+<code>allow-uninspected-credentials</code> option, so the two rules coexist; OpenShell
+refuses a CONNECT to a credentialed host when a rule that matches the caller
+lacks it. OAuth token auth attaches no provider, so its <code>api.anthropic.com</code>
+rule is plain L4. With the transparent proxy of v0.1.x, a denied connection
+fails at connect (curl prints <code>Failed to connect</code>, Python raises
+<code>[Errno 13] Permission denied</code>) instead of getting a <code>403</code> answer to a
+CONNECT, and the sandbox log records it as <code>DENIED &lt;binary&gt; -&gt; &lt;host&gt;:&lt;port&gt;
+[reason:transparent_tcp_policy_denied]</code>.</p>
+<h3 id="project-specific-endpoints">Project-specific endpoints<a class="headerlink" href="#project-specific-endpoints" title="Permanent link">&para;</a></h3>
+<p>Projects can declare additional endpoints in
+<code>.agentic-ci/openshell-policy.yml</code>. See
+<a href="../../configuration/#network-policy-openshell">Project Configuration</a>
+for details.</p>
+<p>With a <a href="../../sandbox-profiles/#egress">sandbox profile</a>, the repo policy file
+is ignored and the profile's egress presets and raw endpoints are added
+instead. Preset endpoints are L7 (<code>host:443:read-only:rest:enforce</code>): the
+proxy terminates TLS and allows only <code>GET</code>, <code>HEAD</code> and <code>OPTIONS</code>, and a
+preset endpoint replaces every other endpoint on port 443 for the same host,
+wildcards included (such as the default L4 PyPI endpoints).</p>
+<h3 id="egress-phases">Egress phases<a class="headerlink" href="#egress-phases" title="Permanent link">&para;</a></h3>
+<p>A sandbox profile's egress has three phases: <code>setup</code>, <code>agent</code> and <code>validate</code>.
+The rules applied at creation (defaults, auth endpoints, the profile's
+agent-phase presets and central <code>raw_egress</code>, plus any endpoints from an
+explicit <code>--policy</code> file, bound to the agent binaries) are the <code>agent</code> phase.
+<code>OpenShellBackend._set_egress_phase("setup")</code> or <code>("validate")</code> adds rules
+bound only to the setup shim, <code>/usr/local/bin/agentic-ci-sandbox-setup</code>, and
+parks the agent's rules (each agent binary path is prefixed with
+<code>/proc/agentic-ci-parked</code>, which no process can match), so running an agent
+binary under the shim gains nothing. <code>("agent")</code> removes the shim rules and
+restores the agent's rules. Without a profile it does nothing; a reused
+profile sandbox is switched to <code>agent</code> in <code>setup()</code>.</p>
+<p>The switch (<code>sandbox.apply_phase_policy()</code>) reads
+<code>openshell policy get --base -o json</code>, rewrites only <code>network_policies</code>
+(drops <code>agentic_ci_phase_*</code> and <code>_provider_*</code> rules, removes the shim from
+every other rule, parks or restores the agent binaries, adds one shim rule per
+endpoint) and applies the whole object:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>openshell<span class="w"> </span>policy<span class="w"> </span>get<span class="w"> </span>--base<span class="w"> </span>-o<span class="w"> </span>json<span class="w"> </span>ci
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>openshell<span class="w"> </span>policy<span class="w"> </span><span class="nb">set</span><span class="w"> </span>--wait<span class="w"> </span>--policy<span class="w"> </span>&lt;phase-policy.yaml&gt;<span class="w"> </span>ci
+</code></pre></div>
+<p>It never uses <code>openshell policy update</code>, which folds an endpoint whose host
+overlaps an existing rule into that rule (the shim would end up in the agent's
+<code>allow_pypi_org_443</code>). A network-only policy is refused on a live sandbox
+(<code>filesystem policy cannot be removed on a live sandbox</code>), so the static
+fields are sent back unchanged. No rule is ever left with an empty <code>binaries</code>
+list, whose meaning differs across OpenShell versions (depending on the release
+and on <code>require_binary_identity</code>, it matches no binary or any binary). Any
+policy change closes every open proxied connection in the sandbox, agent
+streams included, so switch only while nothing runs there.</p>
+<p>The shim lets setup and validate reach preset hosts without widening the
+agent's egress. It is an extra layer, not isolation: it is not a boundary
+against the agent, which could run it if shim rules were live while one of its
+processes still ran. OpenShell does not kill the processes an exec leaves
+behind and has no per-exec cgroup or network profile (upstream suggests
+separate sandboxes or an in-sandbox supervisor instead), so each switch also
+does the following, and fails (<code>RuntimeError</code>) rather than open a phase it
+could not prepare:</p>
+<ol>
+<li><strong>Kill leftovers</strong> (<code>sandbox.stop_leftover_processes()</code>, every phase).
+   <code>openshell sandbox exec --no-login-shell</code> runs <code>/usr/bin/python3 -I -S -c
+   &lt;process scan&gt;</code> as the sandbox user. It SIGKILLs every process of that
+   user, one by one (exec'd commands share the supervisor's process group 1,
+   so a group kill would be <code>kill(-1)</code>), except the scan and its ancestors
+   and the sandbox's main process, then scans again until nothing is left or
+   10 s pass. A <code>/proc</code> entry it cannot read for any reason but "gone" counts
+   as a survivor. The main process (<code>sleep infinity</code>) is recorded by
+   <code>sandbox.find_main_process()</code> right after <code>sandbox create</code>, as the only
+   sandbox-user child of the supervisor (waiting up to 10 s for it to
+   appear, and refusing a second candidate or anything but <code>sleep
+   infinity</code>), and saved as <code>main_process</code> (PID and start time) in the
+   sandbox identity file; a process that only looks like it, or reuses its
+   PID, is killed. The supervisor exits when its entrypoint does, so if the
+   recorded process is not running the record is stale: the scan then kills
+   nothing and the switch fails. A profile sandbox without that record is
+   recreated, and so is a reused one whose switch to <code>agent</code> fails.</li>
+<li><strong>Detach or attach the credential provider</strong> (openai, api-key and vertex
+   auth). Entering <code>setup</code> or <code>validate</code> first probes a fresh exec: unless
+   the provider's variable (<code>OPENAI_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, or for
+   Vertex <code>GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN</code> or <code>GOOGLE_VERTEX_AI_TOKEN</code>)
+   holds an <code>openshell:resolve:env:</code> placeholder, it runs
+   <code>openshell sandbox provider attach --wait --timeout 30 ci ci-gcp</code> and
+   waits for one, so that a detach is only ever confirmed as a change from
+   an observed attach. Then it runs <code>openshell sandbox provider detach
+   --wait --timeout 30 ci ci-gcp</code> before the policy switch and probes a
+   fresh exec (up to 30 s in total) until the placeholder is gone. The
+   supervisor installs a sandbox's provider environment and its credential
+   bindings in one step, so from then on the proxy resolves no placeholder
+   for the key, old ones included. It polls the gateway every 10 s; <code>--wait</code>
+   returns once it has installed the change (about 10 s on v0.1.2), so the
+   probe that follows normally confirms it at once and stays only as a
+   bounded, fail-closed check. That probe covers injection only. The rule OpenShell composes
+   from the provider profile (API host bound to the agent binaries) leaves
+   with the policy the supervisor reloads in the same poll, right after the
+   environment; because <code>policy set --wait</code> is issued after the detach, it
+   returns only once a policy the gateway composed without that rule is
+   loaded, whenever the phase policy changes (always when leaving <code>agent</code>).
+   Entering <code>agent</code> applies the policy first, then <code>openshell sandbox
+   provider attach --wait ...</code> and waits until the placeholder is back. Both
+   commands are idempotent (repeating one returns at once) and are cut off
+   after 45 s, so a reused sandbox left detached is attached again by the
+   switch to <code>agent</code> in <code>setup()</code>. The
+   placeholder a fresh exec gets is the same before the detach and after the
+   attach on v0.1.2, so one an agent stored in the agent phase (Codex's
+   <code>auth.json</code>, a Vertex bearer token) keeps resolving. Vertex is detached
+   too: its profile declares the aiplatform hosts, so OpenShell composes a
+   rule for them that parking cannot touch.
+   <code>tests/e2e/e2e-openshell-profile.sh</code> checks the detach, the placeholder
+   probe and the re-attach end to end: section 8 with Codex (openai auth),
+   section 9 with Claude Code (api-key auth), section 11 with Claude Code
+   and a Vertex provider holding a fake token.</li>
+</ol>
+<p>Detaching closes the provider's route to the API host and its injection,
+   not the credential itself. With api-key auth the agent already holds the
+   real key, because the env script exports it (until RHAI-3011 is fixed);
+   it could leave it in the workdir, where setup or validate code, which it
+   can also write, could send it out through the shim's egress. With openai
+   and vertex auth the agent only ever sees the placeholder.</p>
+<p>Order: <code>setup</code>/<code>validate</code> kill, probe (attach and wait if not seen
+attached), detach, <code>policy set</code>, wait for the detach; <code>agent</code> kill, <code>policy
+set</code>, attach, wait for the attach.</p>
+<p>Every internal exec (the scan, the main process finder, the provider probe)
+passes <code>--no-login-shell</code>. Without it OpenShell runs the command as <code>bash
+-lc</code>, which first sources the agent-writable <code>~/.bash_profile</code>, where a
+shell function named <code>/usr/bin/python3</code> could forge the scan's or the
+probe's output, or an <code>EXIT</code> trap could start a daemon after the scan. A
+supervisor too old to honor the flag refuses the exec, and the switch fails.</p>
+<h2 id="openshell-artifacts">OpenShell Artifacts<a class="headerlink" href="#openshell-artifacts" title="Permanent link">&para;</a></h2>
+<p>OpenShell is consumed from UBI9-based artifacts. All four components are
+pinned to the same version (<code>v0.1.2-rhaiv.0</code>) via <code>OPENSHELL_IMAGE_TAG</code> in
+<code>images/ci/Containerfile.openshell</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Source</th>
+<th>How it is consumed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CLI (<code>openshell</code>)</td>
+<td><code>quay.io/opendatahub/odh-openshell-cli</code></td>
+<td>binary copied into the CI image via a multi-stage <code>COPY --from</code></td>
+</tr>
+<tr>
+<td>Gateway (<code>openshell-gateway</code>)</td>
+<td><code>quay.io/opendatahub/odh-openshell-gateway</code></td>
+<td>binary copied into the CI image via a multi-stage <code>COPY --from</code></td>
+</tr>
+<tr>
+<td>Supervisor (<code>openshell-supervisor</code>)</td>
+<td><code>quay.io/opendatahub/odh-openshell-supervisor</code></td>
+<td>pulled at runtime by the gateway's podman driver; runs in its own container beside each sandbox</td>
+</tr>
+<tr>
+<td>Sandbox runtime (<code>openshell-sandbox</code>)</td>
+<td><code>quay.io/opendatahub/odh-openshell-sandbox</code></td>
+<td>pulled at runtime by the gateway's podman driver; the static binary is mounted read-only into each workload container</td>
+</tr>
+</tbody>
+</table>
+<p>The supervisor/sandbox split landed upstream in
+<a href="https://github.com/NVIDIA/OpenShell/pull/2942">NVIDIA/OpenShell#2942</a> and
+midstream in
+<a href="https://github.com/opendatahub-io/openshell/pull/44">opendatahub-io/openshell#44</a>;
+the first midstream tag with all four images is <code>v0.0.116-rhaiv.8</code>. The
+workload runs with <code>network=none</code>; since v0.1.0 the podman driver writes its
+<code>/etc/resolv.conf</code> (<code>nameserver 127.0.0.53</code>, the policy DNS relay), so the
+sandbox images bake none.</p>
+<p>The OpenShell CI image (<code>Containerfile.openshell</code>) uses a UBI9 final stage.
+The sandbox images build directly on their hardened Hummingbird agentic images
+and use the matching digest-pinned Hummingbird builder to install <code>python3</code>
+and supporting tools through a temporary <code>dnf</code> mount. The final sandbox images
+retain no package manager. The podman backend images (<code>Containerfile.podman</code>,
+<code>Containerfile.base</code>) are unaffected and remain on UBI10.
+<code>scripts/bump-versions.py</code> bumps <code>OPENSHELL_IMAGE_TAG</code> to the highest
+release tag that is published for all four component images, so the CI
+image never points at a tag whose runtime images do not exist yet.
+Renovate does not make that check: it proposes a new <code>OPENSHELL_IMAGE_TAG</code>
+as soon as <code>odh-openshell-cli</code> publishes it. Before merging such a PR,
+confirm that <code>odh-openshell-gateway</code>, <code>odh-openshell-supervisor</code> and
+<code>odh-openshell-sandbox</code> carry the same tag (for example with
+<code>scripts/bump-versions.py --check --tool openshell</code>, which reports the
+highest tag all four share).</p>
+<h2 id="supervisor-and-sandbox-runtime-images">Supervisor and Sandbox Runtime Images<a class="headerlink" href="#supervisor-and-sandbox-runtime-images" title="Permanent link">&para;</a></h2>
+<p>Each sandbox is made of two containers plus a mounted binary:</p>
+<ul>
+<li>The <strong>supervisor</strong> (<code>openshell-supervisor</code>) runs in its own container
+  next to the workload and enforces network policy and credential
+  injection. Its image is <code>quay.io/opendatahub/odh-openshell-supervisor</code>,
+  set via <code>OPENSHELL_SUPERVISOR_IMAGE</code> in the CI image. Its detailed log is
+  <code>/var/log/openshell.&lt;date&gt;.log</code> inside that container; <code>podman logs</code>
+  shows only warnings and errors.</li>
+<li>The <strong>sandbox runtime</strong> (<code>openshell-sandbox</code>) is a statically linked
+  binary that runs inside the workload container. The podman driver pulls
+  <code>quay.io/opendatahub/odh-openshell-sandbox</code> (set via
+  <code>OPENSHELL_SANDBOX_RUNTIME_IMAGE</code> in the CI image) and mounts the binary
+  read-only into every sandbox. Without this setting the gateway falls back
+  to <code>ghcr.io/nvidia/openshell/sandbox</code>, which is not reachable from CI.</li>
+</ul>
+<p>To override either image, set the corresponding environment variable before
+running <code>agentic-ci</code>. They are written into the gateway's TOML config under
+<code>[openshell.drivers.podman]</code> as <code>supervisor_image</code> and
+<code>sandbox_runtime_image</code>. Both images must carry the same tag as the CLI and
+gateway binaries baked into the CI image.</p>
+<h2 id="known-issues-and-workarounds">Known Issues and Workarounds<a class="headerlink" href="#known-issues-and-workarounds" title="Permanent link">&para;</a></h2>
+<h3 id="-binary-does-not-work-for-connect-requests"><code>--binary "*"</code> does not work for CONNECT requests<a class="headerlink" href="#-binary-does-not-work-for-connect-requests" title="Permanent link">&para;</a></h3>
+<p>The wildcard <code>*</code> in <code>openshell policy update --binary "*"</code> fails to match
+binaries making HTTPS CONNECT tunnel requests. Use explicit paths instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>--binary<span class="w"> </span>/usr/local/bin/claude<span class="w"> </span>--binary<span class="w"> </span>/usr/bin/opencode
+</code></pre></div>
+<h3 id="-from-gcloud-adc-rejects-service-account-keys"><code>--from-gcloud-adc</code> rejects service account keys<a class="headerlink" href="#-from-gcloud-adc-rejects-service-account-keys" title="Permanent link">&para;</a></h3>
+<p>The Vertex provider's <code>--from-gcloud-adc</code> flag only accepts user
+OAuth credentials (from <code>gcloud auth application-default login</code>). Service
+account JSON keys must be configured via the three-step create + refresh
+configure + rotate flow described above.</p>
+<h3 id="credential-refresh-worker-does-not-mint-initial-tokens">Credential refresh worker does not mint initial tokens<a class="headerlink" href="#credential-refresh-worker-does-not-mint-initial-tokens" title="Permanent link">&para;</a></h3>
+<p>After <code>openshell provider refresh configure</code>, the gateway's refresh
+worker runs on a 60-second interval. Without an explicit <code>openshell
+provider refresh rotate</code>, the agent may start before the first token is
+minted. Always call <code>rotate</code> after <code>configure</code> for service accounts.</p>
+<h3 id="openshell_supervisor_image-and-openshell_sandbox_runtime_image-are-not-gateway-env-vars"><code>OPENSHELL_SUPERVISOR_IMAGE</code> and <code>OPENSHELL_SANDBOX_RUNTIME_IMAGE</code> are not gateway env vars<a class="headerlink" href="#openshell_supervisor_image-and-openshell_sandbox_runtime_image-are-not-gateway-env-vars" title="Permanent link">&para;</a></h3>
+<p>The gateway binary does not read <code>OPENSHELL_SUPERVISOR_IMAGE</code> or
+<code>OPENSHELL_SANDBOX_RUNTIME_IMAGE</code> from the environment. It reads
+<code>supervisor_image</code> and <code>sandbox_runtime_image</code> from the
+<code>[openshell.drivers.podman]</code> section of <code>gateway.toml</code>. The env vars are
+a convention used by agentic-ci (and OpenShell's own dev scripts) to pass
+the image names into config generation.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
