@@ -388,6 +388,12 @@ def main():
         help="Filter active plugins based on AGENT_ENABLED_PLUGINS",
     )
 
+    p_skill_dir = sub.add_parser(
+        "skill-dir",
+        help="Print the installed directory of a skill (exit 1 when not found or ambiguous)",
+    )
+    p_skill_dir.add_argument("skill", help="Skill name, for example autofix-resolve")
+
     args, extra = parser.parse_known_args()
     if hasattr(args, "prompt"):
         args.extra_args = extra
@@ -409,6 +415,9 @@ def main():
     if args.command == "enable-plugins":
         plugins.enable_plugins()
         return
+
+    if args.command == "skill-dir":
+        sys.exit(plugins.print_skill_dir(args.skill))
 
     if args.command == "vertex-token-stub":
         sys.exit(vertex_token_stub.main(["--port", str(args.port)]))

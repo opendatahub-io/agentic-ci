@@ -19,8 +19,12 @@ Runtime (called from entrypoint.sh / OpenShell env script via
 
 - :func:`enable_plugins` — reads ``AGENT_ENABLED_PLUGINS`` and disables
   unwanted plugins via harness-specific mechanisms.
+- :func:`find_skill_dir`: locates the directory of one installed skill
+  (``agentic-ci skill-dir``), which the backends export as
+  ``CLAUDE_SKILL_DIR`` for harnesses that do not set it themselves.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -28,7 +32,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TypeGuard
 
 from agentic_ci.git import clone_repo
 
@@ -45,6 +51,19 @@ _CODEX_MANIFEST_PATHS = [
 
 # Directory levels below a skills root that Codex's skill loader walks.
 _CODEX_SKILL_SCAN_DEPTH = 6
+
+# A skill name :func:`find_skill_dir` accepts: one path component that
+# cannot be mistaken for a command-line option.
+_SKILL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+# Longest skill directory :func:`parse_skill_dir` accepts (Linux PATH_MAX).
+_SKILL_DIR_MAX_LEN = 4096
+
+# Seconds a ``codex ... --json`` query may take.
+_CODEX_JSON_TIMEOUT = 120
+
+# ``codex plugin list`` entry fields that :func:`_codex_installed_path` builds a path from.
+_CODEX_ENTRY_PATH_KEYS = ("installedPath", "marketplaceName", "name", "version")
 
 
 def _manifest_path() -> Path:
@@ -163,7 +182,15 @@ def _codex_skill_root(plugin_root: Path, path: str) -> Path | None:
 
 
 def _codex_skill_names(plugin_root: Path) -> list[str]:
-    """Return the skills Codex loads from an installed native plugin.
+    """Return the names of the skills Codex loads from an installed native plugin.
+
+    See :func:`_codex_skill_dirs` for the rules.
+    """
+    return sorted({path.name for path in _codex_skill_dirs(plugin_root)})
+
+
+def _codex_skill_dirs(plugin_root: Path) -> list[Path]:
+    """Return the directories of the skills Codex loads from an installed native plugin.
 
     Codex takes ``skills`` paths from the first manifest in
     ``_CODEX_MANIFEST_PATHS``. They replace the default ``skills/``
@@ -187,12 +214,12 @@ def _codex_skill_names(plugin_root: Path) -> list[str]:
     if not roots:
         roots.append(plugin_root / "skills")
     roots.append(plugin_root / ".codex-plugin" / "migrated-command-skills")
-    names: set[str] = set()
+    dirs: list[Path] = []
     for skills_root in roots:
-        names.update(
-            _find_skill_names(skills_root, max_depth=_CODEX_SKILL_SCAN_DEPTH, skip_hidden=True)
+        dirs.extend(
+            _find_skill_dirs(skills_root, max_depth=_CODEX_SKILL_SCAN_DEPTH, skip_hidden=True)
         )
-    return sorted(names)
+    return dirs
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
@@ -434,13 +461,18 @@ def _codex_marketplace_root(marketplace_json: Path) -> Path:
     return marketplace_json.parent
 
 
-def _run_codex_json(args: list[str]) -> dict | None:
+def _run_codex_json(args: list[str], env: Mapping[str, str] | None = None) -> dict | None:
+    """Run ``codex <args> --json`` and return its JSON object, or ``None``.
+
+    *env* replaces the process environment for the call (default: inherit).
+    """
     try:
         result = subprocess.run(
             ["codex", *args, "--json"],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=_CODEX_JSON_TIMEOUT,
+            env=dict(env) if env is not None else None,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"  WARN: failed to run codex {' '.join(args)}: {exc}")
@@ -469,12 +501,21 @@ def _safe_codex_operand(value: object, description: str) -> str | None:
     return value
 
 
-def _codex_installed_path(entry: dict, added_path: Path | None) -> Path | None:
+def _codex_home(env: Mapping[str, str] | None = None) -> Path:
+    """Return ``$CODEX_HOME`` from *env* (default ``os.environ``), else ``~/.codex``."""
+    env = os.environ if env is None else env
+    return Path(env.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def _codex_installed_path(
+    entry: dict, added_path: Path | None, codex_home: Path | None = None
+) -> Path | None:
     """Resolve where Codex installed a plugin listed by ``codex plugin list``.
 
     Prefers the path reported by ``codex plugin add``, then an ``installedPath``
     field on the list entry, and finally the Codex plugin cache layout
-    ``$CODEX_HOME/plugins/cache/<marketplace>/<name>/<version>``.
+    ``$CODEX_HOME/plugins/cache/<marketplace>/<name>/<version>``. *codex_home*
+    defaults to ``$CODEX_HOME`` from the process environment.
     """
     candidates: list[Path] = []
     if added_path is not None:
@@ -486,7 +527,8 @@ def _codex_installed_path(entry: dict, added_path: Path | None) -> Path | None:
     name = entry.get("name", "")
     version = entry.get("version", "")
     if marketplace and name and version:
-        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        if codex_home is None:
+            codex_home = _codex_home()
         candidates.append(codex_home / "plugins" / "cache" / marketplace / name / version)
     for candidate in candidates:
         if candidate.is_dir():
@@ -779,3 +821,107 @@ def enable_plugins() -> None:
     else:
         print(f"ERROR: unknown AGENT_TOOL: {agent_tool!r}", file=sys.stderr)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Runtime: locate a skill
+# ---------------------------------------------------------------------------
+
+
+def is_skill_name(name: object) -> TypeGuard[str]:
+    """Whether *name* is a skill name :func:`find_skill_dir` looks up."""
+    return isinstance(name, str) and _SKILL_NAME_RE.fullmatch(name) is not None
+
+
+def parse_skill_dir(output: str) -> str | None:
+    """Return the directory ``agentic-ci skill-dir`` printed, or ``None``.
+
+    *output* comes from inside a container, so only one absolute path of
+    printable characters is accepted.
+    """
+    skill_dir = output.removesuffix("\n")
+    if not skill_dir.startswith("/") or len(skill_dir) > _SKILL_DIR_MAX_LEN:
+        return None
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in skill_dir):
+        return None
+    return skill_dir
+
+
+def _codex_skill_dir_candidates(name: str, env: Mapping[str, str]) -> list[Path]:
+    """Return every directory Codex may load the skill *name* from.
+
+    Covers the native plugins ``codex plugin list`` reports (after
+    ``enable-plugins`` has removed the unwanted ones) and the skills
+    compatibility layer in ``$CODEX_HOME/skills``.
+    """
+    codex_home = _codex_home(env)
+    candidates: list[Path] = []
+    installed = _run_codex_json(["plugin", "list"], env=env)
+    entries = installed.get("installed", []) if installed else []
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict) or entry.get("enabled") is False:
+            continue
+        if any(not isinstance(entry.get(key, ""), str) for key in _CODEX_ENTRY_PATH_KEYS):
+            continue
+        plugin_root = _codex_installed_path(entry, None, codex_home)
+        if plugin_root is None:
+            continue
+        candidates.extend(path for path in _codex_skill_dirs(plugin_root) if path.name == name)
+    compat = codex_home / "skills" / name
+    if not compat.is_symlink() and (compat / "SKILL.md").is_file():
+        candidates.append(compat)
+    return candidates
+
+
+def _opencode_skill_dir_candidates(name: str, env: Mapping[str, str]) -> list[Path]:
+    """Return the OpenCode skills directory entry for *name*, if installed."""
+    config_dir = Path(env.get("OPENCODE_CONFIG_DIR") or Path.home() / ".config" / "opencode")
+    skill_dir = config_dir / "skills" / name
+    if not skill_dir.is_symlink() and (skill_dir / "SKILL.md").is_file():
+        return [skill_dir]
+    return []
+
+
+def find_skill_dir(name: str, env: Mapping[str, str] | None = None) -> Path | None:
+    """Return the installed directory of the skill *name*, or ``None``.
+
+    Skills refer to their own scripts and schemas as ``${CLAUDE_SKILL_DIR}/...``.
+    Claude Code fills that in itself; Codex and OpenCode do not, so the
+    backends export the directory this returns. It looks where
+    ``install-plugins`` puts skills for ``AGENT_TOOL`` in *env* (default
+    ``os.environ``): Codex native plugins and ``$CODEX_HOME/skills``, or
+    ``$OPENCODE_CONFIG_DIR/skills``. It returns ``None`` for any other
+    ``AGENT_TOOL``, for a name that is not one path component, when no
+    install has the skill, and when more than one does, since the agent
+    could then load either and a guess may point at the wrong scripts.
+    """
+    env = os.environ if env is None else env
+    if not is_skill_name(name):
+        return None
+    agent_tool = env.get("AGENT_TOOL")
+    if agent_tool == "codex":
+        candidates = _codex_skill_dir_candidates(name, env)
+    elif agent_tool == "opencode":
+        candidates = _opencode_skill_dir_candidates(name, env)
+    else:
+        return None
+    unique = {Path(os.path.abspath(path)) for path in candidates}
+    if len(unique) != 1:
+        return None
+    return unique.pop()
+
+
+def print_skill_dir(name: str) -> int:
+    """Print the directory :func:`find_skill_dir` finds for *name*; 1 when it finds none.
+
+    Callers capture stdout as the directory, so it carries nothing else: the
+    lookup's warnings (a failed ``codex plugin list``, say) go to stderr, and
+    a directory :func:`parse_skill_dir` would reject is not printed.
+    """
+    with contextlib.redirect_stdout(sys.stderr):
+        skill_dir = find_skill_dir(name)
+    if skill_dir is None or parse_skill_dir(str(skill_dir)) is None:
+        print(f"agentic-ci: no unique installed skill named {name!r}", file=sys.stderr)
+        return 1
+    print(skill_dir)
+    return 0

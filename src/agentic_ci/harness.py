@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic_ci.models import HarnessModels, ModelTier, harness_models
+from agentic_ci.plugins import is_skill_name
 from agentic_ci.stream import (
     ClaudeCodeStreamProcessor,
     CodexStreamProcessor,
@@ -33,6 +34,15 @@ Backends export it next to ``AGENT_MODEL`` so skills can read the effort in
 use without knowing the harness. Like ``AGENT_MODEL`` it is output only:
 :meth:`Harness.resolve_efforts` never reads it, so an agentic-ci run started
 inside an agent does not inherit the outer run's effort.
+"""
+
+SKILL_DIR_ENV_VAR = "CLAUDE_SKILL_DIR"
+"""Env var holding the directory of the skill being run.
+
+Skills refer to their bundled scripts and schemas as ``${CLAUDE_SKILL_DIR}/...``.
+Claude Code fills it in itself; for the other harnesses the backends export
+the directory ``agentic-ci skill-dir`` finds (see
+:func:`agentic_ci.plugins.find_skill_dir`), and only when it finds one.
 """
 
 
@@ -326,6 +336,36 @@ class Harness(ABC):
         """
         return []
 
+    sets_skill_dir: bool = False
+    """Whether the agent CLI resolves ``${CLAUDE_SKILL_DIR}`` for a skill itself.
+
+    When it does, backends never export :data:`SKILL_DIR_ENV_VAR`.
+    """
+
+    def skill_dir_script_lines(self, skill_name: str | None) -> list[str]:
+        """Env script lines that export :data:`SKILL_DIR_ENV_VAR` for *skill_name*.
+
+        The lines run inside the sandbox after ``agentic-ci enable-plugins``
+        and ask ``agentic-ci skill-dir`` where the skill is installed there.
+        They export the directory only when it is found and the variable is
+        not already set (by the caller's ``extra_env``, say), and never fail
+        the script, so an image whose agentic-ci predates ``skill-dir`` runs
+        as before. Empty without a valid skill name or when :attr:`sets_skill_dir`.
+        """
+        if not is_skill_name(skill_name) or self.sets_skill_dir:
+            return []
+        var = SKILL_DIR_ENV_VAR
+        return [
+            f'if [ -z "${{{var}:-}}" ] && command -v agentic-ci >/dev/null 2>&1; then',
+            "    _agentic_ci_skill_dir=$(agentic-ci skill-dir "
+            f'{shlex.quote(skill_name)} 2>/dev/null) || _agentic_ci_skill_dir=""',
+            '    if [ -n "$_agentic_ci_skill_dir" ]; then',
+            f'        export {var}="$_agentic_ci_skill_dir"',
+            "    fi",
+            "    unset _agentic_ci_skill_dir",
+            "fi",
+        ]
+
     sandbox_credential_files: tuple[str, ...] = ()
     """Absolute paths where this harness's CLI may store a credential in the OpenShell sandbox.
 
@@ -338,6 +378,8 @@ class ClaudeCodeHarness(Harness):
     """Claude Code CLI harness."""
 
     registry_key = "claude-code"
+    # Claude Code substitutes ${CLAUDE_SKILL_DIR} when it loads a skill.
+    sets_skill_dir = True
     # Written by ``claude /login``; CLAUDE_CONFIG_DIR is /sandbox/.claude.
     sandbox_credential_files = ("/sandbox/.claude/.credentials.json",)
 

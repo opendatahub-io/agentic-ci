@@ -202,6 +202,97 @@ def test_local_drops_host_effort_when_no_effort_is_in_effect(monkeypatch, tmp_pa
     assert "AGENT_REASONING_EFFORT" not in popen.call_args.kwargs["env"]
 
 
+def _local_codex_run(monkeypatch, tmp_path, skill_name, extra_env=None, found=None):
+    """Run a LocalBackend with the Codex harness; return (child env, find_skill_dir mock)."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    backend = LocalBackend(workdir=str(tmp_path), harness=CodexHarness(), extra_env=extra_env)
+    backend.skill_name = skill_name
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen") as popen,
+        mock.patch.object(backend, "_process_stream", return_value=(0, False)),
+        mock.patch("agentic_ci.backends.local.find_skill_dir", return_value=found) as find,
+    ):
+        backend.run("prompt", "model", streaming=False)
+    return popen.call_args.kwargs["env"], find
+
+
+def test_local_exports_skill_dir(monkeypatch, tmp_path):
+    skill_dir = tmp_path / ".codex" / "skills" / "autofix-triage"
+    env, find = _local_codex_run(monkeypatch, tmp_path, "autofix-triage", found=skill_dir)
+    assert env["CLAUDE_SKILL_DIR"] == str(skill_dir)
+    assert find.call_args.args[0] == "autofix-triage"
+    # Looked up with the agent's env, where AGENT_TOOL names the harness.
+    assert find.call_args.args[1]["AGENT_TOOL"] == "codex"
+
+
+def test_local_skill_dir_lookup_output_stays_out_of_the_log(monkeypatch, tmp_path, capsys):
+    skill_dir = tmp_path / ".codex" / "skills" / "autofix-triage"
+
+    def noisy_find(name, env):
+        print("  WARN: codex plugin list failed (exit 1): codex stderr text")
+        return skill_dir
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    backend = LocalBackend(workdir=str(tmp_path), harness=CodexHarness())
+    backend.skill_name = "autofix-triage"
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen") as popen,
+        mock.patch.object(backend, "_process_stream", return_value=(0, False)),
+        mock.patch("agentic_ci.backends.local.find_skill_dir", side_effect=noisy_find),
+    ):
+        backend.run("prompt", "model", streaming=False)
+    out = capsys.readouterr().out
+    assert popen.call_args.kwargs["env"]["CLAUDE_SKILL_DIR"] == str(skill_dir)
+    assert "codex stderr text" not in out
+    # Like Podman, the log says the variable is set without printing the path.
+    assert str(skill_dir) not in out
+    assert "CLAUDE_SKILL_DIR: set to the installed skill directory" in out
+
+
+def test_local_drops_inherited_skill_dir_when_not_found(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_SKILL_DIR", "/outer/agent/skill")
+    env, find = _local_codex_run(monkeypatch, tmp_path, "autofix-triage", found=None)
+    assert "CLAUDE_SKILL_DIR" not in env
+    # The stale value never reaches the lookup either.
+    assert "CLAUDE_SKILL_DIR" not in find.call_args.args[1]
+
+
+def test_local_keeps_caller_skill_dir(monkeypatch, tmp_path):
+    env, find = _local_codex_run(
+        monkeypatch,
+        tmp_path,
+        "autofix-triage",
+        extra_env={"CLAUDE_SKILL_DIR": "/caller/dir"},
+        found=tmp_path,
+    )
+    assert env["CLAUDE_SKILL_DIR"] == "/caller/dir"
+    find.assert_not_called()
+
+
+def test_local_without_skill_name_leaves_env_alone(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_SKILL_DIR", "/from/host")
+    env, find = _local_codex_run(monkeypatch, tmp_path, None, found=tmp_path)
+    assert env["CLAUDE_SKILL_DIR"] == "/from/host"
+    find.assert_not_called()
+
+
+def test_local_claude_code_leaves_skill_dir_alone(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.delenv("CLAUDE_SKILL_DIR", raising=False)
+    backend = LocalBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+    backend.skill_name = "autofix-triage"
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen") as popen,
+        mock.patch.object(backend, "_process_stream", return_value=(0, False)),
+        mock.patch("agentic_ci.backends.local.find_skill_dir") as find,
+    ):
+        backend.run("prompt", "model", streaming=False)
+    assert "CLAUDE_SKILL_DIR" not in popen.call_args.kwargs["env"]
+    find.assert_not_called()
+
+
 def test_openshell_run_passes_effort_to_env_script(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
@@ -1063,6 +1154,70 @@ class TestOpenShellEnvScript:
             backend._write_env_script("claude-opus-4-6", effort=None)
 
         assert "AGENT_REASONING_EFFORT" not in captured[0]
+
+    def _capture_skill_script(self, monkeypatch, tmp_path, harness, skill_name, **kwargs):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        backend = OpenShellBackend(workdir=str(tmp_path), harness=harness, **kwargs)
+        backend.skill_name = skill_name
+        captured = []
+
+        def mock_upload(path):
+            with open(path) as env_script:
+                captured.append(env_script.read())
+
+        with (
+            mock.patch("agentic_ci.backends.openshell.sandbox.upload", side_effect=mock_upload),
+            mock.patch("agentic_ci.backends.openshell.sandbox.exec_cmd"),
+        ):
+            backend._write_env_script("gpt-6-sol")
+        return captured[0]
+
+    def test_codex_env_script_exports_skill_dir_after_enable_plugins(self, monkeypatch, tmp_path):
+        script = self._capture_skill_script(monkeypatch, tmp_path, CodexHarness(), "autofix-triage")
+        lookup = "agentic-ci skill-dir autofix-triage"
+        assert lookup in script
+        assert 'export CLAUDE_SKILL_DIR="$_agentic_ci_skill_dir"' in script
+        # The lookup sees only the plugins enable-plugins left enabled.
+        assert script.index("agentic-ci enable-plugins") < script.index(lookup)
+
+    def test_claude_env_script_leaves_skill_dir_to_claude_code(self, monkeypatch, tmp_path):
+        script = self._capture_skill_script(
+            monkeypatch, tmp_path, ClaudeCodeHarness(), "autofix-triage"
+        )
+        assert "CLAUDE_SKILL_DIR" not in script
+        assert "skill-dir" not in script
+
+    def test_env_script_without_skill_name_has_no_skill_dir(self, monkeypatch, tmp_path):
+        script = self._capture_skill_script(monkeypatch, tmp_path, CodexHarness(), None)
+        assert "CLAUDE_SKILL_DIR" not in script
+
+    def test_caller_skill_dir_is_exported_before_the_lookup(self, monkeypatch, tmp_path):
+        # The lookup only exports when the variable is still unset, so the
+        # caller's extra_env value wins.
+        script = self._capture_skill_script(
+            monkeypatch,
+            tmp_path,
+            CodexHarness(),
+            "autofix-triage",
+            extra_env={"CLAUDE_SKILL_DIR": "/caller/dir"},
+        )
+        assert script.index("export CLAUDE_SKILL_DIR=/caller/dir") < script.index(
+            '[ -z "${CLAUDE_SKILL_DIR:-}" ]'
+        )
+
+    def test_profile_env_is_exported_after_skill_dir_lookup(self, monkeypatch, tmp_path):
+        # The profile cannot set CLAUDE_SKILL_DIR itself (the CLAUDE_ prefix is
+        # denied, see test_sandbox_profile); this pins where its env goes.
+        backend_profile = SandboxProfile(env={"CGO_ENABLED": "0"})
+        script = self._capture_skill_script(
+            monkeypatch,
+            tmp_path,
+            CodexHarness(),
+            "autofix-triage",
+            sandbox_profile=backend_profile,
+        )
+        assert script.index("agentic-ci skill-dir") < script.index("export CGO_ENABLED=0")
 
 
 class TestTokenKeepalive:

@@ -207,6 +207,7 @@ class _AgentSession:
         harness_name="claude-code",
         sandbox_profile=None,
         allow_host_setup=False,
+        skill_name=None,
     ):
         self.work_dir = Path(work_dir)
         self.run_dir = self.work_dir / "_run"
@@ -232,6 +233,9 @@ class _AgentSession:
         )
         if verdict_path is not None:
             self.backend.verdict_path = verdict_path
+        # Lets the backend export the skill's installed directory as
+        # CLAUDE_SKILL_DIR for harnesses that do not set it themselves.
+        self.backend.skill_name = skill_name
         self.backend.run_dir = self.run_dir
         self._otel_proc = None
         self.otel_port = None
@@ -379,6 +383,7 @@ def _default_run_container(
     router=None,
     sandbox_profile=None,
     allow_host_setup=False,
+    skill_name=None,
 ):
     """Default container runner using the configured backend.
 
@@ -386,7 +391,9 @@ def _default_run_container(
     given, is called as ``router(session, prompt)`` before the main run and
     must return a :class:`~agentic_ci.routing.RouteDecision` whose model and
     effort are then used for the run. *sandbox_profile* and *allow_host_setup*
-    are handed to the backend (see :class:`SkillConfig`).
+    are handed to the backend (see :class:`SkillConfig`). *skill_name* names
+    the skill the prompt runs, so the backend can export its installed
+    directory as ``CLAUDE_SKILL_DIR`` (see ``Harness.sets_skill_dir``).
     """
     session_kwargs = {} if sandbox_profile is None else {"sandbox_profile": sandbox_profile}
     if allow_host_setup is True:
@@ -398,6 +405,7 @@ def _default_run_container(
         container_env=container_env,
         backend_name=backend_name,
         harness_name=harness_name,
+        skill_name=skill_name,
         **session_kwargs,
     ) as session:
         target_model = model or session.default_model
@@ -507,6 +515,7 @@ def run_skill(
         runner_kwargs["verdict_path"] = config.verdict_path_fn(work_dir)
         runner_kwargs["backend_name"] = config.backend_name
         runner_kwargs["harness_name"] = config.harness_name
+        runner_kwargs["skill_name"] = config.skill_name
 
     if dry_run:
         if dry_run_verdict_path:
@@ -759,6 +768,7 @@ def run_routed_skill(
         backend_name=config.backend_name,
         harness_name=config.harness_name,
         router=_router,
+        skill_name=config.skill_name,
     )
     rc = run_skill(
         dataclasses.replace(config, container_runner=runner),

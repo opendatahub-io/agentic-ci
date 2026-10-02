@@ -7,6 +7,7 @@ from unittest import mock
 
 import pytest
 
+from agentic_ci import plugins
 from agentic_ci.backends.podman import PodmanBackend
 from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, OpenCodeHarness
 
@@ -438,3 +439,110 @@ def test_run_exports_model_and_effort(tmp_path, claude_harness, effort):
         assert not any(arg.startswith("AGENT_REASONING_EFFORT=") for arg in cmd)
     else:
         assert cmd[cmd.index(f"AGENT_REASONING_EFFORT={effort}") - 1] == "--env"
+
+
+# Where the Codex runner image installs autofix-triage.
+_SKILL_DIR = (
+    "/home/agent-ci/.codex/plugins/cache/opendatahub-skills/autofix-skills/0.1.0/skills/"
+    "autofix-triage"
+)
+
+
+def _run_with_skill_lookup(backend, lookup):
+    """Run *backend*, answering ``agentic-ci skill-dir`` with *lookup*; return (exec cmd, runs)."""
+    runs = []
+
+    def fake_run(cmd, *args, **kwargs):
+        runs.append(cmd)
+        if "skill-dir" in cmd:
+            return lookup(cmd)
+        return _subprocess.CompletedProcess(cmd, 0)
+
+    with (
+        mock.patch.object(backend, "is_running", return_value=True),
+        mock.patch.object(backend, "_process_stream", return_value=(0, True)),
+        mock.patch.object(backend, "_wait_for_otel_flush"),
+        mock.patch("agentic_ci.backends.podman.subprocess.Popen") as popen,
+        mock.patch("agentic_ci.backends.podman.subprocess.run", side_effect=fake_run),
+    ):
+        backend.run("test", "test-model")
+    return popen.call_args.args[0], [cmd for cmd in runs if "skill-dir" in cmd]
+
+
+def _found(stdout):
+    return lambda cmd: _subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+
+def _codex_backend(tmp_path, **kwargs):
+    backend = PodmanBackend(
+        workdir=str(tmp_path), image="localhost/test:latest", harness=CodexHarness(), **kwargs
+    )
+    backend.skill_name = "autofix-triage"
+    return backend
+
+
+def test_run_exports_skill_dir_found_in_container(tmp_path):
+    backend = _codex_backend(tmp_path)
+    cmd, lookups = _run_with_skill_lookup(backend, _found(_SKILL_DIR + "\n"))
+    assert lookups == [
+        ["podman", "exec", backend._container_name, "agentic-ci", "skill-dir", "autofix-triage"]
+    ]
+    assert cmd[cmd.index(f"CLAUDE_SKILL_DIR={_SKILL_DIR}") - 1] == "--env"
+    # The env goes to podman exec, before the container name.
+    assert cmd.index(f"CLAUDE_SKILL_DIR={_SKILL_DIR}") < cmd.index(backend._container_name)
+
+
+def test_skill_dir_lookup_outlasts_its_codex_query(tmp_path):
+    # The host must not give up on podman exec while the codex plugin list
+    # inside the container may still be running (and then keep running).
+    timeouts = []
+    with mock.patch("agentic_ci.backends.podman.subprocess.run") as run:
+        run.side_effect = lambda cmd, **kwargs: (
+            timeouts.append(kwargs["timeout"]) or _found(_SKILL_DIR + "\n")(cmd)
+        )
+        args = _codex_backend(tmp_path)._skill_dir_env_args()
+    assert args == ["--env", f"CLAUDE_SKILL_DIR={_SKILL_DIR}"]
+    assert timeouts and timeouts[0] > plugins._CODEX_JSON_TIMEOUT
+
+
+@pytest.mark.parametrize(
+    "lookup",
+    [
+        lambda cmd: _subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found"),
+        # An image whose agentic-ci predates skill-dir.
+        lambda cmd: _subprocess.CompletedProcess(cmd, 2, stdout="", stderr="invalid choice"),
+        _found("relative/dir\n"),
+        _found("/one\n/two\n"),
+        mock.Mock(side_effect=_subprocess.TimeoutExpired("podman", 60)),
+        mock.Mock(side_effect=OSError("no podman")),
+    ],
+)
+def test_run_without_a_usable_skill_dir_exports_nothing(tmp_path, lookup):
+    cmd, lookups = _run_with_skill_lookup(_codex_backend(tmp_path), lookup)
+    assert len(lookups) == 1
+    assert not any(arg.startswith("CLAUDE_SKILL_DIR") for arg in cmd)
+
+
+def test_run_skips_skill_dir_for_claude_code(tmp_path, claude_harness):
+    backend = PodmanBackend(workdir=str(tmp_path), image="img", harness=claude_harness)
+    backend.skill_name = "autofix-triage"
+    cmd, lookups = _run_with_skill_lookup(backend, _found(_SKILL_DIR + "\n"))
+    assert lookups == []
+    assert not any(arg.startswith("CLAUDE_SKILL_DIR") for arg in cmd)
+
+
+def test_run_skips_skill_dir_without_a_skill_name(tmp_path):
+    backend = _codex_backend(tmp_path)
+    backend.skill_name = None
+    cmd, lookups = _run_with_skill_lookup(backend, _found(_SKILL_DIR + "\n"))
+    assert lookups == []
+    assert not any(arg.startswith("CLAUDE_SKILL_DIR") for arg in cmd)
+
+
+def test_run_keeps_caller_skill_dir(tmp_path):
+    backend = _codex_backend(tmp_path, extra_env={"CLAUDE_SKILL_DIR": "/caller/dir"})
+    cmd, lookups = _run_with_skill_lookup(backend, _found(_SKILL_DIR + "\n"))
+    assert lookups == []
+    assert not any(arg.startswith("CLAUDE_SKILL_DIR") for arg in cmd)
+    # It reached the container when it started.
+    assert "CLAUDE_SKILL_DIR=/caller/dir" in backend._build_env_args({})

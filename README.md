@@ -537,6 +537,24 @@ unset when `none` disables the effort flag. Like `AGENT_MODEL`, it is output
 only: agentic-ci never reads it, so a run started inside an agent does not
 inherit the outer run's effort.
 
+### Skill Directory (`CLAUDE_SKILL_DIR`)
+
+Skills call their bundled scripts and schemas as `${CLAUDE_SKILL_DIR}/...`.
+Claude Code fills that in itself. Codex and OpenCode do not, so for a skill
+run through `run_skill()` or `run_routed_skill()` (default container runner)
+every backend exports `CLAUDE_SKILL_DIR` to the agent: the directory
+`agentic-ci skill-dir <skill_name>` finds where the image installed the skill
+(for Codex, the native plugin cache, for example
+`/sandbox/.codex/plugins/cache/<marketplace>/<plugin>/<version>/skills/<skill>`,
+or `$CODEX_HOME/skills`; for OpenCode, `$OPENCODE_CONFIG_DIR/skills`).
+OpenShell looks it up in the env script after `enable-plugins`, Podman with a
+`podman exec` before the agent, and the local backend on the host. Nothing is
+exported when the skill is not installed, when two enabled plugins ship a
+skill of that name, when the image's agentic-ci predates `skill-dir`, or when
+the caller's `container_env` already sets the variable (that value wins). The
+local backend drops a value inherited from the host environment, since it
+belongs to another skill.
+
 ### Model Routing with `run_routed_skill()`
 
 `run_routed_skill()` runs the same pipeline as `run_skill()` but picks the
