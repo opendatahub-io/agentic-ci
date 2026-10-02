@@ -62,6 +62,30 @@ assert_contains() {
     fi
 }
 
+# Codex reports a model it has no bundled metadata for (a CLI older than the
+# model) as an "error" item in its JSON stream, which the stream processor
+# does not print, so check the raw stream tees the skill engine writes. With
+# fallback metadata every spawn_agent call fails on the reasoning effort
+# (RHAIFIRST-665).
+assert_codex_model_known() {
+    local desc="$1" workdir="$2" raw="" file
+    for file in "$workdir/_run/classifier-output.txt" "$workdir/agent-output.txt"; do
+        if [[ -f "$file" ]]; then
+            raw+="$(cat "$file")"$'\n'
+        fi
+    done
+    assert_contains "$desc: raw Codex stream captured" "$raw" '"type":"thread.started"'
+    # A here-string, not a pipe, as in assert_contains.
+    if grep -q -- 'Model metadata for [^ ]* not found' <<<"$raw"; then
+        print_error "FAIL: $desc: Codex has no metadata for the model"
+        grep -o -- 'Model metadata for [^ ]* not found' <<<"$raw" | sort -u | sed 's/^/  /' || true
+        FAIL=$((FAIL + 1))
+    else
+        print_success "PASS: $desc: Codex knows the model"
+        PASS=$((PASS + 1))
+    fi
+}
+
 # -- Preflight ---------------------------------------------------------------
 print_header "=== Preflight checks ==="
 check_dependencies python3 podman agentic-ci
@@ -141,6 +165,8 @@ assert_contains "routed: classifier decided" "$OUTPUT" "source=classifier"
 assert_contains "routed: verdict loaded" "$OUTPUT" "verdict_file=ok"
 assert_contains "routed: root span carries routed model" "$OUTPUT" "root_span_model=ok"
 grep "ROUTED_" "$ROUTED_LOG" || true
+# The classifier runs on the default model, the skill on the routed tier.
+assert_codex_model_known "routed" "$WORKDIR"
 
 agentic-ci stop --harness codex 2>/dev/null || true
 
