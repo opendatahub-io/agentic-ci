@@ -538,8 +538,12 @@ would otherwise use it even when the workdir sits inside another
 repository. When the restore runs as root, the recorded owner of each path
 is put back as well. Changes the agent made are
 logged as `Agent changed git control files in ...; restored host copy of:
-...`. Git config the agent sets for its own use does not persist to the
-host.
+...`. That comparison covers entry names and kinds, file contents, symlink
+targets and the owner's execute bit, not other permission bits: the upload
+is extracted under the sandbox user's umask, so every round trip narrows
+the modes of `.git` files (for example 0644 to 0640) without the agent
+touching them. The host's modes are restored either way. Git config the
+agent sets for its own use does not persist to the host.
 
 ## Setup Steps
 

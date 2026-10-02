@@ -98,6 +98,7 @@ jobs:
             -t "${IMAGE_NAME}:${DEV_TAG}" \
             -f images/runner/claude-code/Containerfile \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -145,6 +146,7 @@ jobs:
             -t "${IMAGE_NAME}:${DEV_TAG}" \
             -f images/runner/opencode/Containerfile \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -192,6 +194,7 @@ jobs:
             -t "${IMAGE_NAME}:${DEV_TAG}" \
             -f images/runner/codex/Containerfile \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -228,8 +231,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/podman"
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/ci/Containerfile.podman \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -266,8 +271,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/claude-sandbox"
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/runner/claude-code/Containerfile.openshell \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -304,8 +311,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/opencode-sandbox"
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/runner/opencode/Containerfile.openshell \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -342,8 +351,10 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/codex-sandbox"
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/runner/codex/Containerfile.openshell \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"
 
   # --------------------------------------------------------------------------
@@ -380,6 +391,8 @@ jobs:
           IMAGE_NAME="${IMAGE_PREFIX}/openshell"
           podman build --no-cache \
             -t "${IMAGE_NAME}:${DEV_TAG}" \
+            --build-arg AGENTIC_CI_VERSION="${DEV_TAG}" \
             -f images/ci/Containerfile.openshell \
             .
+          bash tests/images/check-agentic-ci-version.sh "${IMAGE_NAME}:${DEV_TAG}" "${DEV_TAG}"
           podman push "${IMAGE_NAME}:${DEV_TAG}"

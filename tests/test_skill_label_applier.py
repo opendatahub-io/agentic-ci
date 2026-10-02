@@ -1,5 +1,6 @@
 """Tests for label_applier return code propagation in run_skill()."""
 
+import copy
 import logging
 
 from agentic_ci.skill import SkillConfig, run_skill
@@ -192,3 +193,42 @@ class TestVerdictLoadErrorText:
         assert calls[0]["gate_errors"] == [
             "Verdict could not be loaded (loader returned no verdict); see the CI job log"
         ]
+
+
+class TestCompletionLog:
+    """The completion line reports a verdict only when the verdict has one."""
+
+    @staticmethod
+    def _run(tmp_path, verdict, applied=None):
+        applied = [] if applied is None else applied
+        config = SkillConfig(
+            skill_name="test-skill",
+            container_runner=lambda work_dir, prompt, output_file, **kw: 0,
+            verdict_loader=lambda work_dir: verdict,
+            label_applier=lambda **kw: applied.append(kw["verdict"]),
+        )
+        return run_skill(config, ticket_key="TEST-1", work_dir=tmp_path, config_dir=tmp_path)
+
+    def test_verdict_field_is_logged(self, tmp_path, caplog):
+        with caplog.at_level(logging.INFO, logger="agentic_ci.skill"):
+            assert self._run(tmp_path, {"verdict": "committed", "summary": "x"}) == 0
+        assert "[TEST-1] test-skill complete: verdict=committed" in caplog.messages
+
+    def test_schema_without_verdict_field_logs_no_unknown_verdict(self, tmp_path, caplog):
+        # The shape of an autofix-repo-resolve verdict: no "verdict" field.
+        verdict = {
+            "target_url": "https://gitlab.com/example/target",
+            "confidence": "high",
+            "reasoning": "The ticket names the target.",
+            "candidates": [
+                {"url": "https://gitlab.com/example/target", "classification": "target"}
+            ],
+        }
+        loaded = copy.deepcopy(verdict)
+        applied = []
+        with caplog.at_level(logging.INFO, logger="agentic_ci.skill"):
+            assert self._run(tmp_path, verdict, applied) == 0
+        assert "[TEST-1] test-skill complete" in caplog.messages
+        assert "verdict=" not in caplog.text
+        # The verdict handed to label_applier is the loader's, with nothing added.
+        assert applied == [loaded]

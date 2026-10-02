@@ -842,6 +842,13 @@ def _differs(path: Path, rel: str, expected: dict[str, _ControlEntry]) -> bool:
     *path* holds agent-written content, so this never raises, never recurses,
     visits no more entries than the snapshot holds and reads no file larger
     than its snapshot copy. Anything it cannot check counts as changed.
+
+    Only what decides what git runs is compared: entry kinds, names, file
+    contents, symlink targets and whether the owner may execute a file (git
+    runs a hook only when it is executable). Other permission bits are not:
+    a sandbox copy round trip rewrites them on every run (OpenShell extracts
+    the uploaded workdir under the sandbox user's umask, and the download
+    keeps the result), and the restore puts the host's modes back anyway.
     """
     wanted = {k: v for k, v in expected.items() if k == rel or k.startswith(f"{rel}/")}
     seen = 0
@@ -863,8 +870,6 @@ def _differs(path: Path, rel: str, expected: dict[str, _ControlEntry]) -> bool:
                 if want.kind != "symlink" or os.fsencode(os.readlink(current)) != want.data:
                     return True
                 continue
-            if stat.S_IMODE(st.st_mode) != want.mode:
-                return True
             if stat.S_ISDIR(st.st_mode):
                 if want.kind != "dir":
                     return True
@@ -875,6 +880,8 @@ def _differs(path: Path, rel: str, expected: dict[str, _ControlEntry]) -> bool:
                         stack.append((child.path, f"{name}/{child.name}"))
             elif stat.S_ISREG(st.st_mode):
                 if want.kind != "file" or st.st_size != len(want.data):
+                    return True
+                if (st.st_mode ^ want.mode) & stat.S_IXUSR:
                     return True
                 fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
                 with os.fdopen(fd, "rb") as fh:
@@ -958,9 +965,10 @@ def restore_git_control(snapshot: GitControlSnapshot) -> list[str]:
         return [".git"]
     if snapshot.dot_git.kind != "dir":
         # A gitfile or symlink pointing at a git dir outside the workdir,
-        # which the agent cannot reach. Put the pointer itself back.
-        if not _differs(dot_git, ".git", {".git": snapshot.dot_git}):
-            return []
+        # which the agent cannot reach. Put the pointer itself back every
+        # time, like the directory case below, so its host mode returns too;
+        # only a change that decides what git reads is reported.
+        changed = _differs(dot_git, ".git", {".git": snapshot.dot_git})
         try:
             if current is not None:
                 _discard(dot_git)
@@ -969,7 +977,7 @@ def restore_git_control(snapshot: GitControlSnapshot) -> list[str]:
             raise GitControlTamperError(
                 f"Could not restore {dot_git} ({exc}); host git must not use this repository"
             ) from exc
-        return [".git"]
+        return [".git"] if changed else []
     if current is None or not stat.S_ISDIR(current.st_mode):
         what = "deleted"
         if current is not None:

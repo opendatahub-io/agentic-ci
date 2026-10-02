@@ -641,12 +641,17 @@ def run_skill(
         )
         return label_rc
 
-    log.info(
-        "[%s] %s complete: verdict=%s",
-        ticket_key,
-        config.skill_name,
-        verdict.get("verdict", "unknown"),
-    )
+    if "verdict" in verdict:
+        log.info(
+            "[%s] %s complete: verdict=%s",
+            ticket_key,
+            config.skill_name,
+            verdict["verdict"],
+        )
+    else:
+        # Some skills' verdict schemas have no verdict field (for example a
+        # repository resolution that records a target URL and a confidence).
+        log.info("[%s] %s complete", ticket_key, config.skill_name)
     return 0
 
 

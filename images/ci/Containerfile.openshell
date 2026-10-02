@@ -138,10 +138,15 @@ RUN curl -fsSL -o /etc/yum.repos.d/acli.repo \
     && dnf install -y --nodocs "acli-${ACLI_VERSION}" \
     && dnf clean all
 
-# agentic-ci from local source
+# agentic-ci from local source. The build context has no git metadata, so
+# uv-dynamic-versioning cannot work out the version: the build passes it in
+# AGENTIC_CI_VERSION (the release tag, or 0.0.0+ci.<sha> for other CI
+# builds). Left empty, the package reports 0.0.0+unknown.
+ARG AGENTIC_CI_VERSION=""
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
-RUN uv pip install --system --python python3.12 /tmp/agentic-ci \
+RUN UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
+    uv pip install --system --python python3.12 /tmp/agentic-ci \
     && rm -rf /tmp/agentic-ci
 
 # Rootless podman config: storage driver and subordinate UID/GID

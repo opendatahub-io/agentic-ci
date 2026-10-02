@@ -5,7 +5,9 @@ after :func:`restore_git_control` does not execute anything the agent
 configured, which only git itself can confirm.
 """
 
+import logging
 import os
+import stat
 import subprocess
 import threading
 from unittest import mock
@@ -189,6 +191,54 @@ def test_restore_preserves_file_modes(host_repo):
     assert hook.stat().st_mode == mode
 
 
+def _sandbox_round_trip(repo):
+    """What an OpenShell upload and download does to a workdir with no agent edits.
+
+    The sandbox user's tar extracts the upload under its umask (027 in the
+    CI sandbox, so 0644 files come back 0640 and 0755 directories 0750) and
+    the download keeps those modes. The agent's commit is the only change.
+    """
+    for root, dirs, files in os.walk(repo):
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            if not os.path.islink(path):
+                os.chmod(path, os.lstat(path).st_mode & ~0o027)
+    (repo / "app.py").write_text("print('fixed')\n")
+    _git(repo, "commit", "-q", "-am", "agent fix")
+
+
+def test_sandbox_round_trip_without_tampering_is_not_reported(host_repo, caplog):
+    config = host_repo / ".git" / "config"
+    hooks = host_repo / ".git" / "hooks"
+    # What a clone under the usual 022 umask leaves, whatever this host's umask is.
+    config.chmod(0o644)
+    hooks.chmod(0o755)
+    modes = {path: path.stat().st_mode for path in (config, hooks)}
+    snapshot = snapshot_git_control(host_repo)
+    _sandbox_round_trip(host_repo)
+    assert config.stat().st_mode != modes[config]
+
+    with caplog.at_level(logging.WARNING, logger="agentic_ci.git"):
+        assert restore_git_control(snapshot) == []
+
+    assert caplog.records == []
+    # The host copy is still put back, with the host's modes.
+    assert {path: path.stat().st_mode for path in modes} == modes
+    assert _git(host_repo, "log", "-1", "--format=%s") == "agent fix"
+
+
+def test_tampering_after_sandbox_round_trip_is_still_reported(host_repo, tmp_path, caplog):
+    snapshot = snapshot_git_control(host_repo)
+    _sandbox_round_trip(host_repo)
+    _git(host_repo, "config", "core.hooksPath", str(tmp_path / "agent-hooks"))
+
+    with caplog.at_level(logging.WARNING, logger="agentic_ci.git"):
+        assert restore_git_control(snapshot) == ["config"]
+
+    assert "restored host copy of: config" in caplog.text
+    assert _git(host_repo, "config", "core.hooksPath") == "/dev/null"
+
+
 def test_restore_is_a_no_op_when_nothing_changed(host_repo):
     snapshot = snapshot_git_control(host_repo)
     assert restore_git_control(snapshot) == []
@@ -217,6 +267,21 @@ def test_gitfile_pointer_is_restored(tmp_path):
 
     assert restore_git_control(snapshot) == [".git"]
     assert (repo / ".git").read_text() == "gitdir: /outside/main/.git/worktrees/wt\n"
+
+
+def test_gitfile_mode_change_is_restored_without_a_report(tmp_path):
+    repo = tmp_path / "wt"
+    repo.mkdir()
+    gitfile = repo / ".git"
+    gitfile.write_text("gitdir: /outside/main/.git/worktrees/wt\n")
+    gitfile.chmod(0o644)
+    snapshot = snapshot_git_control(repo)
+
+    gitfile.chmod(0o666)
+
+    assert restore_git_control(snapshot) == []
+    assert stat.S_IMODE(gitfile.stat().st_mode) == 0o644
+    assert gitfile.read_text() == "gitdir: /outside/main/.git/worktrees/wt\n"
 
 
 def test_non_repo_workdir_is_left_alone(tmp_path):

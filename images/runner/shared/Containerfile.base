@@ -69,16 +69,17 @@ RUN curl -fsSL -o /tmp/glab.tar.gz \
     && chmod +x /usr/local/bin/glab \
     && rm -rf /tmp/glab.tar.gz /tmp/bin
 
-ARG AGENTIC_CI_VERSION=""
 COPY images/runner/shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+# agentic-ci from local source. The build context has no git metadata, so
+# uv-dynamic-versioning cannot work out the version: the build passes it in
+# AGENTIC_CI_VERSION (the release tag, or 0.0.0+ci.<sha> for other CI
+# builds). Left empty, the package reports 0.0.0+unknown.
+ARG AGENTIC_CI_VERSION=""
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && if [ -n "${AGENTIC_CI_VERSION}" ]; then \
-         python3 -c 'import sys,re; f=sys.argv[1]; v=sys.argv[2]; d=open(f).read(); open(f,"w").write(re.sub(r"^fallback-version = .*", f"fallback-version = \"{v}\"", d, flags=re.M))' \
-           /tmp/agentic-ci/pyproject.toml "${AGENTIC_CI_VERSION}"; \
-       fi \
-    && uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.5 \
+    && UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
+       uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.5 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o agent-ci /usr/local/share/agentic-ci
 
