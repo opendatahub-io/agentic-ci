@@ -1,6 +1,6 @@
 FROM localhost/base:latest
 
-ARG CODEX_VERSION=0.150.1
+ARG CODEX_VERSION=0.159.0
 
 USER root
 
