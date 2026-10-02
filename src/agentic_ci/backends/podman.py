@@ -11,7 +11,8 @@ from uuid import uuid4
 from agentic_ci import log
 from agentic_ci.backend import Backend
 from agentic_ci.gcp import find_credentials as _find_gcp_credentials
-from agentic_ci.harness import AGENT_EFFORT_ENV_VAR
+from agentic_ci.harness import AGENT_EFFORT_ENV_VAR, SKILL_DIR_ENV_VAR
+from agentic_ci.plugins import is_skill_name, parse_skill_dir
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
@@ -19,6 +20,12 @@ if TYPE_CHECKING:
 
 _OPENAI_CREDENTIAL_ENV_VARS = frozenset({"OPENAI_API_KEY"})
 _ANTHROPIC_CREDENTIAL_ENV_VARS = frozenset({"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+
+# Seconds ``agentic-ci skill-dir`` may take in the container. Longer than the
+# lookup's own ``codex plugin list`` timeout (``plugins._CODEX_JSON_TIMEOUT``),
+# so a hung codex is ended inside the container before the host gives up on
+# the podman exec client and starts the agent.
+_SKILL_DIR_TIMEOUT = 150
 
 
 class PodmanBackend(Backend):
@@ -151,6 +158,7 @@ class PodmanBackend(Backend):
         log.section(f"Executing {self.harness.name} in container")
         otel_env = self.harness.build_otel_exec_env(otel_port, traceparent=traceparent)
         effort_env = ["--env", f"{AGENT_EFFORT_ENV_VAR}={effort}"] if effort is not None else []
+        skill_dir_env = self._skill_dir_env_args()
         otel_endpoint = f"http://127.0.0.1:{otel_port}" if otel_port else None
         agent_args = self.harness.build_args(prompt, model, extra_args, otel_endpoint=otel_endpoint)
 
@@ -162,6 +170,7 @@ class PodmanBackend(Backend):
                     "--env",
                     f"AGENT_MODEL={model}",
                     *effort_env,
+                    *skill_dir_env,
                     *otel_env,
                     self._container_name,
                     *agent_args,
@@ -181,6 +190,34 @@ class PodmanBackend(Backend):
             # snapshot is released and the next run records a fresh one.
             self._halt_then_restore(self._park, release=True)
         return rc
+
+    def _skill_dir_env_args(self) -> list[str]:
+        """``--env CLAUDE_SKILL_DIR=<dir>`` for the skill this run executes, else ``[]``.
+
+        Asks ``agentic-ci skill-dir`` in the container where the skill is
+        installed. Nothing is exported without a skill name, for a harness
+        that sets the variable itself (Claude Code), when the caller's
+        ``extra_env`` already sets it (it reached the container at start),
+        or when the lookup fails (an image whose agentic-ci predates the
+        subcommand, say). Its output stays out of the log.
+        """
+        if (
+            not is_skill_name(self.skill_name)
+            or self.harness.sets_skill_dir
+            or SKILL_DIR_ENV_VAR in self._extra_env
+        ):
+            return []
+        cmd = ["podman", "exec", self._container_name, "agentic-ci", "skill-dir", self.skill_name]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SKILL_DIR_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        skill_dir = parse_skill_dir(result.stdout) if result and result.returncode == 0 else None
+        if skill_dir is None:
+            log.detail(SKILL_DIR_ENV_VAR, "not set (skill directory not found)")
+            return []
+        log.detail(SKILL_DIR_ENV_VAR, "set to the installed skill directory")
+        return ["--env", f"{SKILL_DIR_ENV_VAR}={skill_dir}"]
 
     def _halt_then_restore(self, halt, *, release=False):
         """Run *halt* to end every agent process, then restore the host's git files.

@@ -4,7 +4,15 @@
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-AGENTIC_CI_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0+dev")
+# agentic-ci version for the images that install it from source: the X.Y.Z
+# release tag at a clean HEAD (the tags the image workflow publishes), else a
+# PEP 440 local version naming the commit.
+AGENTIC_CI_VERSION ?= $(shell v=$$(git describe --tags --exact-match \
+	--match '[0-9]*.[0-9]*.[0-9]*' 2>/dev/null) \
+	&& printf '%s\n' "$$v" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' \
+	&& git diff --quiet HEAD 2>/dev/null \
+	&& echo "$$v" \
+	|| echo "0.0.0+dev.$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)")
 
 .PHONY: base-build
 base-build: ## Build the runner base image locally
@@ -24,23 +32,23 @@ codex-build: base-build ## Build the Codex runner image locally
 
 .PHONY: ci-build
 ci-build: ## Build the CI podman image locally
-	podman build -t ci-podman:latest -f images/ci/Containerfile.podman .
+	podman build -t ci-podman:latest --build-arg AGENTIC_CI_VERSION="$(AGENTIC_CI_VERSION)" -f images/ci/Containerfile.podman .
 
 .PHONY: openshell-claude-build
 openshell-claude-build: ## Build the OpenShell Claude sandbox image locally (extends the hardened harness image)
-	podman build -t localhost/claude-sandbox:latest -f images/runner/claude-code/Containerfile.openshell .
+	podman build -t localhost/claude-sandbox:latest --build-arg AGENTIC_CI_VERSION="$(AGENTIC_CI_VERSION)" -f images/runner/claude-code/Containerfile.openshell .
 
 .PHONY: openshell-opencode-build
 openshell-opencode-build: ## Build the OpenShell OpenCode sandbox image locally (extends the hardened harness image)
-	podman build -t localhost/opencode-sandbox:latest -f images/runner/opencode/Containerfile.openshell .
+	podman build -t localhost/opencode-sandbox:latest --build-arg AGENTIC_CI_VERSION="$(AGENTIC_CI_VERSION)" -f images/runner/opencode/Containerfile.openshell .
 
 .PHONY: openshell-codex-build
 openshell-codex-build: ## Build the OpenShell Codex sandbox image locally (extends the hardened harness image)
-	podman build -t localhost/codex-sandbox:latest -f images/runner/codex/Containerfile.openshell .
+	podman build -t localhost/codex-sandbox:latest --build-arg AGENTIC_CI_VERSION="$(AGENTIC_CI_VERSION)" -f images/runner/codex/Containerfile.openshell .
 
 .PHONY: openshell-ci-build
 openshell-ci-build: ## Build the OpenShell CI image locally
-	podman build -t openshell:latest -f images/ci/Containerfile.openshell .
+	podman build -t openshell:latest --build-arg AGENTIC_CI_VERSION="$(AGENTIC_CI_VERSION)" -f images/ci/Containerfile.openshell .
 
 .PHONY: bump-versions
 bump-versions: ## Bump pinned dependency versions in Containerfiles
@@ -62,6 +70,7 @@ image-lint: ## Run linting checks on image scripts
 .PHONY: image-test
 image-test: ## Run image unit tests
 	bash tests/images/test_entrypoint.sh
+	bash tests/images/test_check_version.sh
 
 .PHONY: e2e-claude
 e2e-claude: ## Run Claude Code runner e2e tests

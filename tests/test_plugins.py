@@ -3,22 +3,42 @@
 import json
 import shutil
 import subprocess
+from pathlib import Path
 from unittest import mock
 
 import pytest
 
+from agentic_ci import cli
 from agentic_ci.plugins import (
     _claude_skill_names,
+    _codex_installed_path,
     _codex_marketplace_root,
     _codex_skill_names,
     _filter_codex,
     _find_skill_names,
     _run_codex_json,
     enable_plugins,
+    find_skill_dir,
     install_claude_plugins,
     install_codex_plugins,
     install_opencode_skills,
+    parse_skill_dir,
 )
+
+
+def test_codex_installed_path_treats_empty_codex_home_as_unset(monkeypatch, tmp_path):
+    # Same rule as find_skill_dir's lookup (_codex_home): an empty CODEX_HOME
+    # means ~/.codex, not the current directory.
+    home = tmp_path / "home"
+    plugin_root = home / ".codex" / "plugins" / "cache" / "market" / "plugin" / "1.0.0"
+    plugin_root.mkdir(parents=True)
+    cwd = tmp_path / "cwd"
+    (cwd / "plugins" / "cache" / "market" / "plugin" / "1.0.0").mkdir(parents=True)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", "")
+    entry = {"marketplaceName": "market", "name": "plugin", "version": "1.0.0"}
+    assert _codex_installed_path(entry, None) == plugin_root
 
 
 def _make_skill(path):
@@ -1220,3 +1240,242 @@ def test_run_codex_json_reports_stderr(capsys):
     output = capsys.readouterr().out
     assert "exit 2" in output
     assert "plugin registry unavailable" in output
+
+
+# -- find_skill_dir -----------------------------------------------------------
+
+
+def _codex_list_entry(name, version, marketplace="opendatahub-skills", **extra):
+    """One ``installed`` entry as ``codex plugin list --json`` (Codex 0.153.4) prints it."""
+    entry = {
+        "pluginId": f"{name}@{marketplace}",
+        "name": name,
+        "marketplaceName": marketplace,
+        "version": version,
+        "installed": True,
+        "enabled": True,
+        "source": {
+            "source": "git",
+            "url": f"https://github.com/opendatahub-io/{name}.git",
+            "ref": "main",
+        },
+        "marketplaceSource": {
+            "sourceType": "local",
+            "source": "/sandbox/.codex/marketplaces/skills-registry",
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL",
+    }
+    entry.update(extra)
+    return entry
+
+
+def _codex_cache(codex_home, name, version, marketplace="opendatahub-skills"):
+    return codex_home / "plugins" / "cache" / marketplace / name / version
+
+
+class TestFindSkillDirCodex:
+    """The sandbox image layout: native plugins in $CODEX_HOME/plugins/cache."""
+
+    @pytest.fixture
+    def codex_home(self, tmp_path):
+        home = tmp_path / ".codex"
+        autofix = _codex_cache(home, "autofix-skills", "0.1.0")
+        for skill in ("autofix-repo-resolve", "autofix-resolve", "autofix-triage"):
+            _make_skill(autofix / "skills" / skill)
+        _make_skill(_codex_cache(home, "assess-rfe", "1.0.0") / "skills" / "export-rubric")
+        _make_skill(_codex_cache(home, "assess-strat", "1.0.0") / "skills" / "export-rubric")
+        return home
+
+    @pytest.fixture
+    def listing(self):
+        return {
+            "installed": [
+                _codex_list_entry("autofix-skills", "0.1.0"),
+                _codex_list_entry("assess-rfe", "1.0.0"),
+                _codex_list_entry("assess-strat", "1.0.0"),
+            ]
+        }
+
+    def _find(self, name, codex_home, listing):
+        env = {"AGENT_TOOL": "codex", "CODEX_HOME": str(codex_home)}
+        with mock.patch("agentic_ci.plugins._run_codex_json", return_value=listing) as run_codex:
+            return find_skill_dir(name, env), run_codex
+
+    def test_finds_skill_in_plugin_cache(self, codex_home, listing):
+        found, run_codex = self._find("autofix-triage", codex_home, listing)
+        assert found == _codex_cache(codex_home, "autofix-skills", "0.1.0") / (
+            "skills/autofix-triage"
+        )
+        run_codex.assert_called_once()
+        assert run_codex.call_args.args == (["plugin", "list"],)
+        assert run_codex.call_args.kwargs["env"]["CODEX_HOME"] == str(codex_home)
+
+    def test_skill_in_two_plugins_is_ambiguous(self, codex_home, listing):
+        found, _ = self._find("export-rubric", codex_home, listing)
+        assert found is None
+
+    def test_skill_of_a_removed_plugin_is_not_a_candidate(self, codex_home, listing):
+        # enable-plugins removed assess-strat, so only assess-rfe is listed.
+        listing["installed"] = [e for e in listing["installed"] if e["name"] != "assess-strat"]
+        found, _ = self._find("export-rubric", codex_home, listing)
+        assert found == _codex_cache(codex_home, "assess-rfe", "1.0.0") / "skills/export-rubric"
+
+    def test_disabled_plugin_is_skipped(self, codex_home, listing):
+        listing["installed"][2]["enabled"] = False
+        found, _ = self._find("export-rubric", codex_home, listing)
+        assert found == _codex_cache(codex_home, "assess-rfe", "1.0.0") / "skills/export-rubric"
+
+    def test_unknown_skill(self, codex_home, listing):
+        found, _ = self._find("no-such-skill", codex_home, listing)
+        assert found is None
+
+    def test_follows_declared_skill_paths(self, tmp_path):
+        home = tmp_path / ".codex"
+        root = _codex_cache(home, "custom", "local")
+        _make_skill(root / "custom-skills" / "group" / "deep-skill")
+        _write_json(root / ".codex-plugin" / "plugin.json", {"skills": "./custom-skills"})
+        found, _ = self._find(
+            "deep-skill", home, {"installed": [_codex_list_entry("custom", "local")]}
+        )
+        assert found == root / "custom-skills" / "group" / "deep-skill"
+
+    def test_prefers_installed_path_from_listing(self, tmp_path):
+        root = tmp_path / "elsewhere"
+        _make_skill(root / "skills" / "moved")
+        entry = _codex_list_entry("moved-plugin", "1.0.0", installedPath=str(root))
+        found, _ = self._find("moved", tmp_path / ".codex", {"installed": [entry]})
+        assert found == root / "skills" / "moved"
+
+    def test_finds_compatibility_layer_skill(self, tmp_path):
+        home = tmp_path / ".codex"
+        _make_skill(home / "skills" / "legacy")
+        found, _ = self._find("legacy", home, None)
+        assert found == home / "skills" / "legacy"
+
+    def test_plugin_and_compatibility_copies_are_ambiguous(self, codex_home, listing):
+        _make_skill(codex_home / "skills" / "autofix-triage")
+        found, _ = self._find("autofix-triage", codex_home, listing)
+        assert found is None
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "not-a-dict",
+            {"name": 7, "marketplaceName": "m", "version": "1"},
+            {"name": "p", "marketplaceName": "m", "version": "1", "installedPath": 3},
+        ],
+    )
+    def test_malformed_listing_entries_are_skipped(self, tmp_path, entry):
+        found, _ = self._find("anything", tmp_path / ".codex", {"installed": [entry]})
+        assert found is None
+
+    def test_malformed_listing_is_ignored(self, tmp_path):
+        found, _ = self._find("anything", tmp_path / ".codex", {"installed": "oops"})
+        assert found is None
+
+    @pytest.mark.parametrize("name", ["", "../autofix-triage", "skills/autofix-triage", "-h", "."])
+    def test_rejects_names_that_are_not_one_path_component(self, codex_home, listing, name):
+        found, run_codex = self._find(name, codex_home, listing)
+        assert found is None
+        run_codex.assert_not_called()
+
+    def test_reads_os_environ_by_default(self, codex_home, listing, monkeypatch):
+        monkeypatch.setenv("AGENT_TOOL", "codex")
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        with mock.patch("agentic_ci.plugins._run_codex_json", return_value=listing):
+            found = find_skill_dir("autofix-resolve")
+        assert found == _codex_cache(codex_home, "autofix-skills", "0.1.0") / (
+            "skills/autofix-resolve"
+        )
+
+
+class TestFindSkillDirOtherTools:
+    def test_opencode_skills_dir(self, tmp_path):
+        _make_skill(tmp_path / "skills" / "autofix-triage")
+        env = {"AGENT_TOOL": "opencode", "OPENCODE_CONFIG_DIR": str(tmp_path)}
+        assert find_skill_dir("autofix-triage", env) == tmp_path / "skills" / "autofix-triage"
+
+    def test_opencode_missing_skill(self, tmp_path):
+        env = {"AGENT_TOOL": "opencode", "OPENCODE_CONFIG_DIR": str(tmp_path)}
+        assert find_skill_dir("autofix-triage", env) is None
+
+    def test_opencode_symlinked_skill_is_ignored(self, tmp_path):
+        _make_skill(tmp_path / "real")
+        (tmp_path / "skills").mkdir()
+        (tmp_path / "skills" / "linked").symlink_to(tmp_path / "real")
+        env = {"AGENT_TOOL": "opencode", "OPENCODE_CONFIG_DIR": str(tmp_path)}
+        assert find_skill_dir("linked", env) is None
+
+    @pytest.mark.parametrize("agent_tool", ["claude", "", "unknown"])
+    def test_other_tools_find_nothing(self, tmp_path, agent_tool):
+        _make_skill(tmp_path / "skills" / "autofix-triage")
+        env = {"AGENT_TOOL": agent_tool, "OPENCODE_CONFIG_DIR": str(tmp_path)}
+        with mock.patch("agentic_ci.plugins._run_codex_json") as run_codex:
+            assert find_skill_dir("autofix-triage", env) is None
+        run_codex.assert_not_called()
+
+
+class TestParseSkillDir:
+    @pytest.mark.parametrize(
+        ("output", "expected"),
+        [
+            ("/sandbox/.codex/skills/a\n", "/sandbox/.codex/skills/a"),
+            ("/path with space/$HOME/x\n", "/path with space/$HOME/x"),
+            ("", None),
+            ("\n", None),
+            ("relative/path\n", None),
+            ("/two\n/lines\n", None),
+            ("/tab\there\n", None),
+            ("/esc\x1b[31m\n", None),
+            ("/" + "a" * 4096 + "\n", None),
+        ],
+    )
+    def test_accepts_one_absolute_printable_path(self, output, expected):
+        assert parse_skill_dir(output) == expected
+
+
+class TestSkillDirCli:
+    def _main(self, monkeypatch, *argv):
+        monkeypatch.setattr("sys.argv", ["agentic-ci", "skill-dir", *argv])
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        return exc.value.code
+
+    def test_prints_the_directory(self, monkeypatch, tmp_path, capsys):
+        _make_skill(tmp_path / "skills" / "autofix-triage")
+        monkeypatch.setenv("AGENT_TOOL", "opencode")
+        monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
+        assert self._main(monkeypatch, "autofix-triage") == 0
+        out = capsys.readouterr().out
+        assert out == f"{tmp_path / 'skills' / 'autofix-triage'}\n"
+        assert parse_skill_dir(out) == str(tmp_path / "skills" / "autofix-triage")
+
+    def test_exits_1_with_nothing_on_stdout_when_not_found(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setenv("AGENT_TOOL", "opencode")
+        monkeypatch.setenv("OPENCODE_CONFIG_DIR", str(tmp_path))
+        assert self._main(monkeypatch, "autofix-triage") == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "no unique installed skill" in captured.err
+
+    def test_lookup_warnings_stay_off_stdout(self, monkeypatch, tmp_path, capsys):
+        # codex plugin list fails (its warning normally goes to stdout), but
+        # the compatibility layer still has the skill.
+        _make_skill(tmp_path / "skills" / "legacy")
+        monkeypatch.setenv("AGENT_TOOL", "codex")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+        failed = subprocess.CompletedProcess([], 1, stdout="", stderr="boom")
+        with mock.patch("agentic_ci.plugins.subprocess.run", return_value=failed):
+            assert self._main(monkeypatch, "legacy") == 0
+        captured = capsys.readouterr()
+        assert captured.out == f"{tmp_path / 'skills' / 'legacy'}\n"
+        assert "WARN: codex plugin list failed" in captured.err
+
+    def test_directory_it_could_not_hand_back_safely_is_not_printed(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        monkeypatch.setenv("AGENT_TOOL", "opencode")
+        with mock.patch("agentic_ci.plugins.find_skill_dir", return_value=Path("/a\nb")):
+            assert self._main(monkeypatch, "autofix-triage") == 1
+        assert capsys.readouterr().out == ""

@@ -102,6 +102,9 @@ class Backend(ABC):
         # run (a classifier run, which changes no code). Backends without
         # profile steps ignore it.
         self.validate_after_run = True
+        # The skill the agent runs, if known; backends export its installed
+        # directory as CLAUDE_SKILL_DIR for harnesses that do not set it.
+        self.skill_name: str | None = None
         self._host_git: GitControlSnapshot | None = None
         # Deprecated: run the repo's .agentic-ci/config.yml setup steps on
         # this host (see _run_setup_steps). Never true in CI.

@@ -175,6 +175,7 @@ OAuth token auth (Claude Code):
 |----------|-------|
 | `AGENT_MODEL` | The model being used |
 | `AGENT_REASONING_EFFORT` | The effective reasoning effort (omitted when effort is `none`) |
+| `CLAUDE_SKILL_DIR` | Codex and OpenCode only, when the run has a skill name: the directory `podman exec <container> agentic-ci skill-dir <skill>` prints (omitted when the lookup fails or `extra_env` sets it) |
 | OTEL vars | Only when `--no-otel` is not set |
 
 ### Extra env vars

@@ -4,10 +4,12 @@ import json
 import os
 import socket
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from agentic_ci.harness import (
+    SKILL_DIR_ENV_VAR,
     ClaudeCodeHarness,
     CodexHarness,
     OpenCodeHarness,
@@ -1300,3 +1302,111 @@ class TestCodexHarness:
 
     def test_supports_otel(self):
         assert CodexHarness().supports_otel is True
+
+
+# -- CLAUDE_SKILL_DIR ---------------------------------------------------------
+
+# Where the Codex sandbox image installs autofix-triage.
+_TRIAGE_SKILL_DIR = (
+    "/sandbox/.codex/plugins/cache/opendatahub-skills/autofix-skills/0.1.0/skills/autofix-triage"
+)
+
+
+def _fake_agentic_ci(tmp_path, stdout="", rc=0):
+    """Put an ``agentic-ci`` on a fresh PATH that logs its args and prints *stdout*."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    script = bin_dir / "agentic-ci"
+    (tmp_path / "out.txt").write_text(stdout)
+    script.write_text(
+        "#!/bin/bash\n"
+        f'printf "%s\\n" "$*" >> {tmp_path / "calls.txt"}\n'
+        f"cat {tmp_path / 'out.txt'}\n"
+        "echo noise >&2\n"
+        f"exit {rc}\n"
+    )
+    script.chmod(0o755)
+    return f"{bin_dir}:/usr/bin:/bin"
+
+
+def _source_skill_dir_lines(lines, path, preset=None):
+    """Source *lines* as the env script is sourced; return (rc, value, leftover helper var)."""
+    check = (
+        ". ./env.sh && "
+        f'printf "%s|%s" "${{{SKILL_DIR_ENV_VAR}-<unset>}}" "${{_agentic_ci_skill_dir-<unset>}}"'
+    )
+    env = {"PATH": path}
+    if preset is not None:
+        env[SKILL_DIR_ENV_VAR] = preset
+    cwd = path.split(":")[0]
+    (Path(cwd) / "env.sh").write_text("\n".join(lines) + "\n")
+    result = subprocess.run(
+        ["/bin/bash", "-c", check], capture_output=True, text=True, env=env, cwd=cwd
+    )
+    value, _, leftover = result.stdout.partition("|")
+    return result.returncode, value, leftover, result.stderr
+
+
+class TestSkillDirScriptLines:
+    @pytest.mark.parametrize("harness", [CodexHarness(), OpenCodeHarness()])
+    def test_harnesses_without_native_support_export_it(self, harness):
+        lines = harness.skill_dir_script_lines("autofix-triage")
+        assert "agentic-ci skill-dir autofix-triage" in "\n".join(lines)
+        assert f'export {SKILL_DIR_ENV_VAR}="$_agentic_ci_skill_dir"' in "\n".join(lines)
+
+    def test_claude_code_sets_it_natively(self):
+        assert ClaudeCodeHarness.sets_skill_dir is True
+        assert ClaudeCodeHarness().skill_dir_script_lines("autofix-triage") == []
+
+    @pytest.mark.parametrize("name", [None, "", "../x", "-h", "a b", "a;rm -rf /"])
+    def test_no_lines_without_a_valid_skill_name(self, name):
+        assert CodexHarness().skill_dir_script_lines(name) == []
+
+    def test_exports_the_directory_found_in_the_sandbox(self, tmp_path):
+        path = _fake_agentic_ci(tmp_path, stdout=_TRIAGE_SKILL_DIR + "\n")
+        lines = CodexHarness().skill_dir_script_lines("autofix-triage")
+        rc, value, leftover, stderr = _source_skill_dir_lines(lines, path)
+        assert rc == 0
+        assert value == _TRIAGE_SKILL_DIR
+        assert leftover == "<unset>"
+        assert stderr == ""
+        assert (tmp_path / "calls.txt").read_text() == "skill-dir autofix-triage\n"
+
+    def test_directory_with_shell_metacharacters_is_kept_verbatim(self, tmp_path):
+        odd = "/sandbox/a dir/$(touch pwned)/`x`/'q'"
+        path = _fake_agentic_ci(tmp_path, stdout=odd + "\n")
+        rc, value, _, _ = _source_skill_dir_lines(
+            CodexHarness().skill_dir_script_lines("autofix-triage"), path
+        )
+        assert rc == 0
+        assert value == odd
+        assert not (tmp_path / "bin" / "pwned").exists()
+
+    @pytest.mark.parametrize(("stdout", "rc"), [("", 1), ("usage: agentic-ci ...\n", 2)])
+    def test_failed_lookup_exports_nothing_and_keeps_the_script_going(self, tmp_path, stdout, rc):
+        # rc 2 is what an older agentic-ci without the subcommand returns.
+        path = _fake_agentic_ci(tmp_path, stdout=stdout, rc=rc)
+        status, value, leftover, _ = _source_skill_dir_lines(
+            CodexHarness().skill_dir_script_lines("autofix-triage"), path
+        )
+        assert status == 0
+        assert value == "<unset>"
+        assert leftover == "<unset>"
+
+    def test_missing_agentic_ci_exports_nothing(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        status, value, _, _ = _source_skill_dir_lines(
+            CodexHarness().skill_dir_script_lines("autofix-triage"), f"{bin_dir}:/nonexistent"
+        )
+        assert status == 0
+        assert value == "<unset>"
+
+    def test_value_already_set_is_kept(self, tmp_path):
+        path = _fake_agentic_ci(tmp_path, stdout=_TRIAGE_SKILL_DIR + "\n")
+        rc, value, _, _ = _source_skill_dir_lines(
+            CodexHarness().skill_dir_script_lines("autofix-triage"), path, preset="/caller/dir"
+        )
+        assert rc == 0
+        assert value == "/caller/dir"
+        assert not (tmp_path / "calls.txt").exists()

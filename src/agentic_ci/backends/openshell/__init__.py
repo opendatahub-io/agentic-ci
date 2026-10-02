@@ -1263,6 +1263,8 @@ class OpenShellBackend(Backend):
                 "fi",
             ]
         )
+        # After enable-plugins, so the lookup sees only the plugins the agent gets.
+        lines.extend(self.harness.skill_dir_script_lines(self.skill_name))
 
         # The toolchain variables and the profile's env (which the setup steps
         # and validate commands get too) come last, after every command the

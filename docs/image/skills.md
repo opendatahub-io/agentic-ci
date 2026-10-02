@@ -248,10 +248,18 @@ Plugin installation and filtering are `agentic-ci` subcommands
 |---------|------|---------|
 | `agentic-ci install-plugins` | Build time | Install plugins for Claude Code (reads seed dir), OpenCode, or Codex (`--marketplace-json <path>`) |
 | `agentic-ci enable-plugins` | Runtime | Filter active plugins based on `AGENT_ENABLED_PLUGINS` |
+| `agentic-ci skill-dir <skill>` | Runtime | Print the installed directory of one skill for `AGENT_TOOL` (exit 1 when none or more than one install has it) |
 
 The container entrypoint (`images/runner/shared/entrypoint.sh`) calls
 `agentic-ci enable-plugins` at startup. For OpenShell sandboxes, the env
 script calls it before the agent runs.
+
+The backends call `agentic-ci skill-dir` to export the running skill's
+directory as `CLAUDE_SKILL_DIR` for Codex and OpenCode, which (unlike Claude
+Code) do not set it; skills reference their scripts as
+`${CLAUDE_SKILL_DIR}/scripts/...`. In OpenShell the env script runs it right
+after `enable-plugins`, so a skill name two installed plugins share resolves
+once `AGENT_ENABLED_PLUGINS` leaves only one of them.
 
 ## Adding skills without rebuilding
 

@@ -645,3 +645,52 @@ class TestAllowHostSetupPlumbing:
 
     def test_skill_config_defaults_to_no_host_setup(self):
         assert SkillConfig(skill_name="s").allow_host_setup is False
+
+
+class TestSkillNamePlumbing:
+    """SkillConfig.skill_name reaches the backend, which exports CLAUDE_SKILL_DIR from it."""
+
+    def test_session_gives_the_backend_the_skill_name(self, tmp_path):
+        harness = create_harness("codex")
+        backend = RecordingBackend()
+        with (
+            mock.patch("agentic_ci.skill.create_backend", return_value=backend) as cb,
+            mock.patch("agentic_ci.skill.create_harness", return_value=harness),
+        ):
+            _AgentSession(tmp_path, harness_name="codex", skill_name="autofix-triage")
+        assert backend.skill_name == "autofix-triage"
+        # Set on the backend, not passed to create_backend.
+        assert "skill_name" not in cb.call_args.kwargs
+
+    def test_default_runner_passes_the_skill_name_to_session(self, tmp_path):
+        _default_run_container(tmp_path, "p", tmp_path / "out.txt", skill_name="autofix-triage")
+        assert FakeSession.instances[0].kwargs["skill_name"] == "autofix-triage"
+
+    def test_run_skill_default_runner_carries_the_skill_name(self, tmp_path):
+        run_skill(
+            _config(skill_name="autofix-resolve"),
+            ticket_key="TEST-1",
+            work_dir=tmp_path,
+            config_dir=tmp_path,
+        )
+        assert FakeSession.instances[0].kwargs["skill_name"] == "autofix-resolve"
+
+    def test_routed_skill_carries_the_skill_name(self, tmp_path):
+        _run(_config(skill_name="autofix-resolve", backend_name="openshell"), tmp_path)
+        assert FakeSession.instances[0].kwargs["skill_name"] == "autofix-resolve"
+
+    def test_custom_runner_does_not_get_the_skill_name(self, tmp_path):
+        seen = []
+
+        def runner(work_dir, prompt, output_file, **kwargs):
+            seen.append(kwargs)
+            (work_dir / "verdict.json").write_text('{"verdict": "committed"}')
+            return 0
+
+        run_skill(
+            _config(container_runner=runner),
+            ticket_key="TEST-1",
+            work_dir=tmp_path,
+            config_dir=tmp_path,
+        )
+        assert seen == [{"image": None}]

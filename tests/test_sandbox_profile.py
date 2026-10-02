@@ -491,6 +491,8 @@ class TestEnv:
             "otel_x",
             "CODEX_HOME",
             "CLAUDE_CONFIG_DIR",
+            # The backends export it for the skill being run.
+            "CLAUDE_SKILL_DIR",
             "GOOGLE_APPLICATION_CREDENTIALS",
             "GOOGLE_CLOUD_PROJECT",
             "GCP_PROJECT",
