@@ -570,7 +570,9 @@ class CodexStreamProcessor:
 
     Codex emits ``thread.started``, ``turn.*``, ``item.*``, and ``error``
     events. Items cover assistant messages, reasoning, command executions,
-    file changes, MCP calls, web searches, and plan updates.
+    file changes, MCP calls, web searches, plan updates, collab (sub-agent)
+    tool calls, and ``error`` items, which carry non-fatal warnings such as
+    missing model metadata.
     """
 
     def __init__(self, color=True, wrap=0, agent_pid=0):
@@ -582,14 +584,44 @@ class CodexStreamProcessor:
             self.TOOL = "\033[1;90m"
             self.AGENT = ""
             self.RED = "\033[31m"
+            self.WARN = "\033[33m"
             self.RESET = "\033[0m"
         else:
-            self.THINK = self.TOOL = self.AGENT = self.RED = self.RESET = ""
+            self.THINK = self.TOOL = self.AGENT = self.RED = self.WARN = self.RESET = ""
 
         self._errors: list[str] = []
         self._started_items: set[str] = set()
+        # Warning and failure lines already printed, keyed by (label, message),
+        # so repeats collapse into one line plus a suppressed count.
+        self._notices: set[tuple[str, str]] = set()
+        self._suppressed_notices = 0
+        # Collab tool calls (spawn_agent, wait, ...) that started but have not
+        # completed, by item id -> tool name.
+        self._open_collab: dict[str, str] = {}
+        # Usage reported by nested ``codex exec`` runs the agent launched from
+        # shell commands, measured as non-cached input + output tokens.
+        self._nested_runs = 0
+        self._nested_tokens = 0
+        self._summary_printed = False
 
     _INDENT = "  "
+    # At most this many distinct warning/failure lines are printed; the rest
+    # are counted and reported in one summary line.
+    _MAX_NOTICES = 10
+    # Sandbox-provided messages are flattened to one line and capped.
+    _MAX_NOTICE_CHARS = 200
+    # Collab tool names come from the sandbox too and get a tighter cap.
+    _MAX_TOOL_CHARS = 60
+    # A nested ``codex exec`` run in human mode starts with this header line
+    # and ends with "tokens used\n<n>".
+    _NESTED_HEADER_RE = re.compile(r"^OpenAI Codex v", re.M)
+    _NESTED_TOKENS_RE = re.compile(r"^tokens used[ \t]*\r?\n[ \t]*(\d[\d,]*)[ \t]*\r?$", re.M)
+    # One ``codex [options] exec`` (or ``e``) invocation in a shell command.
+    # Paths such as ``/tmp/codex-impl.log`` do not match.
+    _CODEX_EXEC_RE = re.compile(
+        r"(?:^|[\s;&|(\"'`])(?:[^\s/;&|]*/)*codex(?:\s+[^\s;&|]+)*?\s+(?:exec|e)(?=[\s\"']|$)"
+    )
+    _JSON_FLAG_RE = re.compile(r"(?<!\S)--(?:experimental-)?json(?![\w-])")
 
     def _print_text(self, label, text, style=""):
         lines = str(text).splitlines() or [""]
@@ -631,6 +663,147 @@ class CodexStreamProcessor:
         command = item.get("command", "")
         self._print_text("\U0001f527 Shell $ ", command, self.TOOL)
 
+    @classmethod
+    def _one_line(cls, text, limit=None):
+        """Collapse whitespace and cap length for a single log line."""
+        limit = limit or cls._MAX_NOTICE_CHARS
+        flat = " ".join(str(text).split())
+        if len(flat) > limit:
+            flat = flat[: limit - 1].rstrip() + "…"
+        return flat
+
+    def _notice(self, label, message, style):
+        """Print a warning or failure line once; count repeats and overflow."""
+        message = self._one_line(message)
+        key = (label, message)
+        if key in self._notices or len(self._notices) >= self._MAX_NOTICES:
+            self._suppressed_notices += 1
+            return
+        self._notices.add(key)
+        self._print_text(label, message, style)
+
+    @classmethod
+    def _collab_tool(cls, item):
+        return cls._one_line(item.get("tool") or "collab_tool_call", cls._MAX_TOOL_CHARS)
+
+    @staticmethod
+    def _collab_failure(item):
+        """Return (failed, detail) for a completed collab tool call."""
+        errored = []
+        states = item.get("agents_states")
+        if isinstance(states, dict):
+            for state in states.values():
+                if isinstance(state, dict) and state.get("status") == "errored":
+                    errored.append(state.get("message") or "")
+        failed = item.get("status") == "failed" or bool(errored)
+        detail = next((m for m in errored if m), "")
+        return failed, detail
+
+    def _collect_nested_usage(self, item):
+        """Add token usage of ``codex exec`` runs launched from a shell command.
+
+        Codex does not report sub-run usage in the parent turn.completed. A
+        nested run in human mode prints a header line and, at the end, "tokens
+        used" followed by its non-cached input + output total; a nested
+        ``--json`` run prints its own ``thread.started`` and ``turn.completed``
+        events. Only commands that invoke ``codex ... exec`` are considered,
+        and at most one run is counted per invocation in the command, so text
+        the nested agent printed (for example a saved log it cat'ed) cannot
+        add runs of its own.
+        """
+        command = item.get("command", "")
+        output = item.get("aggregated_output", "")
+        if not isinstance(command, str) or not isinstance(output, str):
+            return
+        invocations = len(self._CODEX_EXEC_RE.findall(command))
+        if not invocations:
+            return
+        if self._NESTED_HEADER_RE.search(output):
+            runs = self._human_run_usage(output)
+        elif self._JSON_FLAG_RE.search(command):
+            runs = self._json_run_usage(output)
+        else:
+            return
+        # A run's own total is the last one it prints, so keep the last values.
+        runs = runs[-invocations:]
+        self._nested_runs += len(runs)
+        self._nested_tokens += sum(runs)
+
+    @classmethod
+    def _human_run_usage(cls, output):
+        """Last "tokens used" value per header-delimited segment of output."""
+        starts = [m.start() for m in cls._NESTED_HEADER_RE.finditer(output)]
+        bounds = zip(starts, starts[1:] + [len(output)])
+        runs = []
+        for start, end in bounds:
+            matches = cls._NESTED_TOKENS_RE.findall(output, start, end)
+            if matches:
+                runs.append(int(matches[-1].replace(",", "")))
+        return runs
+
+    @classmethod
+    def _json_run_usage(cls, output):
+        """Usage of the first turn.completed after each thread.started line."""
+        runs = []
+        awaiting_turn = False
+        for raw in output.splitlines():
+            raw = raw.strip()
+            if not raw.startswith("{"):
+                continue
+            try:
+                event = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("type")
+            if event_type == "thread.started":
+                awaiting_turn = True
+            elif event_type == "turn.completed" and awaiting_turn:
+                usage = event.get("usage")
+                if isinstance(usage, dict):
+                    runs.append(cls._used_tokens(usage))
+                    awaiting_turn = False
+        return runs
+
+    @staticmethod
+    def _used_tokens(usage):
+        """Non-cached input + output tokens, matching Codex's "tokens used"."""
+        try:
+            inp = int(usage.get("input_tokens", 0) or 0)
+            cached = int(usage.get("cached_input_tokens", 0) or 0)
+            out = int(usage.get("output_tokens", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+        return max(inp - cached, 0) + max(out, 0)
+
+    def _print_run_summary(self):
+        """Report unfinished collab calls and suppressed notices, once."""
+        if self._summary_printed:
+            return
+        self._summary_printed = True
+        unfinished: dict[str, int] = {}
+        for tool in self._open_collab.values():
+            unfinished[tool] = unfinished.get(tool, 0) + 1
+        for tool, count in unfinished.items():
+            # Codex exec emits no item.completed for a collab call that failed
+            # to start or was interrupted (the Interrupted status has no JSONL
+            # mapping), so the stream cannot tell the two apart.
+            calls = "call" if count == 1 else "calls"
+            self._print_text(
+                f"⚠️ Codex {tool}: ",
+                f"{count} {calls} never completed (failed or interrupted; "
+                f"the stream carries no result)",
+                self.WARN,
+            )
+        if self._suppressed_notices:
+            self._print_text(
+                "⚠️ ",
+                f"{self._suppressed_notices} repeated or additional Codex warning/"
+                f"failure line(s) suppressed",
+                self.WARN,
+            )
+
     @staticmethod
     def _mcp_name(item):
         server = item.get("server", "")
@@ -650,6 +823,13 @@ class CodexStreamProcessor:
                 self._print_text("\U0001f527 MCP ", self._mcp_name(item), self.TOOL)
             elif item_type == "web_search":
                 self._print_text("\U0001f50d Web search ", item.get("query", ""), self.TOOL)
+            elif item_type == "collab_tool_call":
+                tool = self._collab_tool(item)
+                self._open_collab[item_id] = tool
+                # Only spawns get a start line; wait and friends are polled in
+                # loops and would flood the log.
+                if tool == "spawn_agent":
+                    self._print_text("\U0001f916 Agent ", tool, self.TOOL)
             return
 
         if item_type == "agent_message":
@@ -671,6 +851,7 @@ class CodexStreamProcessor:
                 normalized = exit_code
             if normalized not in (None, 0):
                 self._print_text("  exit=", str(exit_code), self.RED)
+            self._collect_nested_usage(item)
         elif item_type == "file_change":
             changes = item.get("changes", [])
             if changes:
@@ -694,9 +875,22 @@ class CodexStreamProcessor:
             text = item.get("text", item.get("plan", ""))
             if text:
                 self._print_text("\U0001f4cb Plan ", text, self.TOOL)
+        elif item_type == "error":
+            # Codex reports non-fatal warnings (missing model metadata, config
+            # and deprecation warnings, model reroutes) as error items.
+            message = item.get("message") or "unknown warning"
+            self._notice("⚠️ Codex warning: ", message, self.WARN)
+        elif item_type == "collab_tool_call":
+            self._open_collab.pop(item_id, None)
+            failed, detail = self._collab_failure(item)
+            if failed:
+                tool = self._collab_tool(item)
+                label = f"❌ Codex {tool} failed: "
+                self._notice(label, detail or "no error detail in stream", self.RED)
 
     def flush_errors(self):
-        """Print collected errors."""
+        """Print the run summary (if not yet printed) and collected errors."""
+        self._print_run_summary()
         if not self._errors:
             return
         for error_msg in dict.fromkeys(self._errors):
@@ -747,12 +941,25 @@ class CodexStreamProcessor:
             cache_r = usage.get("cached_input_tokens", 0)
             cache_w = usage.get("cache_write_input_tokens", 0)
             total = inp + out
+            self._print_run_summary()
             print(
                 f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS in={inp} "
                 f"out={out} cache_r={cache_r} cache_w={cache_w} "
                 f"total={total}{self.RESET}",
                 flush=True,
             )
+            if self._nested_runs:
+                # Nested runs only report non-cached input + output, so the
+                # combined figure uses that measure for the parent as well.
+                parent_used = self._used_tokens(usage)
+                print(
+                    f"{self._INDENT}{self.TOOL}\U0001f4ca TOKENS nested_runs="
+                    f"{self._nested_runs} nested_used={self._nested_tokens} "
+                    f"parent_used={parent_used} "
+                    f"combined_used={parent_used + self._nested_tokens} "
+                    f"(used = non-cached input + output){self.RESET}",
+                    flush=True,
+                )
             return True
 
         return False
