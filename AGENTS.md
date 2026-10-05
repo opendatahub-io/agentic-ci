@@ -219,6 +219,7 @@ Do not add model ids to `harness.py`; it only maps an effort value to a CLI flag
 - `pytest` for tests.
 - When functionality could be reused by multiple SDLC pipelines (e.g. autofix), expose it in `agentic-ci` as a public API rather than letting consumers call private internals across the pinned dependency boundary.
 - Public API methods return curated, agentic-ci-owned data shapes — not raw wire formats. Keep field scope minimal (YAGNI); additional fields can be added later without breaking changes, provided consumers tolerate unknown fields.
+- `README.md` and `docs/image/` are also published by the [workflow-docs](https://gitlab.com/redhat/rhel-ai/agentic-ci/workflow-docs) site, which copies only those files and builds mkdocs in strict mode. Link from them to any other file in this repo with an absolute URL (`https://github.com/opendatahub-io/agentic-ci/blob/main/<path>`), never a relative path such as `docs/configuration.md`: a relative link to a file the site does not copy fails every docs build. Links between pages inside `docs/image/` can stay relative.
 - When transitive dependency incompatibilities break E2E or integration tests, constrain the dependency only in the specific test environment (e.g. `[testenv:mlflow-e2e]` in `tox.ini`) — do not change runtime dependencies. Always include a comment explaining the incompatibility and stating the conditions for removing the constraint.
 
 ## Debugging
