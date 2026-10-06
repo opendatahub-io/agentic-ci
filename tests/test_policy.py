@@ -16,6 +16,7 @@ from agentic_ci.backends.openshell.policy import (
     DEFAULT_ENDPOINTS,
     EGRESS_PHASES,
     EGRESS_PRESETS,
+    ENCODED_SLASH_HOSTS,
     EgressPreset,
     _agent_only,
     _agent_only_hosts,
@@ -193,6 +194,14 @@ class TestEgressPresets:
                     "enforce",
                 )
                 assert sandbox_profile.is_raw_endpoint(endpoint)
+
+    def test_only_the_npm_host_allows_encoded_slashes(self):
+        # Scoped packages are fetched as /@scope%2fname.
+        assert EGRESS_PRESETS["npm"].encoded_slash_hosts == frozenset({"registry.npmjs.org"})
+        assert ENCODED_SLASH_HOSTS == frozenset({"registry.npmjs.org"})
+        for name, preset in EGRESS_PRESETS.items():
+            hosts = {endpoint.split(":")[0] for endpoint in preset.endpoints}
+            assert preset.encoded_slash_hosts <= hosts, name
 
     def test_presets_cannot_be_changed(self):
         with pytest.raises(TypeError):

@@ -104,11 +104,15 @@ class EgressPreset:
 
     ``endpoints`` use the ``openshell policy update --add-endpoint`` format.
     ``phases`` lists the :data:`EGRESS_PHASES` the preset is open in, so a
-    later preset can be open only while setup runs.
+    later preset can be open only while setup runs. ``encoded_slash_hosts``
+    are the preset's hosts whose clients send an encoded slash (``%2F``) in
+    the request path; their L7 endpoints get ``allow_encoded_slash`` (see
+    :data:`ENCODED_SLASH_HOSTS`).
     """
 
     endpoints: tuple[str, ...]
     phases: frozenset[str] = _ALL_PHASES
+    encoded_slash_hosts: frozenset[str] = frozenset()
 
 
 # Presets are enforced read-only at L7. ``rest`` makes the OpenShell proxy
@@ -130,7 +134,13 @@ EGRESS_PRESETS: Mapping[str, EgressPreset] = MappingProxyType(
                 "files.pythonhosted.org" + _READ_ONLY_L7,
             ),
         ),
-        "npm": EgressPreset(endpoints=("registry.npmjs.org" + _READ_ONLY_L7,)),
+        # npm and pnpm fetch a scoped package's metadata as /@scope%2fname, and
+        # OpenShell's L7 check rejects an encoded slash unless the endpoint
+        # allows it, so without this every scoped package is denied.
+        "npm": EgressPreset(
+            endpoints=("registry.npmjs.org" + _READ_ONLY_L7,),
+            encoded_slash_hosts=frozenset({"registry.npmjs.org"}),
+        ),
         "goproxy": EgressPreset(
             endpoints=(
                 "proxy.golang.org" + _READ_ONLY_L7,
@@ -147,6 +157,16 @@ EGRESS_PRESETS: Mapping[str, EgressPreset] = MappingProxyType(
         ),
     }
 )
+
+ENCODED_SLASH_HOSTS: frozenset[str] = frozenset(
+    host for preset in EGRESS_PRESETS.values() for host in preset.encoded_slash_hosts
+)
+"""Hosts whose L7 endpoints need ``allow_encoded_slash``.
+
+``openshell policy update --add-endpoint`` has no option for it, so
+``sandbox`` sets it in the YAML policy it applies with ``openshell policy
+set`` (see ``sandbox.build_phase_policy``).
+"""
 
 
 def _port_number(port: str) -> int | None:

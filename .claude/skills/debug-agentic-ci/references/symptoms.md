@@ -343,6 +343,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: `CLAUDE_SKILL_DIR` is unset. Claude Code fills it in; for Codex and OpenCode the backend exports what `agentic-ci skill-dir <skill>` finds, and exports nothing when the run has no skill name (a custom `container_runner`, or `agentic-ci run`), the image's agentic-ci predates `skill-dir` (exit 2), no enabled plugin ships the skill, or two do.
 - **Where to look**: `agentic-ci skill-dir <skill>` inside the sandbox or container (with the run's `AGENT_ENABLED_PLUGINS` applied), `codex plugin list --json`, `plugins.py:find_skill_dir()`, `Harness.skill_dir_script_lines()`, `PodmanBackend._skill_dir_env_args()`, `LocalBackend._set_skill_dir()`
 
+### Scoped npm packages fail in the sandbox with `connect EACCES 198.18.0.2:443`
+- **Symptom**: With the `npm` preset, `npm install` or `npm view` of a scoped package (`@scope/name`) fails with `FetchError ... connect EACCES 198.18.0.2:443`, while unscoped packages work. The sandbox log (`openshell logs`) shows `DENIED registry.npmjs.org:443 [engine:l7] [reason:HTTP request-target rejected: request-target contains an encoded '/' (%2F) ...]`. A retry a minute later can fail differently, with `transparent TCP mapping is expired`.
+- **Likely cause**: npm and pnpm request scoped packages as `/@scope%2fname`, and OpenShell's L7 check rejects an encoded slash unless the endpoint sets `allow_encoded_slash`. agentic-ci before this fix never set it; `openshell policy update --add-endpoint` cannot.
+- **Where to look**: `policy.py:ENCODED_SLASH_HOSTS` and the `npm` preset, `sandbox.py:build_phase_policy()` and `_allow_encoded_slashes()`, the follow-up `apply_phase_policy("agent", [])` in `sandbox._apply_policy()`, and `openshell policy get --base -o json ci` for the endpoint's `allow_encoded_slash`
+
 ### OpenCode image build fails with `KeyError: 'repo'`
 - **Likely cause**: A marketplace plugin uses a `git-subdir` source with `url` and `path` instead of the legacy GitHub `repo` field. The OpenCode compatibility installer must resolve both source formats and search for skills relative to the configured subdirectory.
 - **Where to look**: `plugins.py:install_opencode_skills()`, the generated marketplace entry

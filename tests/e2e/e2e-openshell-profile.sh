@@ -846,6 +846,9 @@ print_header "=== 6. Presets are read-only at L7 ==="
 # sandbox. The write targets do not exist; without L7 enforcement the remote
 # would answer them (ALLOWED http=404).
 NPM_PKG_URL=https://registry.npmjs.org/is-number
+# npm and pnpm fetch a scoped package as /@scope%2fname; the L7 check rejects
+# an encoded slash unless the npm preset allows it.
+NPM_SCOPED_URL=https://registry.npmjs.org/@types%2fis-number
 GO_LIST_URL=https://proxy.golang.org/rsc.io/quote/@v/list
 GO_ZIP_REDIRECT_URL=https://proxy.golang.org/github.com/aws/aws-sdk-go/@v/v1.55.5.zip
 PYPI_SIMPLE_URL=https://pypi.org/simple/six/
@@ -857,6 +860,8 @@ l7_checks() {
     local where="$1"; shift
     expect "ALLOWED http=20[06] host=registry.npmjs.org" "$where: GET npm package" -- \
         "$@" "${PY_PROBE[@]}" "$NPM_PKG_URL"
+    expect "ALLOWED http=20[06] host=registry.npmjs.org" "$where: GET scoped npm package" -- \
+        "$@" "${PY_PROBE[@]}" "$NPM_SCOPED_URL"
     expect "ALLOWED http=20[06] host=proxy.golang.org" "$where: GET Go module list" -- \
         "$@" "${PY_PROBE[@]}" "$GO_LIST_URL"
     expect "ALLOWED http=20[06] host=storage.googleapis.com" \
@@ -889,6 +894,8 @@ expect_output() {
 
 # The reused sandbox is in the agent phase: the agent's preset rules apply.
 l7_checks "agent, codex" "${CODEX_EXEC[@]}"
+expect_output '^7\.0\.0$' "agent: npm view of a scoped package under codex" -- \
+    "${CODEX_EXEC[@]}" npm view --cache /tmp/agentic-ci-e2e-npm @types/is-number@7.0.0 version
 
 assert_ok "switch to the setup phase for the L7 checks" \
     driver phase setup --profile-json "$PROFILE"
@@ -898,6 +905,8 @@ l7_checks "setup, shim" "$SHIM"
 # pip and go are not in it (toolchains arrive with the profile's toolchains).
 expect_output '^7\.0\.0$' "setup: npm view through the shim" -- \
     "$SHIM" npm view --cache /tmp/agentic-ci-e2e-npm is-number@7.0.0 version
+expect_output '^7\.0\.0$' "setup: npm view of a scoped package through the shim" -- \
+    "$SHIM" npm view --cache /tmp/agentic-ci-e2e-npm @types/is-number@7.0.0 version
 expect_output 'is-number-7\.0\.0\.tgz' "setup: npm pack through the shim" -- \
     "$SHIM" bash -c 'cd /tmp && npm pack --cache /tmp/agentic-ci-e2e-npm is-number@7.0.0'
 expect_output '^UV_OK$' "setup: uv pip install from PyPI through the shim" -- \
