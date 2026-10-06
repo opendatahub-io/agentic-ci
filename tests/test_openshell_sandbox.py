@@ -25,6 +25,7 @@ from agentic_ci.backends.openshell import steps as step_runner
 from agentic_ci.backends.openshell.policy import (
     BASE_POLICY,
     EGRESS_PRESETS,
+    ENCODED_SLASH_HOSTS,
     phase_endpoints,
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME
@@ -48,6 +49,9 @@ PARKED = sandbox.PARKED_BINARY_PREFIX
 NPM = "registry.npmjs.org:443:read-only:rest:enforce"
 GOPROXY = "proxy.golang.org:443:read-only:rest:enforce"
 _L7_READ_ONLY = {"access": "read-only", "protocol": "rest", "enforcement": "enforce"}
+# npm and pnpm request scoped packages as /@scope%2fname, so the npm preset
+# host also allows an encoded slash.
+_NPM_L7 = {**_L7_READ_ONLY, "allow_encoded_slash": True}
 # The main process of the September 2026 nested-OpenShell probe sandbox.
 MAIN = sandbox.MainProcess(pid=19, start_time=214392511)
 _PHASE_STEPS = (
@@ -254,6 +258,33 @@ def test_apply_policy_only_updates_the_policy(auth_mode):
     assert [c.args[0][:3] for c in run.call_args_list] == [["openshell", "policy", "update"]]
 
 
+def test_apply_policy_sets_the_agent_phase_for_an_encoded_slash_host():
+    # --add-endpoint cannot set allow_encoded_slash, and without setup or
+    # validate steps no phase switch would ever add it.
+    with (
+        mock.patch.object(sandbox, "resolve_endpoints", return_value=["github.com:443:full", NPM]),
+        mock.patch.object(sandbox, "_run") as run,
+        mock.patch.object(sandbox, "apply_phase_policy") as apply_phase,
+    ):
+        sandbox._apply_policy(policy_path=None)
+
+    assert run.call_args.args[0][:3] == ["openshell", "policy", "update"]
+    apply_phase.assert_called_once_with("agent", [])
+
+
+def test_apply_policy_leaves_the_policy_alone_without_an_encoded_slash_host():
+    with (
+        mock.patch.object(
+            sandbox, "resolve_endpoints", return_value=["github.com:443:full", GOPROXY]
+        ),
+        mock.patch.object(sandbox, "_run"),
+        mock.patch.object(sandbox, "apply_phase_policy") as apply_phase,
+    ):
+        sandbox._apply_policy(policy_path=None)
+
+    apply_phase.assert_not_called()
+
+
 class TestCreateBasePolicy:
     def test_passes_the_base_policy_file_and_removes_it(self):
         seen = {}
@@ -450,7 +481,7 @@ class TestBuildPhasePolicy:
         assert _phase_rules(policy) == {
             "agentic_ci_phase_0": {
                 "name": "agentic_ci_phase_0",
-                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_L7_READ_ONLY}],
+                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_NPM_L7}],
                 "binaries": [{"path": SHIM}],
             },
             "agentic_ci_phase_1": {
@@ -467,7 +498,9 @@ class TestBuildPhasePolicy:
         rules = list(_phase_rules(policy).values())
         assert len(rules) == len(endpoints) == 9
         for rule, spec in zip(rules, endpoints, strict=True):
-            assert rule["endpoints"] == [{"host": spec.split(":")[0], "port": 443, **_L7_READ_ONLY}]
+            host = spec.split(":")[0]
+            l7 = _NPM_L7 if host in ENCODED_SLASH_HOSTS else _L7_READ_ONLY
+            assert rule["endpoints"] == [{"host": host, "port": 443, **l7}]
             assert rule["binaries"] == [{"path": SHIM}]
 
     @pytest.mark.parametrize(
@@ -491,7 +524,7 @@ class TestBuildPhasePolicy:
         assert npm_rules == [
             {
                 "name": "agentic_ci_phase_0",
-                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_L7_READ_ONLY}],
+                "endpoints": [{"host": "registry.npmjs.org", "port": 443, **_NPM_L7}],
                 "binaries": [{"path": SHIM}],
             }
         ]
@@ -503,6 +536,36 @@ class TestBuildPhasePolicy:
         for name, rule in base_rules.items():
             assert policy["network_policies"][name] == rule
         assert list(policy["network_policies"])[: len(base_rules)] == list(base_rules)
+
+    @pytest.mark.parametrize("park_agent", [False, True])
+    def test_encoded_slash_hosts_allow_it_in_shim_and_agent_rules(self, park_agent):
+        # policy update --add-endpoint cannot set the option, so an agent rule
+        # for the npm host gets it here too; endpoints for one host must agree.
+        rules = copy.deepcopy(POLICY_GET_BASE["policy"]["network_policies"])
+        agent = sorted(sandbox.AGENT_BINARY_PATHS)[0]
+        rules["npm_agent"] = {
+            "name": "npm_agent",
+            "endpoints": [
+                {"host": "Registry.NPMJS.org", "port": 443, **_L7_READ_ONLY},
+                {"host": "pypi.org", "port": 443, **_L7_READ_ONLY},
+            ],
+            "binaries": [{"path": agent}],
+        }
+        rules["npm_l4"] = {
+            "name": "npm_l4",
+            "endpoints": [{"host": "registry.npmjs.org", "port": 443, "access": "full"}],
+            "binaries": [{"path": agent}],
+        }
+        policy = sandbox.build_phase_policy(
+            _base(network_policies=rules), [NPM, GOPROXY], park_agent=park_agent
+        )
+        npm_agent = policy["network_policies"]["npm_agent"]["endpoints"]
+        assert npm_agent[0]["allow_encoded_slash"] is True
+        assert "allow_encoded_slash" not in npm_agent[1]
+        assert "allow_encoded_slash" not in policy["network_policies"]["npm_l4"]["endpoints"][0]
+        phase = _phase_rules(policy)
+        assert phase["agentic_ci_phase_0"]["endpoints"][0]["allow_encoded_slash"] is True
+        assert "allow_encoded_slash" not in phase["agentic_ci_phase_1"]["endpoints"][0]
 
     def test_does_not_modify_its_input(self):
         before = copy.deepcopy(POLICY_GET_BASE)
@@ -1051,11 +1114,14 @@ class TestCreatePassesProfileToPolicy:
         profile = parse_profile({"egress": ["npm"]}, source="central").profile
         with (
             mock.patch.object(sandbox, "_run") as run,
+            mock.patch.object(sandbox, "apply_phase_policy") as apply_phase,
         ):
             sandbox.create(workdir=str(tmp_path), auth_mode="openai", profile=profile)
         update = run.call_args_list[-1].args[0]
         endpoints = [update[i + 1] for i, a in enumerate(update) if a == "--add-endpoint"]
         assert NPM in endpoints
+        # The npm host needs allow_encoded_slash, which only policy set can add.
+        apply_phase.assert_called_once_with("agent", [])
         binaries = [update[i + 1] for i, a in enumerate(update) if a == "--binary"]
         assert binaries == list(sandbox.AGENT_BINARY_PATHS)
         assert SHIM not in update

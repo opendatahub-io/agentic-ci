@@ -17,6 +17,7 @@ from agentic_ci import log
 from agentic_ci.backends.openshell.policy import (
     BASE_POLICY,
     EGRESS_PHASES,
+    ENCODED_SLASH_HOSTS,
     resolve_endpoints,
 )
 from agentic_ci.backends.openshell.provider import PROVIDER_NAME, requires_provider
@@ -212,6 +213,16 @@ def _apply_policy(policy_path, otel_port=None, workdir=".", auth_mode=None, prof
         args.extend(["--add-endpoint", ep])
     args.append(SANDBOX_NAME)
     _run(args, check=True)
+    if any(_endpoint_host(ep) in ENCODED_SLASH_HOSTS for ep in endpoints):
+        # --add-endpoint cannot set allow_encoded_slash, and a profile without
+        # setup or validate steps never switches phases, so apply the agent
+        # phase now: its policy carries the option (see build_phase_policy).
+        apply_phase_policy("agent", [])
+
+
+def _endpoint_host(spec):
+    """Return the host of a ``host:port:...`` endpoint string, trimmed and lower-cased."""
+    return spec.split(":", 1)[0].strip().lower()
 
 
 def _endpoint_to_policy(spec, index):
@@ -297,7 +308,11 @@ def build_phase_policy(base_get_output, endpoints: Iterable[str], *, park_agent=
        the agent's rules while the shim's egress is open; without it (the
        agent phase), restores the parked paths;
     4. adds one rule per endpoint, in order and de-duplicated, named
-       ``PHASE_RULE_PREFIX + index`` and bound to the shim only.
+       ``PHASE_RULE_PREFIX + index`` and bound to the shim only;
+    5. sets ``allow_encoded_slash`` on every L7 (``rest``) endpoint for a
+       host in :data:`ENCODED_SLASH_HOSTS`, in the shim's rules and the
+       agent's alike, since ``openshell policy update`` cannot set it and
+       two endpoints for one host must agree on it.
 
     One rule per endpoint mirrors the rules ``openshell policy update``
     creates and the shape the September 2026 spike verified, and keeps each
@@ -336,8 +351,26 @@ def build_phase_policy(base_get_output, endpoints: Iterable[str], *, park_agent=
             "endpoints": [endpoint],
             "binaries": [{"path": SANDBOX_SETUP_SHIM}],
         }
+    _allow_encoded_slashes(rules)
     policy["network_policies"] = rules
     return policy
+
+
+def _allow_encoded_slashes(rules):
+    """Set ``allow_encoded_slash`` on the L7 endpoints of :data:`ENCODED_SLASH_HOSTS` hosts.
+
+    Only ``rest`` endpoints get it: the option belongs to OpenShell's HTTP
+    request checks, and an L4 endpoint inspects no request.
+    """
+    for rule in rules.values():
+        endpoints = rule.get("endpoints") if isinstance(rule, dict) else None
+        for endpoint in endpoints if isinstance(endpoints, list) else ():
+            if (
+                isinstance(endpoint, dict)
+                and endpoint.get("protocol") == "rest"
+                and str(endpoint.get("host", "")).strip().lower() in ENCODED_SLASH_HOSTS
+            ):
+                endpoint["allow_encoded_slash"] = True
 
 
 def _log_stderr(result):

@@ -221,6 +221,16 @@ Cloud Storage bucket would get through. Reads still go out, so data sent in a
 proxy's CA is trusted through the variables OpenShell sets in the sandbox
 (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` and others).
 
+The `npm` preset's endpoint also allows an encoded slash
+(`allow_encoded_slash`): npm and pnpm fetch a scoped package's metadata as
+`/@scope%2fname`, and OpenShell's L7 check rejects `%2F` by default, which
+would deny every scoped package. `openshell policy update --add-endpoint`
+cannot set that option, so agentic-ci sets it in the YAML policy it applies
+with `openshell policy set`: on every phase switch, and right after creating
+a sandbox whose endpoints include the npm host, for profiles without setup
+or validate steps. The hosts that need it are
+`agentic_ci.backends.openshell.policy.ENCODED_SLASH_HOSTS`.
+
 A preset host always has exactly one endpoint, the preset's, in every phase.
 Any other endpoint on port `443` whose host overlaps a preset host the
 profile opens in that phase (the same host, or a wildcard such as
