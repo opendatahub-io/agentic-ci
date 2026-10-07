@@ -69,8 +69,8 @@ key) means its default.
 
 | Field | Rule |
 |-------|------|
-| `toolchains` | Name is an entry of the [toolchain catalog](#catalog): `buf`, `go`, `golangci-lint`, `helm`, `kustomize`, `node`, `pnpm`, `protoc`, `python`, `shfmt`, `yq`. Version matches `^[0-9]{1,9}(\.[0-9]{1,9}){0,2}$` or is exactly `auto`; which forms resolve depends on the tool (see [Version forms](#version-forms)). |
-| `egress` | Preset names are `pypi`, `npm`, `goproxy`, `github-release-assets`. An entry containing `:` is a raw endpoint, `host:port:access[:protocol[:enforcement[:options]]]`, with no whitespace: `host` is an ASCII host name or IPv4 address, optionally starting with a `*.` wildcard; `port` is 1 to 65535; `access` is `read-only`, `read-write` or `full`; `protocol` is empty, `rest`, `websocket` or `sql`; `enforcement` is empty, `enforce` or `audit`, and needs a protocol; `options` is a comma-separated list of `allow-uninspected-credentials`, `websocket-credential-rewrite`, `request-body-credential-rewrite` and `allowed-ip=IPV4[/BITS]`, and must not be empty when the field is present. |
+| `toolchains` | Name is an entry of the [toolchain catalog](#catalog): `buf`, `go`, `golangci-lint`, `helm`, `kustomize`, `node`, `pnpm`, `protoc`, `python`, `rust`, `shfmt`, `yq`. Version matches `^[0-9]{1,9}(\.[0-9]{1,9}){0,2}$` or is exactly `auto`; which forms resolve depends on the tool (see [Version forms](#version-forms)). |
+| `egress` | Preset names are `pypi`, `npm`, `goproxy`, `crates`, `github-release-assets`. An entry containing `:` is a raw endpoint, `host:port:access[:protocol[:enforcement[:options]]]`, with no whitespace: `host` is an ASCII host name or IPv4 address, optionally starting with a `*.` wildcard; `port` is 1 to 65535; `access` is `read-only`, `read-write` or `full`; `protocol` is empty, `rest`, `websocket` or `sql`; `enforcement` is empty, `enforce` or `audit`, and needs a protocol; `options` is a comma-separated list of `allow-uninspected-credentials`, `websocket-credential-rewrite`, `request-body-credential-rewrite` and `allowed-ip=IPV4[/BITS]`, and must not be empty when the field is present. |
 | `setup`, `validate` | Each step has a `name` of letters, digits, `.`, `_` or `-`, unique within its list; a non-empty `run` string; and a `timeout` in seconds from 1 to 3600 (default 600). A `validate` step also has a `kind`: `lint`, `build`, `test` or `generated`. |
 | `skips` | Each entry has non-empty `match` and `reason` strings. |
 | `env` | Names match `^[A-Za-z_][A-Za-z0-9_]*$`. See [Reserved environment variable names](#reserved-environment-variable-names) for the names that are rejected. Values are strings; integers are converted with `str()`, and booleans, decimals, null, lists and mappings are rejected. |
@@ -156,7 +156,7 @@ counting the rest.
   `make test`), so a repo cannot skip validation that central configuration
   requires.
 - Overlay egress presets outside `overlay_allowed_presets` (default `pypi`,
-  `npm`, `goproxy`) are dropped with a warning.
+  `npm`, `goproxy`, `crates`) are dropped with a warning.
 - An overlay built directly instead of by `parse_profile()` is held to the
   same rules: unknown toolchains, bad toolchain versions and rejected `env`
   names are dropped with a warning.
@@ -206,10 +206,18 @@ are not reported as "not applied" on reuse, since the hash guarantees them.
 | `pypi` | `pypi.org`, `files.pythonhosted.org` | setup, validate, agent |
 | `npm` | `registry.npmjs.org` | setup, validate, agent |
 | `goproxy` | `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com` | setup, validate, agent |
+| `crates` | `index.crates.io`, `static.crates.io` | setup, validate, agent |
 | `github-release-assets` | `release-assets.githubusercontent.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | setup, validate, agent |
 
 The endpoint lists live in `agentic_ci.backends.openshell.policy.EGRESS_PRESETS`.
 Raw endpoints apply to all three phases.
+
+`crates` covers cargo's sparse index (`index.crates.io`, the default
+protocol from cargo 1.70; the rust toolchain sets it for older releases too)
+and the crate downloads its `config.json` points to (`static.crates.io`).
+The crates.io API host is left out, since only search and publish use it.
+Git dependencies need their forge host, which only central configuration can
+open.
 
 Presets are read-only at L7. `rest` makes the OpenShell proxy terminate TLS
 and inspect every HTTP request, and `read-only` then allows only `GET`, `HEAD`
@@ -383,8 +391,8 @@ nothing from the repo or an archive ever runs on the host:
    the download. A cached archive is hashed again before use.
 4. **Sandbox: extract.** The archive is uploaded (900 s limit; a failed
    upload is removed again) and extracted by the sandbox image's
-   `/usr/bin/python3` (`tarfile`, `zipfile`; the images ship python3, tar,
-   gzip and xz but no unzip) into
+   `/usr/bin/python3` (`tarfile` with gzip or xz, `zipfile`; the images ship
+   python3, tar, gzip and xz but no unzip) into
    `/sandbox/.local/toolchains/<name>-<version>`. The upload is opened once
    (not through a symlink, a regular file only) and copied into a fresh
    private directory while it is hashed; only that copy, with the sha256
@@ -393,7 +401,11 @@ nothing from the repo or an archive ever runs on the host:
    duplicate, no device, FIFO or other special file, and every symlink or
    hard link must resolve inside the target directory. The extraction goes
    to a temporary directory that is renamed into place with a marker file
-   recording the sha256.
+   recording the sha256. For `rust`, only the listed components of the
+   standalone installer are extracted (links in them are refused) and their
+   files are merged into one tree, the layout the installer's `install.sh`
+   produces, without running it; a file two components both provide is
+   refused.
 
 A reused sandbox skips a toolchain only when the host's record of that
 sandbox (the saved sandbox identity lists every toolchain directory it
@@ -429,8 +441,8 @@ versions and file names; they never contain repo file content, exception
 text or command output.
 
 The download hosts (`go.dev`, `dl.google.com`, `nodejs.org`,
-`registry.npmjs.org` as a download source, GitHub release downloads,
-`get.helm.sh`) are contacted by the host only. Toolchains add nothing to the
+`static.rust-lang.org`, `registry.npmjs.org` as a download source, GitHub
+release downloads, `get.helm.sh`) are contacted by the host only. Toolchains add nothing to the
 sandbox policy: the sandbox reaches a registry only through an
 [egress preset](#egress).
 
@@ -449,6 +461,7 @@ sandbox policy: the sandbox reaches a registry only through an
 | `buf` | GitHub release | `sha256.txt` | `buf/bin` |
 | `protoc` | GitHub release of `protocolbuffers/protobuf` (zip) | `tool_integrity.bzl` from v36.0; a vendored table before | `bin` |
 | `python` | GitHub release of `astral-sh/python-build-standalone` (the `install_only` builds uv uses) | `SHA256SUMS` of the newest release | `python/bin` |
+| `rust` | `static.rust-lang.org/dist/rust-<v>-<arch>-unknown-linux-gnu.tar.xz` (about 210 MB; the `rustc`, `rust-std`, `cargo`, `clippy-preview` and `rustfmt-preview` components, about 650 MB installed) | `.sha256` next to it | `bin` |
 
 protoc publishes no checksum manifest before v36.0, so agentic-ci vendors the
 sha256 of 28.3, 29.5, 30.2, 31.1, 32.1, 33.0, 33.6, 34.1 and 35.1
@@ -467,9 +480,14 @@ runs the sandbox natively.
 - **Partial** (`22`, `1.26`): resolves to the newest matching release for
   `go` (stable releases in the go.dev JSON), `node` (`index.json`, releases
   with a Linux build for the machine), `pnpm` (the npm registry, no
-  prereleases) and `python` (the builds in the newest python-build-standalone
-  release). For every other tool a partial version is an error that asks
-  for an exact version.
+  prereleases), `python` (the builds in the newest python-build-standalone
+  release) and `rust` (`MAJOR.MINOR` only: the `[pkg.rust]` version of
+  `channel-rust-<MAJOR.MINOR>.toml`, that minor release's newest patch). For
+  every other tool a partial version is an error that asks for an exact
+  version.
+- **Minimum** (`rust` only): 1.68. An earlier release is refused before any
+  download, since its cargo cannot use the sparse crates.io index, the only
+  index the `crates` preset opens.
 - **`auto`**: see below; the version read is then resolved like a requested
   one, so `go 1.26` in go.mod gives the newest 1.26.x.
 
@@ -495,11 +513,16 @@ read must match the version regex; nothing is ever executed.
 | `node` | `.nvmrc`, `.node-version` (a leading `v` is dropped), `package.json` `engines.node`, `.tool-versions` (`nodejs` or `node`) |
 | `pnpm` | `package.json` `packageManager`: `pnpm@X.Y.Z` or `pnpm@X.Y.Z+sha512.<hex>`; with the hash, the registry's sha512 must match it too |
 | `python` | `.python-version`, `.tool-versions` (`python`) |
+| `rust` | `rust-toolchain` (TOML, or the legacy bare channel line), `rust-toolchain.toml` (`channel` in `[toolchain]`), `.tool-versions` (`rust`) |
 
 `engines.node` accepts only simple forms: an exact or partial version, or
 `^`, `~` or `>=` followed by a major (`>=22` resolves the newest 22.x).
 Anything else, such as `>=22.18.0 <23` or `lts/*` in `.nvmrc`, is an error
-naming the file. `auto` for any other tool is an error.
+naming the file. A rust `channel` must be a version: `stable`, `beta`,
+`nightly`, a dated or target-suffixed channel and a `path` toolchain are
+errors, and `components` and `targets` are ignored (the toolchain always
+has the five components above, for the host's target only). `auto` for any
+other tool is an error.
 
 ### Where things live and the environment
 
@@ -510,12 +533,16 @@ naming the file. `auto` for any other tool is an error.
 | `/sandbox/.cache/go-mod`, `/sandbox/.cache/go-build` | `GOMODCACHE`, `GOCACHE` |
 | `/sandbox/.cache/npm` | `npm_config_cache` |
 | `/sandbox/.cache/pnpm-store` | `npm_config_store_dir` (pnpm 10 and earlier), `pnpm_config_store_dir` (pnpm 11) |
+| `/sandbox/.local/cargo` | `CARGO_HOME` (registry cache and `cargo install` binaries; its `bin` is on `PATH`) |
 
 All of it is outside the workdir, so none of it is downloaded back or
 committed. The env script sourced before the agent prepends each
 provisioned toolchain's `PATH` entries and exports `GOTOOLCHAIN=local`,
 `GOPATH`, `GOMODCACHE` and `GOCACHE` (with go), `npm_config_cache` (with
-node or pnpm) and the pnpm store variables (with pnpm). A toolchain that
+node or pnpm), the pnpm store variables (with pnpm), and `CARGO_HOME` and
+`CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` (with rust). `CARGO_TARGET_DIR`
+is not set, so builds write `target/` in the workdir; list it in
+`discard_before_download` to keep it out of the download. A toolchain that
 failed exports nothing. `GOTOOLCHAIN=local` makes a go.mod that needs a
 newer Go fail (`go.mod requires go >= ...; GOTOOLCHAIN=local`) instead of
 downloading that toolchain. `OpenShellBackend.toolchain_env` holds the same

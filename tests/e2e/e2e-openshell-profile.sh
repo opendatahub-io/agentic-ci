@@ -2,13 +2,14 @@
 # e2e-openshell-profile.sh -- End-to-end tests for sandbox-profile egress on OpenShell.
 #
 # Creates a Codex sandbox through OpenShellBackend (tests/e2e/openshell_profile_driver.py)
-# first without and then with a sandbox profile that opens the npm, goproxy and
-# pypi presets (plus two raw endpoints for preset hosts, which must give way to
+# first without and then with a sandbox profile that opens the npm, goproxy,
+# pypi and crates presets (plus two raw endpoints for preset hosts, which must give way to
 # the presets in every phase), switches the setup shim's egress between the setup, agent and
 # validate phases, and probes the network from inside the sandbox after each
 # step with python urllib. Section 6 checks that the presets are read-only at
-# L7: GETs (and the Go proxy's redirect to Cloud Storage) pass, PUT and POST
-# get the proxy's own 403, and npm and uv work through the shim.
+# L7: GETs (and the Go proxy's redirect to Cloud Storage, and a crate download)
+# pass, PUT and POST get the proxy's own 403, and npm and uv work through the
+# shim.
 #
 # A refused connection looks different across OpenShell releases: v0.0.116
 # answers the CONNECT with 403 ("Tunnel connection failed: 403", curl's
@@ -68,6 +69,13 @@
 # run on the reused sandbox reports the saved setup results without running
 # them again and gets the discarded node_modules back before its agent starts.
 #
+# Section 14 provisions rust from a fixture rust-toolchain.toml (the components
+# of the standalone installer merged in the sandbox), fetches a crate through
+# the crates preset in a setup step, and checks that cargo build, test, clippy
+# and fmt pass as validate commands (gcc in the image is the linker), that the
+# agent's env script puts cargo first on PATH with CARGO_HOME outside the
+# workdir, and that discard_before_download keeps target/ out of the download.
+#
 # No LLM call is made. The providers need a credential to be created, so fake
 # ones are used and a real OPENAI_API_KEY, ANTHROPIC_API_KEY or Google
 # credential is never read. The key checks send the fake key to the
@@ -79,8 +87,8 @@
 #
 # Requires: podman, openshell, openshell-gateway, agentic-ci (the ci-openshell
 # image provides all of them), network access to the probed registries and,
-# from the host, to go.dev, dl.google.com, nodejs.org, registry.npmjs.org and
-# GitHub release downloads. E2E_TOOLCHAIN_CACHE keeps downloaded toolchain
+# from the host, to go.dev, dl.google.com, nodejs.org, registry.npmjs.org,
+# static.rust-lang.org and GitHub release downloads. E2E_TOOLCHAIN_CACHE keeps downloaded toolchain
 # archives across runs.
 # Images: CODEX_SANDBOX_IMAGE and CLAUDE_SANDBOX_IMAGE, each built from the
 # repo when unset.
@@ -112,9 +120,10 @@ SHIM=/usr/local/bin/agentic-ci-sandbox-setup
 # The raw endpoints overlap preset hosts (registry.npmjs.org exactly,
 # storage.googleapis.com through a wildcard) with write access; the presets
 # replace them, so they must not reopen writes in any phase.
-PROFILE='{"egress": ["npm", "goproxy", "pypi", "registry.npmjs.org:443:full", "*.googleapis.com:443:read-write"]}'
+PROFILE='{"egress": ["npm", "goproxy", "pypi", "crates", "registry.npmjs.org:443:full", "*.googleapis.com:443:read-write"]}'
 NPM_URL=https://registry.npmjs.org/
 GOPROXY_URL=https://proxy.golang.org/
+CRATES_URL=https://index.crates.io/config.json
 
 # The providers store these values; only the key checks send them, to the
 # API they are for. Section 9 exports ANTHROPIC_API_KEY, which selects
@@ -611,11 +620,12 @@ assert_ok "sandbox resolv.conf points at the policy DNS relay" \
 
 expect DENIED "no profile: npm from bare exec" -- "${PY_PROBE[@]}" "$NPM_URL"
 expect DENIED "no profile: goproxy from bare exec" -- "${PY_PROBE[@]}" "$GOPROXY_URL"
+expect DENIED "no profile: crates index from bare exec" -- "${PY_PROBE[@]}" "$CRATES_URL"
 expect DENIED "no profile: npm from the shim" -- "$SHIM" "${PY_PROBE[@]}" "$NPM_URL"
 expect DENIED "no profile: npm from codex" -- "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" "$NPM_URL"
 
 # ============================================================================
-print_header "=== 2. Profile (npm, goproxy, pypi): setup phase ==="
+print_header "=== 2. Profile (npm, goproxy, pypi, crates): setup phase ==="
 PROFILE_LOG="$TMPDIR_E2E/setup-profile.log"
 if driver setup --profile-json "$PROFILE" > "$PROFILE_LOG" 2>&1; then
     pass "sandbox recreated with a profile"
@@ -642,6 +652,7 @@ expect ALLOWED "setup: npm from shim -> python" -- "$SHIM" "${PY_PROBE[@]}" "$NP
 expect ALLOWED "setup: npm from shim -> bash -> python" -- \
     "$SHIM" bash -c 'python3 "$0" "$1"' "$PROBE" "$NPM_URL"
 expect ALLOWED "setup: goproxy from shim -> python" -- "$SHIM" "${PY_PROBE[@]}" "$GOPROXY_URL"
+expect ALLOWED "setup: crates index from shim -> python" -- "$SHIM" "${PY_PROBE[@]}" "$CRATES_URL"
 expect DENIED "setup: npm from bare bash -> python" -- \
     bash -c 'python3 "$0" "$1"' "$PROBE" "$NPM_URL"
 expect DENIED "setup: npm from bare python" -- "${PY_PROBE[@]}" "$NPM_URL"
@@ -689,6 +700,9 @@ policy_snapshot 2-agent
 
 expect DENIED "agent: npm from the shim" -- "$SHIM" "${PY_PROBE[@]}" "$NPM_URL"
 expect DENIED "agent: goproxy from the shim" -- "$SHIM" "${PY_PROBE[@]}" "$GOPROXY_URL"
+expect DENIED "agent: crates index from the shim" -- "$SHIM" "${PY_PROBE[@]}" "$CRATES_URL"
+expect ALLOWED "agent: crates index from codex (agent-phase preset)" -- \
+    "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" "$CRATES_URL"
 expect ALLOWED "agent: npm from codex (agent-phase preset)" -- \
     "${CODEX_EXEC[@]}" "${PY_PROBE[@]}" "$NPM_URL"
 expect ALLOWED "agent: github.com from codex (agent rules restored)" -- \
@@ -803,6 +817,8 @@ preset_hosts = (
     "registry.npmjs.org",
     "proxy.golang.org",
     "storage.googleapis.com",
+    "index.crates.io",
+    "static.crates.io",
 )
 for name, where in (("0-create", "agent"), ("1-setup", "setup"), ("3-validate", "validate")):
     for host in preset_hosts:
@@ -852,6 +868,10 @@ NPM_SCOPED_URL=https://registry.npmjs.org/@types%2fis-number
 GO_LIST_URL=https://proxy.golang.org/rsc.io/quote/@v/list
 GO_ZIP_REDIRECT_URL=https://proxy.golang.org/github.com/aws/aws-sdk-go/@v/v1.55.5.zip
 PYPI_SIMPLE_URL=https://pypi.org/simple/six/
+# cargo's sparse index file for cfg-if and the crate download its config.json names.
+CRATES_INDEX_URL=https://index.crates.io/cf/g-/cfg-if
+CRATE_DOWNLOAD_URL=https://static.crates.io/crates/cfg-if/1.0.0/download
+CRATES_WRITE_URL=https://index.crates.io/agentic-ci-e2e-l7-probe
 NPM_WRITE_URL=https://registry.npmjs.org/agentic-ci-e2e-l7-probe
 GCS_WRITE_URL=https://storage.googleapis.com/agentic-ci-e2e-l7-probe/probe.txt
 
@@ -869,12 +889,18 @@ l7_checks() {
         "$@" "${PY_PROBE[@]}" "$GO_ZIP_REDIRECT_URL"
     expect "ALLOWED http=20[06] host=pypi.org" "$where: GET PyPI simple index" -- \
         "$@" "${PY_PROBE[@]}" "$PYPI_SIMPLE_URL"
+    expect "ALLOWED http=20[06] host=index.crates.io" "$where: GET crates.io sparse index" -- \
+        "$@" "${PY_PROBE[@]}" "$CRATES_INDEX_URL"
+    expect "ALLOWED http=20[06] host=static.crates.io" "$where: GET crate download" -- \
+        "$@" "${PY_PROBE[@]}" "$CRATE_DOWNLOAD_URL"
     local method
     for method in PUT POST; do
         expect L7DENIED "$where: $method to registry.npmjs.org" -- \
             "$@" "${PY_PROBE[@]}" "$NPM_WRITE_URL" "$method"
         expect L7DENIED "$where: $method to storage.googleapis.com" -- \
             "$@" "${PY_PROBE[@]}" "$GCS_WRITE_URL" "$method"
+        expect L7DENIED "$where: $method to index.crates.io" -- \
+            "$@" "${PY_PROBE[@]}" "$CRATES_WRITE_URL" "$method"
     done
 }
 
@@ -1981,6 +2007,116 @@ assert_py "second run: validated again, with node_modules back" \
     "$S13_VALIDATION_CHECK" "$S13_RUN2_DIR/sandbox-validation.json" records
 assert_ok "second run: node_modules is again absent from the downloaded workdir" \
     test ! -e "$WORKDIR/node_modules"
+
+# ============================================================================
+print_header "=== 14. Rust: toolchain, crates preset, setup and validate ==="
+# A fresh profile recreates the sandbox. rust: auto reads the fixture's
+# rust-toolchain.toml; the host downloads and verifies the standalone
+# installer and the sandbox merges its rustc, rust-std, cargo, clippy and
+# rustfmt components. The crate is fetched in setup through the crates preset,
+# and the validate commands build offline with gcc as the linker.
+RUST_CHANNEL="${E2E_RUST_CHANNEL:-1.86}"
+RUST_W="$TMPDIR_E2E/rust-e2e"
+mkdir -p "$RUST_W/src"
+printf '[toolchain]\nchannel = "%s"\ncomponents = ["clippy", "rustfmt"]\n' "$RUST_CHANNEL" \
+    > "$RUST_W/rust-toolchain.toml"
+cat > "$RUST_W/Cargo.toml" <<'CARGO'
+[package]
+name = "agentic-ci-e2e"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cfg-if = "=1.0.0"
+CARGO
+cat > "$RUST_W/src/main.rs" <<'RUST'
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        fn platform() -> &'static str {
+            "unix"
+        }
+    } else {
+        fn platform() -> &'static str {
+            "other"
+        }
+    }
+}
+
+fn main() {
+    println!("hello from {}", platform());
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn platform_is_unix() {
+        assert_eq!(super::platform(), "unix");
+    }
+}
+RUST
+RUST_PROFILE='{
+  "toolchains": {"rust": "auto"},
+  "egress": ["crates"],
+  "setup": [{"name": "fetch", "run": "cargo fetch", "timeout": 600}],
+  "validate": [
+    {"name": "build", "kind": "build", "run": "cargo build --offline", "timeout": 900},
+    {"name": "test", "kind": "test", "run": "cargo test --offline", "timeout": 900},
+    {"name": "clippy", "kind": "lint", "run": "cargo clippy --offline -- -D warnings", "timeout": 900},
+    {"name": "fmt", "kind": "lint", "run": "cargo fmt --check", "timeout": 300}
+  ],
+  "discard_before_download": ["target"]
+}'
+# shellcheck disable=SC2016 # expanded inside the sandbox
+RUST_AGENT_SCRIPT='
+echo "CARGO=$(command -v cargo)"
+echo "CARGO_HOME=$CARGO_HOME"
+echo "RUSTC=$(rustc --version)"
+cc --version >/dev/null 2>&1 && echo CC_PRESENT
+grep -q "| rust | auto | " /sandbox/.agentic-ci/ENVIRONMENT.md && echo ENV_MD_RUST_LISTED
+test -d "$CARGO_HOME/registry" && echo REGISTRY_CACHE_PRESENT
+echo RUST_AGENT_DONE
+'
+RUST_RUN_DIR="$TMPDIR_E2E/rust-run"
+RUST_LOG="$TMPDIR_E2E/steps-run-rust.log"
+rust_start=$(date +%s)
+WORKDIR="$RUST_W" driver steps-run --profile-json "$RUST_PROFILE" --run-dir "$RUST_RUN_DIR" \
+    --agent-script "$RUST_AGENT_SCRIPT" > "$RUST_LOG" 2>&1 || true
+RUST_OUT="$(tr -d '\r' < "$RUST_LOG")"
+echo "  steps-run took $(($(date +%s) - rust_start))s"
+if grep -q "DRIVER_OK steps-run rc=0" <<<"$RUST_OUT"; then
+    pass "rust: setup, the agent script, validation and download ran"
+else
+    fail "rust: setup, the agent script, validation and download ran"
+    tail -60 "$RUST_LOG"
+fi
+assert_ok "rust: auto read the channel from rust-toolchain.toml" \
+    grep -q "rust: auto read $RUST_CHANNEL from rust-toolchain.toml" <<<"$RUST_OUT"
+assert_py "rust: toolchains.json records rust as installed" '
+import json, sys
+(record,) = json.load(open(sys.argv[1]))
+assert record["name"] == "rust" and record["status"] == "installed", record
+assert record["resolved"].startswith(sys.argv[2] + "."), record
+' "$RUST_RUN_DIR/toolchains.json" "$RUST_CHANNEL"
+assert_py "rust: cargo fetch passed in setup through the crates preset" '
+import json, sys
+records = json.load(open(sys.argv[1]))
+assert [(r["name"], r["status"], r["rc"]) for r in records] == [("fetch", "passed", 0)], records
+' "$RUST_RUN_DIR/sandbox-setup.json"
+assert_py "rust: build, test, clippy and fmt passed as validate commands" '
+import json, sys
+records = json.load(open(sys.argv[1]))
+got = [(r["name"], r["status"], r["rc"]) for r in records]
+assert got == [(n, "passed", 0) for n in ("build", "test", "clippy", "fmt")], records
+' "$RUST_RUN_DIR/sandbox-validation.json"
+for marker in CC_PRESENT ENV_MD_RUST_LISTED REGISTRY_CACHE_PRESENT RUST_AGENT_DONE; do
+    assert_ok "rust agent: $marker" grep -qx "$marker" <<<"$RUST_OUT"
+done
+assert_ok "rust agent: cargo comes from the provisioned toolchain" \
+    grep -qE "^CARGO=/sandbox/\.local/toolchains/rust-$RUST_CHANNEL\.[0-9]+/bin/cargo$" <<<"$RUST_OUT"
+assert_ok "rust agent: CARGO_HOME is outside the workdir" \
+    grep -qx "CARGO_HOME=/sandbox/.local/cargo" <<<"$RUST_OUT"
+assert_ok "rust: target/ is absent from the downloaded workdir" test ! -e "$RUST_W/target"
+assert_ok "rust: the Cargo.lock cargo fetch wrote was downloaded" test -s "$RUST_W/Cargo.lock"
 
 echo ""
 print_header "=== All test sections complete ==="

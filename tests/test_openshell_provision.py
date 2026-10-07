@@ -28,10 +28,10 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def tar_bytes(members) -> bytes:
-    """A tar.gz of (TarInfo fields, data) pairs."""
+def tar_bytes(members, mode="w:gz") -> bytes:
+    """A tar.gz (or, with ``mode="w:xz"``, tar.xz) of (TarInfo fields, data) pairs."""
     buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+    with tarfile.open(fileobj=buf, mode=mode) as tar:
         for fields, data in members:
             info = tarfile.TarInfo(fields.pop("name"))
             for key, value in fields.items():
@@ -352,6 +352,88 @@ class TestInstallZipAndBinary:
 
     def test_unknown_archive_kind(self, box):
         assert box.install(b"x", archive="rar") == (3, "REFUSED format")
+
+
+ROOT = "rust-1.2.3-x86_64-unknown-linux-gnu"
+
+
+def rust_like(*extra):
+    """A tar.xz shaped like a Rust standalone installer: components under one root dir."""
+    return tar_bytes(
+        [
+            reg(f"{ROOT}/install.sh", b"#!/bin/sh\nexit 1\n", 0o755),
+            reg(f"{ROOT}/components", b"rustc\nrust-std\nrust-docs\n"),
+            reg(f"{ROOT}/rustc/manifest.in", b"file:bin/rustc\n"),
+            reg(f"{ROOT}/rustc/bin/rustc", b"rustc", 0o755),
+            reg(f"{ROOT}/rustc/lib/librustc_driver.so", b"driver"),
+            reg(f"{ROOT}/rust-std/manifest.in", b"dir:lib/rustlib/x/lib\n"),
+            reg(f"{ROOT}/rust-std/lib/rustlib/x/lib/libstd.rlib", b"std"),
+            reg(f"{ROOT}/rust-docs/share/doc/rust/html/index.html", b"docs"),
+            *extra,
+        ],
+        mode="w:xz",
+    )
+
+
+class TestInstallComponents:
+    def plan(self, box, data, components=("rustc", "rust-std"), root=ROOT):
+        return box.plan(data, archive="tar.xz", components=list(components), component_root=root)
+
+    def test_merges_the_listed_components_into_one_tree(self, box):
+        data = rust_like()
+        assert box.install(data, self.plan(box, data)) == (0, "INSTALLED members=3")
+        target = box.root / "tool-1.2.3"
+        assert (target / "bin/rustc").read_bytes() == b"rustc"
+        assert os.stat(target / "bin/rustc").st_mode & 0o111
+        assert (target / "lib/librustc_driver.so").read_bytes() == b"driver"
+        assert (target / "lib/rustlib/x/lib/libstd.rlib").read_bytes() == b"std"
+        # No installer, manifest, unlisted component or staging dir is kept.
+        assert sorted(os.listdir(target)) == sorted(["bin", "lib", MARKER])
+        assert box.leftovers() == ["tool-1.2.3"]
+
+    def test_a_file_two_components_provide_is_refused(self, box):
+        data = rust_like(reg(f"{ROOT}/rust-std/bin/rustc", b"other", 0o755))
+        assert box.install(data, self.plan(box, data)) == (3, "REFUSED duplicate")
+        assert box.leftovers() == []
+
+    def test_a_file_where_another_component_has_a_dir_is_refused(self, box):
+        data = rust_like(reg(f"{ROOT}/extra/lib", b"not a dir"))
+        plan = self.plan(box, data, components=("extra", "rust-std"))
+        assert box.install(data, plan) == (3, "REFUSED duplicate")
+        assert box.leftovers() == []
+
+    def test_a_missing_component_is_refused(self, box):
+        data = rust_like()
+        plan = self.plan(box, data, components=("rustc", "cargo"))
+        assert box.install(data, plan) == (3, "REFUSED component")
+        assert box.leftovers() == []
+
+    def test_links_in_a_listed_component_are_refused(self, box):
+        data = rust_like(sym(f"{ROOT}/rustc/bin/rustc-alias", "rustc"))
+        assert box.install(data, self.plan(box, data)) == (3, "REFUSED link")
+
+    def test_the_whole_archive_is_still_checked(self, box):
+        data = rust_like(reg("../escape", b"x"))
+        assert box.install(data, self.plan(box, data)) == (3, "REFUSED member-path")
+        assert box.leftovers() == []
+
+    @pytest.mark.parametrize(
+        ("components", "root"),
+        [(("../rustc",), ROOT), (("rustc",), "../x"), (("rust c",), ROOT), (("",), ROOT)],
+    )
+    def test_names_are_checked(self, box, components, root):
+        data = rust_like()
+        plan = self.plan(box, data, components=components, root=root)
+        assert box.install(data, plan) == (3, "REFUSED name")
+
+    def test_a_component_cannot_supply_the_marker(self, box):
+        data = rust_like(reg(f"{ROOT}/rust-std/{MARKER}", b"{}"))
+        assert box.install(data, self.plan(box, data)) == (3, "REFUSED member-path")
+
+    def test_a_plain_tar_xz_extracts_whole(self, box):
+        data = tar_bytes([reg("pkg/bin/tool", b"t", 0o755)], mode="w:xz")
+        assert box.install(data, archive="tar.xz") == (0, "INSTALLED members=1")
+        assert (box.root / "tool-1.2.3/pkg/bin/tool").read_bytes() == b"t"
 
 
 class TestCheck:

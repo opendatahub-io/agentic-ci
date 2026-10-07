@@ -4,7 +4,8 @@ A sandbox profile's ``toolchains`` map names an entry in :data:`CATALOG` to a
 version: exact (``1.26.5``), partial (``22``, ``1.26``) where the tool's
 official index lists releases without an API token, or ``auto``, read from
 repo files (``go.mod``, ``package.json``, ``.nvmrc``, ``.node-version``,
-``.python-version``, ``.tool-versions``).
+``.python-version``, ``rust-toolchain``, ``rust-toolchain.toml``,
+``.tool-versions``).
 
 Everything here runs on the host and never executes anything from the repo
 or from an archive:
@@ -28,7 +29,7 @@ or from an archive:
 
 :class:`ToolchainEnv` holds the variables a provisioned toolchain needs
 (``PATH`` prepends, ``GOTOOLCHAIN=local``, Go and npm caches, the pnpm
-store), all under ``/sandbox/.local`` or ``/sandbox/.cache`` so they stay out
+store, ``CARGO_HOME``), all under ``/sandbox/.local`` or ``/sandbox/.cache`` so they stay out
 of the workdir that is downloaded back.
 
 Messages never carry repo-controlled text: they are fixed strings plus
@@ -77,6 +78,7 @@ SANDBOX_GOMODCACHE = "/sandbox/.cache/go-mod"
 SANDBOX_GOCACHE = "/sandbox/.cache/go-build"
 SANDBOX_NPM_CACHE = "/sandbox/.cache/npm"
 SANDBOX_PNPM_STORE = "/sandbox/.cache/pnpm-store"
+SANDBOX_CARGO_HOME = "/sandbox/.local/cargo"
 
 # Directory, inside a toolchain dir, that holds the launchers written for
 # tools run with node (pnpm) and single-binary downloads.
@@ -87,7 +89,8 @@ CACHE_ENV = "AGENTIC_CI_TOOLCHAIN_CACHE"
 
 # Download limits. Metadata covers indexes and checksum manifests (the go.dev
 # JSON with every release is about 2 MB, pnpm's abbreviated packument about
-# 2 MB); archives cover the largest catalog archive (Go, about 70 MB) with room.
+# 2 MB, a Rust channel manifest about 1 MB); archives cover the largest catalog
+# archive (Rust, about 210 MB) with room.
 METADATA_MAX_BYTES = 32 << 20
 ARCHIVE_MAX_BYTES = 512 << 20
 METADATA_TIMEOUT_SECONDS = 120
@@ -132,8 +135,12 @@ class CatalogEntry:
     every host the entry may contact, redirects included. ``source`` names
     the resolver and checksum source (see :func:`resolve`). ``bin_dirs`` are
     the directories, relative to the extracted toolchain, prepended to
-    ``PATH``. ``archive`` is ``tar.gz``, ``zip`` or ``binary`` (a single
-    executable stored as ``<WRAPPER_DIR>/<binary>``). ``node_scripts`` maps a
+    ``PATH``. ``archive`` is ``tar.gz``, ``tar.xz``, ``zip`` or ``binary`` (a
+    single executable stored as ``<WRAPPER_DIR>/<binary>``). ``components``
+    (with ``{arch}``) names the directories under the archive's
+    ``component_root`` (with ``{version}`` and ``{arch}``) that are merged
+    into the toolchain directory, as the tool's own installer would; the rest
+    of the archive is not installed. ``node_scripts`` maps a
     launcher name to a script in the archive that the launcher runs with
     ``node``. ``arch`` maps the host machine (``x86_64``, ``aarch64``) to the
     name the tool uses. ``partial`` says whether a partial version resolves.
@@ -152,6 +159,8 @@ class CatalogEntry:
     checksum_url: str = ""
     binary: str = ""
     node_scripts: Mapping[str, str] = field(default_factory=dict)
+    components: tuple[str, ...] = ()
+    component_root: str = ""
     partial: bool = False
     auto: str = ""
     min_parts: int = 3
@@ -256,6 +265,11 @@ NODE_INDEX_URL = "https://nodejs.org/dist/index.json"
 NPM_REGISTRY = "https://registry.npmjs.org"
 # The newest python-build-standalone release (GitHub redirects to its tag).
 PYTHON_SUMS_URL = f"{_GITHUB}/astral-sh/python-build-standalone/releases/latest/download/SHA256SUMS"
+# The channel manifest of a Rust minor release; its [pkg.rust] version is the
+# newest patch release of that minor version.
+RUST_CHANNEL_URL = "https://static.rust-lang.org/dist/channel-rust-{version}.toml"
+# The first Rust release whose cargo can use the sparse crates.io index.
+RUST_MIN_VERSION = (1, 68)
 # The SHA256SUMS of one python-build-standalone release.
 PYTHON_TAG_SUMS_URL = _github("astral-sh/python-build-standalone", "{tag}/SHA256SUMS")
 
@@ -420,6 +434,30 @@ _ENTRIES = (
         arch=_GNU,
         partial=True,
         auto="python",
+    ),
+    CatalogEntry(
+        name="rust",
+        url="https://static.rust-lang.org/dist/rust-{version}-{arch}-unknown-linux-gnu.tar.xz",
+        checksum_url=(
+            "https://static.rust-lang.org/dist/rust-{version}-{arch}-unknown-linux-gnu.tar.xz.sha256"
+        ),
+        hosts=frozenset({"static.rust-lang.org"}),
+        source="rust",
+        bin_dirs=("bin",),
+        arch=_GNU,
+        archive="tar.xz",
+        # The standalone installer's components without docs, sources or LLVM
+        # tools: rustc and its std, cargo, clippy and rustfmt.
+        components=(
+            "rustc",
+            "rust-std-{arch}-unknown-linux-gnu",
+            "cargo",
+            "clippy-preview",
+            "rustfmt-preview",
+        ),
+        component_root="rust-{version}-{arch}-unknown-linux-gnu",
+        partial=True,
+        auto="rust",
     ),
     CatalogEntry(
         name="shfmt",
@@ -919,6 +957,35 @@ def _resolve_python(entry: CatalogEntry, version: str, arch: str, fetcher: Fetch
     return Resolved(entry.name, chosen, url, filename, "sha256", digest)
 
 
+_RUST_PKG_VERSION = re.compile(r'version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+) ')
+
+
+def _resolve_rust(entry: CatalogEntry, version: str, arch: str, fetcher: Fetcher) -> Resolved:
+    """Rust standalone installers, verified by the ``.sha256`` file next to each.
+
+    A ``MAJOR.MINOR`` version resolves through that minor release's channel
+    manifest, whose ``[pkg.rust]`` version is its newest patch release.
+    Releases before 1.68 are refused before any download: their cargo cannot
+    use the sparse crates.io index, the only one the ``crates`` preset opens.
+    """
+    wanted = _parts(version)
+    if len(wanted) == 1:
+        raise ToolchainError("rust: a major version cannot be resolved; use MAJOR.MINOR")
+    if wanted[:2] < RUST_MIN_VERSION:
+        raise ToolchainError(
+            "rust: versions before 1.68 are not supported "
+            "(their cargo cannot use the sparse crates.io index)"
+        )
+    if len(wanted) == 2:
+        text = _fetch_text(fetcher, RUST_CHANNEL_URL.format(version=version), entry)
+        section = text.partition("\n[pkg.rust]\n")[2].partition("\n[")[0]
+        match = _RUST_PKG_VERSION.search(section)
+        if match is None or _parts(match.group(1))[:2] != wanted:
+            raise ToolchainError(f"rust: the channel manifest for {version} names no release")
+        version = match.group(1)
+    return _resolve_sums(entry, version, arch, fetcher)
+
+
 _RESOLVERS: Mapping[str, Callable[[CatalogEntry, str, str, Fetcher], Resolved]] = MappingProxyType(
     {
         "go": _resolve_go,
@@ -926,6 +993,7 @@ _RESOLVERS: Mapping[str, Callable[[CatalogEntry, str, str, Fetcher], Resolved]] 
         "npm": _resolve_npm,
         "protoc": _resolve_protoc,
         "python": _resolve_python,
+        "rust": _resolve_rust,
         "sums": _resolve_sums,
         "yq": _resolve_yq,
     }
@@ -1103,8 +1171,49 @@ def _auto_python(workdir: Path) -> AutoVersion:
     raise ToolchainError("python: auto found no .python-version or .tool-versions python line")
 
 
+_RUST_CHANNEL = re.compile(r"""channel\s*=\s*(["'])(.*)\1""")
+
+
+def _rust_channel(text: str, name: str) -> str:
+    """The ``[toolchain]`` ``channel`` of a rust-toolchain file (TOML or a bare line)."""
+    if not any(line.split("#", 1)[0].strip() == "[toolchain]" for line in text.splitlines()):
+        # The legacy rust-toolchain file may hold just the channel.
+        return _checked(_first_line(text), "rust", name)
+    section = ""
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line.startswith("["):
+            section = line
+        elif section == "[toolchain]":
+            match = _RUST_CHANNEL.fullmatch(line)
+            if match:
+                return _checked(match.group(2), "rust", name)
+    raise ToolchainError(f"rust: auto found no [toolchain] channel in {name}")
+
+
+def _auto_rust(workdir: Path) -> AutoVersion:
+    # rustup reads rust-toolchain first when both files exist. A channel such
+    # as stable or nightly, or a custom toolchain path, is not a version.
+    for name in ("rust-toolchain", "rust-toolchain.toml"):
+        text = _read_repo_file(workdir, name, REPO_FILE_MAX_BYTES)
+        if text is not None:
+            return AutoVersion(_rust_channel(text, name), name)
+    value = _tool_versions(workdir, ("rust",))
+    if value is not None:
+        return AutoVersion(_checked(value, "rust", ".tool-versions"), ".tool-versions")
+    raise ToolchainError(
+        "rust: auto found no rust-toolchain, rust-toolchain.toml or .tool-versions rust line"
+    )
+
+
 _AUTO: Mapping[str, Callable[[Path], AutoVersion]] = MappingProxyType(
-    {"go": _auto_go, "node": _auto_node, "pnpm": _auto_pnpm, "python": _auto_python}
+    {
+        "go": _auto_go,
+        "node": _auto_node,
+        "pnpm": _auto_pnpm,
+        "python": _auto_python,
+        "rust": _auto_rust,
+    }
 )
 
 
@@ -1279,6 +1388,9 @@ class InstallPlan:
     """``<SANDBOX_TOOLCHAIN_ROOT>/<name>-<version>``."""
     binary: str = ""
     node_scripts: Mapping[str, str] = field(default_factory=dict)
+    components: tuple[str, ...] = ()
+    """Directories under ``component_root`` merged into ``target``; empty: the whole archive."""
+    component_root: str = ""
 
     def to_json(self) -> str:
         return json.dumps(
@@ -1291,6 +1403,8 @@ class InstallPlan:
                 "binary": self.binary,
                 "wrapper_dir": WRAPPER_DIR,
                 "node_scripts": dict(self.node_scripts),
+                "components": list(self.components),
+                "component_root": self.component_root,
             },
             sort_keys=True,
         )
@@ -1317,6 +1431,7 @@ def sandbox_dir(name: str, version: str) -> str:
 
 def _plan(resolved: Resolved, sha256: str) -> InstallPlan:
     entry = CATALOG[resolved.name]
+    arch = entry.arch[host_machine()] if entry.components else ""
     return InstallPlan(
         name=resolved.name,
         version=resolved.version,
@@ -1325,6 +1440,8 @@ def _plan(resolved: Resolved, sha256: str) -> InstallPlan:
         target=sandbox_dir(resolved.name, resolved.version),
         binary=entry.binary,
         node_scripts=entry.node_scripts,
+        components=tuple(c.format(arch=arch) for c in entry.components),
+        component_root=entry.component_root.format(version=resolved.version, arch=arch),
     )
 
 
@@ -1386,6 +1503,13 @@ def toolchain_env(installed: Sequence[Resolved]) -> ToolchainEnv:
         # pnpm 11 reads pnpm_config_*, earlier releases npm_config_*.
         variables["npm_config_store_dir"] = SANDBOX_PNPM_STORE
         variables["pnpm_config_store_dir"] = SANDBOX_PNPM_STORE
+    if "rust" in names:
+        path.append(posixpath.join(SANDBOX_CARGO_HOME, "bin"))
+        # Sparse is the default from cargo 1.70; 1.68 and 1.69 would clone the
+        # git index from github.com instead.
+        variables.update(
+            {"CARGO_HOME": SANDBOX_CARGO_HOME, "CARGO_REGISTRIES_CRATES_IO_PROTOCOL": "sparse"}
+        )
     return ToolchainEnv(path=tuple(dict.fromkeys(path)), variables=variables)
 
 

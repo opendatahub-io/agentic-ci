@@ -225,18 +225,18 @@ class TestToolchains:
         assert central_error({"toolchains": {"go": version}}).path == "toolchains.go"
 
     def test_unknown_toolchain_rejected(self):
-        err = central_error({"toolchains": {"rust": "1.80"}})
-        assert err.path == "toolchains.rust"
+        err = central_error({"toolchains": {"cobol": "1.80"}})
+        assert err.path == "toolchains.cobol"
         assert "unknown toolchain" in err.rule
 
     def test_unknown_toolchain_with_odd_name_is_quoted(self):
         assert central_error({"toolchains": {"ru st": "1"}}).path == "toolchains.'ru st'"
 
     def test_unknown_toolchain_warns_and_drops_for_overlay(self):
-        parsed = overlay({"toolchains": {"rust": "1.80", "go": "auto"}})
+        parsed = overlay({"toolchains": {"cobol": "1.80", "go": "auto"}})
         assert dict(parsed.profile.toolchains) == {"go": "auto"}
         assert len(parsed.warnings) == 1
-        assert parsed.warnings[0].startswith("toolchains.rust: unknown toolchain")
+        assert parsed.warnings[0].startswith("toolchains.cobol: unknown toolchain")
         assert parsed.warnings[0].endswith("; ignored")
 
     def test_bad_version_still_raises_for_overlay(self):
@@ -257,15 +257,15 @@ class TestEgress:
         assert set(profile.egress) == KNOWN_EGRESS_PRESETS
 
     def test_unknown_preset_rejected(self):
-        err = central_error({"egress": ["pypi", "crates"]})
+        err = central_error({"egress": ["pypi", "maven"]})
         assert err.path == "egress[1]"
         assert "unknown egress preset" in err.rule
 
     def test_unknown_preset_warns_and_drops_for_overlay(self):
-        parsed = overlay({"egress": ["crates", "npm"]})
+        parsed = overlay({"egress": ["maven", "npm"]})
         assert parsed.profile.egress == ("npm",)
         assert len(parsed.warnings) == 1
-        assert parsed.warnings[0].startswith("egress[0]: unknown egress preset 'crates'")
+        assert parsed.warnings[0].startswith("egress[0]: unknown egress preset 'maven'")
 
     def test_duplicates_are_dropped(self):
         profile = central({"egress": ["npm", "npm", "a.com:443:full", "a.com:443:full"]})
@@ -885,7 +885,7 @@ class TestMerge:
         assert merged.warnings == ()
 
     def test_default_allowed_presets(self):
-        assert DEFAULT_OVERLAY_ALLOWED_PRESETS == {"pypi", "npm", "goproxy"}
+        assert DEFAULT_OVERLAY_ALLOWED_PRESETS == {"crates", "pypi", "npm", "goproxy"}
 
     def test_central_resources_and_raw_egress_kept(self):
         base = central(FULL_CENTRAL)

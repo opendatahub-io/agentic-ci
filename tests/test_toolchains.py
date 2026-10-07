@@ -45,6 +45,7 @@ OFFICIAL_HOSTS = {
     "github.com",
     "release-assets.githubusercontent.com",
     "objects.githubusercontent.com",
+    "static.rust-lang.org",
 }
 
 GO_ARCHIVE = b"go archive bytes"
@@ -221,6 +222,7 @@ class TestCatalog:
             "pnpm",
             "protoc",
             "python",
+            "rust",
             "shfmt",
             "yq",
         }
@@ -260,10 +262,16 @@ class TestCatalog:
         assert urlsplit(toolchains.PYTHON_SUMS_URL).hostname == "github.com"
 
     def test_partial_versions_only_where_an_index_exists(self):
-        assert {n for n, e in CATALOG.items() if e.partial} == {"go", "node", "pnpm", "python"}
+        assert {n for n, e in CATALOG.items() if e.partial} == {
+            "go",
+            "node",
+            "pnpm",
+            "python",
+            "rust",
+        }
 
     def test_auto_sources(self):
-        assert {n for n, e in CATALOG.items() if e.auto} == {"go", "node", "pnpm", "python"}
+        assert {n for n, e in CATALOG.items() if e.auto} == {"go", "node", "pnpm", "python", "rust"}
 
     def test_protoc_table_has_both_machines_and_valid_digests(self):
         versions = {name.split("-")[1] for name in toolchains.PROTOC_SHA256}
@@ -857,7 +865,7 @@ class TestResolveInputs:
 
     def test_unknown_toolchain(self):
         with pytest.raises(ToolchainError, match="unknown toolchain"):
-            res("rust", "1.80.0", FakeFetcher())
+            res("cobol", "1.80.0", FakeFetcher())
 
     @pytest.mark.parametrize("name", ["shfmt", "golangci-lint", "helm", "yq", "kustomize", "buf"])
     def test_auto_without_a_source(self, name, tmp_path):
@@ -1309,7 +1317,7 @@ class TestProvision:
 
     def test_outside_names_and_invalid_versions_are_skipped(self, tmp_path):
         result = provision(
-            {"rust": "1.0.0", "go": "latest; rm -rf /"},
+            {"cobol": "1.0.0", "go": "latest; rm -rf /"},
             workdir=tmp_path,
             installer=FakeInstaller(),
             fetcher=FakeFetcher(),
@@ -1418,3 +1426,206 @@ def test_parse_profile_accepts_every_catalog_entry():
     profile = parse_profile({"toolchains": dict.fromkeys(CATALOG, "auto")}, source="central")
     assert set(profile.profile.toolchains) == set(CATALOG)
     assert SandboxProfile(toolchains={"go": "1.26.5"}).toolchains["go"] == "1.26.5"
+
+
+RUST_ARCHIVE = b"rust archive bytes"
+RUST_DIST = "https://static.rust-lang.org/dist"
+
+
+def rust_channel(version):
+    return (
+        'manifest-version = "2"\ndate = "2025-03-18"\n'
+        '[pkg.cargo]\nversion = "0.86.0 (adf9b6ad1 2025-02-28)"\n'
+        f'[pkg.rust]\nversion = "{version} (4eb161250 2025-03-15)"\n'
+        "[pkg.rust.target.x86_64-unknown-linux-gnu]\navailable = true\n"
+    ).encode()
+
+
+def rust_fetcher(version="1.86.0", channel=None):
+    name = f"rust-{version}-x86_64-unknown-linux-gnu.tar.xz"
+    responses = {
+        f"{RUST_DIST}/{name}": RUST_ARCHIVE,
+        f"{RUST_DIST}/{name}.sha256": f"{sha256(RUST_ARCHIVE)}  {name}\n".encode(),
+    }
+    if channel is not None:
+        minor = ".".join(version.split(".")[:2])
+        responses[f"{RUST_DIST}/channel-rust-{minor}.toml"] = channel
+    return FakeFetcher(responses)
+
+
+class TestResolveRust:
+    def test_exact_uses_the_sha256_file_and_no_manifest(self):
+        fetcher = rust_fetcher()
+        resolved = res("rust", "1.86.0", fetcher)
+        assert resolved.url == f"{RUST_DIST}/rust-1.86.0-x86_64-unknown-linux-gnu.tar.xz"
+        assert resolved.digest == sha256(RUST_ARCHIVE)
+        assert fetcher.urls() == [f"{resolved.url}.sha256"]
+
+    def test_minor_resolves_through_the_channel_manifest(self):
+        fetcher = rust_fetcher("1.85.1", channel=rust_channel("1.85.1"))
+        resolved = res("rust", "1.85", fetcher)
+        assert resolved.version == "1.85.1"
+        assert fetcher.urls()[0] == f"{RUST_DIST}/channel-rust-1.85.toml"
+
+    @pytest.mark.parametrize(
+        "channel",
+        [
+            rust_channel("1.84.1"),
+            b'[pkg.cargo]\nversion = "1.85.1 (x)"\n',
+            b"not a manifest",
+        ],
+    )
+    def test_a_manifest_naming_no_matching_release_refuses(self, channel):
+        fetcher = rust_fetcher("1.85.1", channel=channel)
+        with pytest.raises(ToolchainError, match="channel manifest for 1.85 names no release"):
+            res("rust", "1.85", fetcher)
+
+    @pytest.mark.parametrize("version", ["1.67", "1.67.1", "1.56.0", "0.9"])
+    def test_versions_before_1_68_are_refused_without_a_download(self, version):
+        fetcher = FakeFetcher()
+        with pytest.raises(ToolchainError, match="before 1.68 are not supported"):
+            res("rust", version, fetcher)
+        assert fetcher.calls == []
+
+    def test_1_68_is_the_first_supported_release(self):
+        assert res("rust", "1.68.0", rust_fetcher("1.68.0")).version == "1.68.0"
+        fetcher = rust_fetcher("1.68.2", channel=rust_channel("1.68.2"))
+        assert res("rust", "1.68", fetcher).version == "1.68.2"
+
+    def test_a_major_version_is_refused_without_a_download(self):
+        fetcher = FakeFetcher()
+        with pytest.raises(ToolchainError, match="use MAJOR.MINOR"):
+            res("rust", "1", fetcher)
+        assert fetcher.calls == []
+
+    def test_missing_checksum_refuses(self):
+        fetcher = rust_fetcher()
+        name = "rust-1.86.0-x86_64-unknown-linux-gnu.tar.xz"
+        fetcher.responses[f"{RUST_DIST}/{name}.sha256"] = b"0" * 64 + b"  other.tar.xz\n"
+        with pytest.raises(ToolchainError, match="no sha256"):
+            res("rust", "1.86.0", fetcher)
+
+    def test_aarch64(self):
+        name = "rust-1.86.0-aarch64-unknown-linux-gnu.tar.xz"
+        fetcher = FakeFetcher({f"{RUST_DIST}/{name}.sha256": f"{'a' * 64}  {name}\n".encode()})
+        resolved = resolve("rust", "1.86.0", workdir=Path("."), fetcher=fetcher, arch="aarch64")
+        assert resolved[0].filename == name
+
+
+class TestAutoRust:
+    @pytest.mark.parametrize(
+        ("files", "expected", "source"),
+        [
+            (
+                {"rust-toolchain.toml": '[toolchain]\nchannel = "1.86.0"  # pin\n'},
+                "1.86.0",
+                "rust-toolchain.toml",
+            ),
+            (
+                {"rust-toolchain.toml": "[toolchain]\ncomponents = ['clippy']\nchannel = '1.85'\n"},
+                "1.85",
+                "rust-toolchain.toml",
+            ),
+            ({"rust-toolchain": "1.84.1\n"}, "1.84.1", "rust-toolchain"),
+            (
+                {"rust-toolchain.toml": '[toolchain] # pinned\nchannel = "1.86.0"\n'},
+                "1.86.0",
+                "rust-toolchain.toml",
+            ),
+            (
+                {"rust-toolchain": '[toolchain]\nchannel = "1.83"\n', "rust-toolchain.toml": "x"},
+                "1.83",
+                "rust-toolchain",
+            ),
+            ({".tool-versions": "nodejs 22\nrust 1.86.0\n"}, "1.86.0", ".tool-versions"),
+            (
+                {
+                    "rust-toolchain.toml": '[toolchain]\nchannel = "1.82"\n',
+                    ".tool-versions": "rust 1",
+                },
+                "1.82",
+                "rust-toolchain.toml",
+            ),
+        ],
+    )
+    def test_sources(self, tmp_path, files, expected, source):
+        for name, content in files.items():
+            (tmp_path / name).write_text(content)
+        assert auto_version("rust", tmp_path) == AutoVersion(expected, source)
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            ('[toolchain]\nchannel = "stable"\n', "not digits"),
+            ('[toolchain]\nchannel = "nightly-2025-01-01"\n', "not digits"),
+            ('[toolchain]\nchannel = "1.86.0-x86_64-unknown-linux-gnu"\n', "not digits"),
+            ('[toolchain]\npath = "/opt/rust"\n', "found no \\[toolchain\\] channel"),
+            ('[other]\nchannel = "1.86.0"\n[toolchain]\n', "found no \\[toolchain\\] channel"),
+        ],
+    )
+    def test_channels_that_are_not_versions_are_refused(self, tmp_path, content, message):
+        (tmp_path / "rust-toolchain.toml").write_text(content)
+        with pytest.raises(ToolchainError, match=message) as excinfo:
+            auto_version("rust", tmp_path)
+        for value in ("stable", "nightly", "x86_64", "/opt/rust"):
+            assert value not in str(excinfo.value)
+
+    def test_without_a_source(self, tmp_path):
+        with pytest.raises(ToolchainError, match="found no rust-toolchain"):
+            auto_version("rust", tmp_path)
+
+    def test_auto_resolves_a_minor_channel(self, tmp_path):
+        (tmp_path / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.85"\n')
+        fetcher = rust_fetcher("1.85.1", channel=rust_channel("1.85.1"))
+        resolved, auto = resolve("rust", "auto", workdir=tmp_path, fetcher=fetcher)
+        assert (resolved.version, auto.source) == ("1.85.1", "rust-toolchain.toml")
+
+
+class TestRustInstall:
+    def test_the_plan_lists_the_components_to_merge(self, tmp_path):
+        installer = FakeInstaller()
+        result = provision(
+            {"rust": "1.86.0"},
+            workdir=tmp_path,
+            installer=installer,
+            fetcher=rust_fetcher(),
+            cache_dir=tmp_path / "cache",
+        )
+        assert result.results[0].status == "installed"
+        plan, data = installer.installed[0]
+        assert data == RUST_ARCHIVE
+        assert plan.archive == "tar.xz"
+        assert plan.target == "/sandbox/.local/toolchains/rust-1.86.0"
+        assert plan.component_root == "rust-1.86.0-x86_64-unknown-linux-gnu"
+        assert plan.components == (
+            "rustc",
+            "rust-std-x86_64-unknown-linux-gnu",
+            "cargo",
+            "clippy-preview",
+            "rustfmt-preview",
+        )
+        data = json.loads(plan.to_json())
+        assert data["components"] == list(plan.components)
+        assert data["component_root"] == plan.component_root
+
+    def test_other_plans_have_no_components(self, tmp_path):
+        installer = FakeInstaller()
+        provision(
+            {"shfmt": "3.12.0"},
+            workdir=tmp_path,
+            installer=installer,
+            fetcher=shfmt_fetcher(),
+            cache_dir=tmp_path / "cache",
+        )
+        plan = installer.installed[0][0]
+        assert plan.components == () and plan.component_root == ""
+        assert json.loads(plan.to_json())["components"] == []
+
+    def test_env(self):
+        env = toolchain_env([Resolved("rust", "1.86.0", "", "", "sha256", "0" * 64)])
+        assert env.script_lines() == [
+            "export PATH=/sandbox/.local/toolchains/rust-1.86.0/bin:"
+            '/sandbox/.local/cargo/bin:"$PATH"',
+            "export CARGO_HOME=/sandbox/.local/cargo",
+            "export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse",
+        ]

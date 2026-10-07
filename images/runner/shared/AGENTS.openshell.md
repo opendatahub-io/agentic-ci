@@ -46,7 +46,7 @@ These tools are pre-installed.
 Do not attempt to install replacements or download binaries from the internet.
 Toolchains listed in `ENVIRONMENT.md` come first on `PATH` and take precedence.
 
-`python3` (3.14), `python3.12`, `uv`, `uvx`, `ruff`, `node`, `npm`, `git`, `gh`, `glab`, `make`, `curl`, `jq`, `shellcheck`, `shfmt`
+`python3` (3.14), `python3.12`, `uv`, `uvx`, `ruff`, `node`, `npm`, `git`, `gh`, `glab`, `make`, `gcc`, `curl`, `jq`, `shellcheck`, `shfmt`
 
 ## Guidelines
 

@@ -345,8 +345,11 @@ for image in "$CLAUDE_SANDBOX" "$OPENCODE_SANDBOX" "$CODEX_SANDBOX"; do
         run_in "$image" sh -c "$SHIM_GROUP_CHECK" sh "$SHIM"
     assert_ok "$name: setup shim keeps a signal it was started with ignored" \
         run_in "$image" sh -c "(trap '' TERM; exec $SHIM sh -c 'sleep 2; exit 7') & p=\$!; sleep 0.5; kill -TERM \$p; wait \$p; test \$? -eq 7"
-    assert_ok "$name: sandbox retains no package manager or compiler" \
-        run_in "$image" sh -c '! command -v dnf && ! command -v microdnf && ! command -v gcc && ! command -v cc'
+    assert_ok "$name: sandbox retains no package manager" \
+        run_in "$image" sh -c '! command -v dnf && ! command -v microdnf'
+    # gcc is installed on purpose: cargo and rustc link through cc.
+    assert_ok "$name: sandbox has gcc as the cc linker for cargo" \
+        run_in "$image" sh -c 'command -v gcc && command -v cc'
 done
 
 print_header "=== shared sandbox: runtime/user/workdir ==="

@@ -148,6 +148,15 @@ EGRESS_PRESETS: Mapping[str, EgressPreset] = MappingProxyType(
                 "storage.googleapis.com" + _READ_ONLY_L7,
             ),
         ),
+        # cargo's sparse index (config.json and the index files) and the crate
+        # downloads its config.json names (static.crates.io/crates/...). The
+        # crates.io API host is only for search and publish, so it stays closed.
+        "crates": EgressPreset(
+            endpoints=(
+                "index.crates.io" + _READ_ONLY_L7,
+                "static.crates.io" + _READ_ONLY_L7,
+            ),
+        ),
         "github-release-assets": EgressPreset(
             endpoints=(
                 "release-assets.githubusercontent.com" + _READ_ONLY_L7,

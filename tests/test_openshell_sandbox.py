@@ -496,7 +496,7 @@ class TestBuildPhasePolicy:
         endpoints = phase_endpoints(profile, "setup")
         policy = sandbox.build_phase_policy(POLICY_GET_BASE, endpoints, park_agent=True)
         rules = list(_phase_rules(policy).values())
-        assert len(rules) == len(endpoints) == 9
+        assert len(rules) == len(endpoints) == 11
         for rule, spec in zip(rules, endpoints, strict=True):
             host = spec.split(":")[0]
             l7 = _NPM_L7 if host in ENCODED_SLASH_HOSTS else _L7_READ_ONLY
