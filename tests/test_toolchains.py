@@ -1480,6 +1480,18 @@ class TestResolveRust:
         with pytest.raises(ToolchainError, match="channel manifest for 1.85 names no release"):
             res("rust", "1.85", fetcher)
 
+    @pytest.mark.parametrize("version", ["1.67", "1.67.1", "1.56.0", "0.9"])
+    def test_versions_before_1_68_are_refused_without_a_download(self, version):
+        fetcher = FakeFetcher()
+        with pytest.raises(ToolchainError, match="before 1.68 are not supported"):
+            res("rust", version, fetcher)
+        assert fetcher.calls == []
+
+    def test_1_68_is_the_first_supported_release(self):
+        assert res("rust", "1.68.0", rust_fetcher("1.68.0")).version == "1.68.0"
+        fetcher = rust_fetcher("1.68.2", channel=rust_channel("1.68.2"))
+        assert res("rust", "1.68", fetcher).version == "1.68.2"
+
     def test_a_major_version_is_refused_without_a_download(self):
         fetcher = FakeFetcher()
         with pytest.raises(ToolchainError, match="use MAJOR.MINOR"):
@@ -1515,6 +1527,11 @@ class TestAutoRust:
                 "rust-toolchain.toml",
             ),
             ({"rust-toolchain": "1.84.1\n"}, "1.84.1", "rust-toolchain"),
+            (
+                {"rust-toolchain.toml": '[toolchain] # pinned\nchannel = "1.86.0"\n'},
+                "1.86.0",
+                "rust-toolchain.toml",
+            ),
             (
                 {"rust-toolchain": '[toolchain]\nchannel = "1.83"\n', "rust-toolchain.toml": "x"},
                 "1.83",

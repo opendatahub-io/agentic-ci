@@ -268,6 +268,8 @@ PYTHON_SUMS_URL = f"{_GITHUB}/astral-sh/python-build-standalone/releases/latest/
 # The channel manifest of a Rust minor release; its [pkg.rust] version is the
 # newest patch release of that minor version.
 RUST_CHANNEL_URL = "https://static.rust-lang.org/dist/channel-rust-{version}.toml"
+# The first Rust release whose cargo can use the sparse crates.io index.
+RUST_MIN_VERSION = (1, 68)
 # The SHA256SUMS of one python-build-standalone release.
 PYTHON_TAG_SUMS_URL = _github("astral-sh/python-build-standalone", "{tag}/SHA256SUMS")
 
@@ -963,10 +965,17 @@ def _resolve_rust(entry: CatalogEntry, version: str, arch: str, fetcher: Fetcher
 
     A ``MAJOR.MINOR`` version resolves through that minor release's channel
     manifest, whose ``[pkg.rust]`` version is its newest patch release.
+    Releases before 1.68 are refused before any download: their cargo cannot
+    use the sparse crates.io index, the only one the ``crates`` preset opens.
     """
     wanted = _parts(version)
     if len(wanted) == 1:
         raise ToolchainError("rust: a major version cannot be resolved; use MAJOR.MINOR")
+    if wanted[:2] < RUST_MIN_VERSION:
+        raise ToolchainError(
+            "rust: versions before 1.68 are not supported "
+            "(their cargo cannot use the sparse crates.io index)"
+        )
     if len(wanted) == 2:
         text = _fetch_text(fetcher, RUST_CHANNEL_URL.format(version=version), entry)
         section = text.partition("\n[pkg.rust]\n")[2].partition("\n[")[0]
@@ -1167,7 +1176,7 @@ _RUST_CHANNEL = re.compile(r"""channel\s*=\s*(["'])(.*)\1""")
 
 def _rust_channel(text: str, name: str) -> str:
     """The ``[toolchain]`` ``channel`` of a rust-toolchain file (TOML or a bare line)."""
-    if not any(line.strip() == "[toolchain]" for line in text.splitlines()):
+    if not any(line.split("#", 1)[0].strip() == "[toolchain]" for line in text.splitlines()):
         # The legacy rust-toolchain file may hold just the channel.
         return _checked(_first_line(text), "rust", name)
     section = ""

@@ -483,6 +483,9 @@ runs the sandbox natively.
   `channel-rust-<MAJOR.MINOR>.toml`, that minor release's newest patch). For
   every other tool a partial version is an error that asks for an exact
   version.
+- **Minimum** (`rust` only): 1.68. An earlier release is refused before any
+  download, since its cargo cannot use the sparse crates.io index, the only
+  index the `crates` preset opens.
 - **`auto`**: see below; the version read is then resolved like a requested
   one, so `go 1.26` in go.mod gives the newest 1.26.x.
 
