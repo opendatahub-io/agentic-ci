@@ -57,6 +57,7 @@ nav:
   - Home: index.md
   - Guides:
       - Local Development with OpenShell: guides/openshell-local.md
+      - Write a Sandbox Overlay: guides/sandbox-overlay.md
   - Container Images:
       - Overview: image/index.md
       - Build Pipeline: image/build.md

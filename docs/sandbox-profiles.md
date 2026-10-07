@@ -116,7 +116,9 @@ never include `env` values or `run` strings.
 ## Central Profiles and Repo Overlays
 
 `parse_profile(data, source=...)` takes `source="central"` for reviewed CI
-configuration and `source="overlay"` for a file from the target repo. Central
+configuration and `source="overlay"` for a file from the target repo.
+A repo writes its overlay as the `sandbox:` section of `.agentic-ci/config.yml`
+(see [Sandbox Overlay](configuration.md#sandbox-overlay)). Central
 profiles fail loudly on any problem. An overlay must not be able to break the
 run or widen what central configuration allows, so the parser drops these with
 a warning instead of raising:
