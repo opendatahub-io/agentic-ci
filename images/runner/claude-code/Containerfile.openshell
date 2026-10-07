@@ -17,7 +17,7 @@ FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:b9a4e0ec353dd30a89fc
 
 # Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
 # statically on the same pinned builder. Only the binary reaches the final
-# image, so the compiler and dnf stay out of it.
+# image, so dnf and glibc-static stay out of it.
 FROM builder AS setup-shim
 USER root
 RUN dnf install -y \
@@ -59,7 +59,9 @@ RUN _claude_bin="$(readlink -f /usr/local/bin/claude)" \
     && ln "$_claude_bin" /usr/local/bin/claude
 
 # System packages the agentic image does not provide. The base already ships
-# git, Node.js 26, npm, tar, gzip, findutils, shadow-utils, and iproute.
+# git, Node.js 26, npm, tar, gzip, findutils, shadow-utils, and iproute. gcc is
+# the C compiler and linker (cc) that cargo and rustc call for the rust
+# toolchain of a sandbox profile.
 RUN --mount=type=bind,from=builder,target=/builder \
     LD_LIBRARY_PATH=/builder/lib64:/builder/usr/lib64 \
     RPM_CONFIGDIR=/builder/usr/lib/rpm \
@@ -69,6 +71,7 @@ RUN --mount=type=bind,from=builder,target=/builder \
         --setopt=install_weak_deps=False \
         --setopt=tsflags=nodocs \
         curl \
+        gcc \
         python3 \
         python3.12 \
         jq \

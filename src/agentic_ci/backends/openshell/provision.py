@@ -17,7 +17,11 @@ special file, and every symlink and hard link must resolve inside the target
 directory (links are resolved through the archive's own symlinks). It
 extracts into a temporary directory next to the target, writes a marker with
 the sha256 and renames it into place, so a failed extraction leaves nothing
-half-installed.
+half-installed. For an archive with ``components`` (Rust), only the members
+under ``<component_root>/<component>/`` are extracted, links are refused
+there, and each component's files are moved into the toolchain directory as
+the tool's own installer would place them; a file two components both
+provide is refused.
 
 The marker only records what was installed; it is not an integrity check.
 The toolchain directory is writable by the agent, so an earlier run on a
@@ -39,8 +43,9 @@ from agentic_ci import log
 from agentic_ci.backends.openshell import sandbox
 from agentic_ci.toolchains import SANDBOX_TOOLCHAIN_ROOT, InstallPlan, ToolchainError
 
-# How long the upload, the in-sandbox check and the install may take (the Go
-# archive is about 70 MB, 250 MB once extracted; archives are at most 512 MiB).
+# How long the upload, the in-sandbox check and the install may take (the Rust
+# archive is about 210 MB, 650 MB once its components are merged; archives are
+# at most 512 MiB).
 _UPLOAD_TIMEOUT_SECONDS = 900
 _CHECK_TIMEOUT_SECONDS = 60
 _INSTALL_TIMEOUT_SECONDS = 900
@@ -65,6 +70,7 @@ REFUSALS = {
     "too-many-members": "the archive has too many members",
     "too-large": "the archive expands beyond the size limit",
     "name": "a launcher or binary name is invalid",
+    "component": "the archive lacks a listed component",
 }
 
 INSTALL_SCRIPT = r"""
@@ -203,7 +209,8 @@ def check_tar(members):
                 raise Refused("link")
 
 
-def extract_tar(archive, dest):
+def extract_tar(archive, dest, prefixes=()):
+    # With *prefixes*, only members at or under one of them are extracted.
     try:
         tar = tarfile.open(archive, "r:*")
     except (tarfile.TarError, OSError):
@@ -212,6 +219,14 @@ def extract_tar(archive, dest):
         members = tar.getmembers()
         check_tar(members)
         members = [m for m in members if norm(m.name) != ""]
+        if prefixes:
+            members = [
+                m
+                for m in members
+                if any(norm(m.name) == p or norm(m.name).startswith(p + "/") for p in prefixes)
+            ]
+            if any(m.issym() or m.islnk() for m in members):
+                raise Refused("link")
         if hasattr(tarfile, "data_filter"):
             tar.extractall(dest, members=members, filter="data")
         else:
@@ -264,6 +279,44 @@ def extract_zip(archive, dest):
                     dst.write(chunk)
             os.chmod(path, 0o755 if executable else 0o644)
             count += 1
+    return count
+
+
+def merge_components(plan, archive, dest):
+    # Extract the listed components and move their files into *dest*, the
+    # layout the tool's installer produces. Each component's manifest.in, the
+    # installer's file list, is not installed.
+    root = plan["component_root"]
+    components = plan["components"]
+    if not NAME_RE.fullmatch(root) or not all(NAME_RE.fullmatch(c) for c in components):
+        raise Refused("name")
+    stage = os.path.join(dest, ".agentic-ci-stage")
+    os.mkdir(stage)
+    extract_tar(archive, stage, [root + "/" + c for c in components])
+    count = 0
+    for component in components:
+        source = os.path.join(stage, root, component)
+        if not os.path.isdir(source) or os.path.islink(source):
+            raise Refused("component")
+        for dirpath, dirnames, filenames in os.walk(source):
+            relative = os.path.relpath(dirpath, source)
+            if relative.split("/")[0] == ".agentic-ci-stage":
+                raise Refused("member-path")
+            target_dir = os.path.normpath(os.path.join(dest, relative))
+            if os.path.lexists(target_dir) and not os.path.isdir(target_dir):
+                raise Refused("duplicate")
+            os.makedirs(target_dir, exist_ok=True)
+            for filename in filenames:
+                if relative == "." and filename == "manifest.in":
+                    continue
+                if relative == "." and filename == MARKER:
+                    raise Refused("member-path")
+                target = os.path.join(target_dir, filename)
+                if os.path.lexists(target):
+                    raise Refused("duplicate")
+                os.rename(os.path.join(dirpath, filename), target)
+                count += 1
+    shutil.rmtree(stage)
     return count
 
 
@@ -320,7 +373,9 @@ def extract(plan, archive):
     tmp = tempfile.mkdtemp(prefix="." + plan["name"] + "-", dir=root)
     try:
         wrappers = os.path.join(tmp, plan["wrapper_dir"])
-        if plan["archive"] == "tar.gz":
+        if plan["archive"] in ("tar.gz", "tar.xz") and plan.get("components"):
+            count = merge_components(plan, archive, tmp)
+        elif plan["archive"] in ("tar.gz", "tar.xz"):
             count = extract_tar(archive, tmp)
         elif plan["archive"] == "zip":
             count = extract_zip(archive, tmp)

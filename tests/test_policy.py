@@ -174,6 +174,10 @@ class TestEgressPresets:
         assert list(EGRESS_PRESETS["pypi"].endpoints) == PYPI
         assert EGRESS_PRESETS["npm"].endpoints == (NPM,)
         assert list(EGRESS_PRESETS["goproxy"].endpoints) == GOPROXY
+        assert EGRESS_PRESETS["crates"].endpoints == (
+            "index.crates.io:443:read-only:rest:enforce",
+            "static.crates.io:443:read-only:rest:enforce",
+        )
         assert EGRESS_PRESETS["github-release-assets"].endpoints == (
             "release-assets.githubusercontent.com:443:read-only:rest:enforce",
             "objects.githubusercontent.com:443:read-only:rest:enforce",
@@ -680,7 +684,7 @@ class TestToolchainHostsStayOffTheSandboxPolicy:
     # Hosts only the host-side toolchain download contacts. github.com is a
     # built-in agent default for git, and registry.npmjs.org comes only from
     # the npm preset, never from a toolchain.
-    DOWNLOAD_ONLY = {"dl.google.com", "go.dev", "nodejs.org", "get.helm.sh"}
+    DOWNLOAD_ONLY = {"dl.google.com", "go.dev", "nodejs.org", "get.helm.sh", "static.rust-lang.org"}
     ALL = dict.fromkeys(sorted(toolchains.CATALOG), "auto")
 
     def hosts(self, endpoints):
@@ -690,7 +694,9 @@ class TestToolchainHostsStayOffTheSandboxPolicy:
         catalog_hosts = set().union(*(e.hosts for e in toolchains.CATALOG.values()))
         assert self.DOWNLOAD_ONLY <= catalog_hosts
 
-    @pytest.mark.parametrize("egress", [(), ("npm", "goproxy", "pypi", "github-release-assets")])
+    @pytest.mark.parametrize(
+        "egress", [(), ("npm", "goproxy", "pypi", "github-release-assets", "crates")]
+    )
     def test_agent_endpoints_do_not_change_with_toolchains(self, tmp_path, egress):
         without = SandboxProfile(egress=egress)
         with_toolchains = SandboxProfile(egress=egress, toolchains=self.ALL)

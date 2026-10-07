@@ -47,14 +47,14 @@ from agentic_ci.toolchains import VERSION_RE as _VERSION_RE
 KNOWN_TOOLCHAINS = frozenset(TOOLCHAIN_CATALOG)
 """Toolchain names a profile may request: the entries of ``agentic_ci.toolchains.CATALOG``."""
 
-KNOWN_EGRESS_PRESETS = frozenset({"github-release-assets", "goproxy", "npm", "pypi"})
+KNOWN_EGRESS_PRESETS = frozenset({"crates", "github-release-assets", "goproxy", "npm", "pypi"})
 """Egress preset names a profile may request.
 
 The endpoints live in ``agentic_ci.backends.openshell.policy.EGRESS_PRESETS``,
 whose names a test keeps equal to this set; this module stays backend-neutral.
 """
 
-DEFAULT_OVERLAY_ALLOWED_PRESETS = frozenset({"goproxy", "npm", "pypi"})
+DEFAULT_OVERLAY_ALLOWED_PRESETS = frozenset({"crates", "goproxy", "npm", "pypi"})
 """Egress presets a repo overlay may add unless the caller allows others."""
 
 VALIDATE_KINDS = frozenset({"build", "generated", "lint", "test"})
