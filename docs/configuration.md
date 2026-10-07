@@ -45,9 +45,11 @@ allows: raw egress, `resources` and `overlay` are dropped, and only the
 and [Merge Precedence](sandbox-profiles.md#merge-precedence) for the rules,
 and [Sandbox Profiles](sandbox-profiles.md) for every field.
 
-The autofix bot reads the overlay from the target repo's base branch. Its
-[overlay guide](https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/blob/main/docs/operations/sandbox-overlay.md)
-walks a repo owner through writing one.
+[Write a Sandbox Overlay](guides/sandbox-overlay.md) walks a repo owner
+through writing one. The autofix bot reads the overlay from the target
+repo's base branch; its
+[overlay page](https://gitlab.com/redhat/rhel-ai/agentic-ci/autofix/-/blob/main/docs/operations/sandbox-overlay.md)
+covers what autofix adds.
 
 ## Network Policy (OpenShell)
 
