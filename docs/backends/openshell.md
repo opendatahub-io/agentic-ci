@@ -550,8 +550,9 @@ agent sets for its own use does not persist to the host.
 Because the sandbox has no internet access by default, repositories that
 need dependency installation (e.g. `npm ci` for Node.js projects) declare
 it as a [sandbox profile](../sandbox-profiles.md#setup-validation-and-records)'s
-`setup` steps, which run inside the sandbox with only the profile's egress
-presets open and no credential.
+`setup` steps (in a repo, the `sandbox:` section of `.agentic-ci/config.yml`;
+see [Sandbox Overlay](../configuration.md#sandbox-overlay)), which run inside
+the sandbox with only the profile's egress presets open and no credential.
 
 The older **host setup steps** in `.agentic-ci/config.yml` run on the host
 before the workdir is uploaded, and only when the caller opts in with
@@ -568,13 +569,6 @@ step's process group (`setsid`, `setpgid`, or shell job control such as
 `set -m`) is not killed. See
 [Project Configuration](../configuration.md#setup-steps-deprecated-host-path)
 for full details.
-
-```yaml
-# .agentic-ci/config.yml
-setup:
-  - name: Install dependencies
-    run: npm ci
-```
 
 ## Network Policy
 
