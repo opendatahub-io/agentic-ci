@@ -59,7 +59,7 @@ backend.stop()
 ## Learn more
 
 - [Local Development with OpenShell](guides/openshell-local.md) -- run agents in an OpenShell sandbox on your workstation
-- [Project Configuration](configuration.md) -- setup steps and per-repo config
+- [Project Configuration](configuration.md) -- the repo's sandbox overlay and other per-repo config
 - [OTEL Architecture](otel-architecture.md) -- collector, trace completeness, MLflow pipeline
 - [OTEL Configuration](otel-configuration.md) -- per-harness env var reference
 - [MLflow Trace Export](mlflow-traces.md) -- CI setup and enrichment details
