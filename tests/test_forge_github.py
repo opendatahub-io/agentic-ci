@@ -39,44 +39,65 @@ class TestCreateMergeRequest:
         mock_session.post.return_value = _make_response(
             201, {"html_url": "https://github.com/owner/repo/pull/42"}
         )
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://github.com/owner/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url == "https://github.com/owner/repo/pull/42"
         assert error is None
+        assert result.created is True
 
     def test_failure_returns_error(self, forge, mock_session):
         mock_session.get.return_value = _make_response(200, [])
         mock_session.post.return_value = _make_response(
             422, {"message": "Validation Failed"}, "error body"
         )
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://github.com/owner/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url is None
         assert error == "Validation Failed"
+        assert result.created is False
+
+    def test_success_without_url_returns_error(self, forge, mock_session):
+        mock_session.get.return_value = _make_response(200, [])
+        mock_session.post.return_value = _make_response(201, {})
+
+        result = forge.create_merge_request(
+            "https://github.com/owner/repo",
+            "feature-branch",
+            "main",
+            "Fix bug",
+            "Description",
+        )
+
+        assert result == (None, "PR created but response has no html_url")
+        assert result.created is False
 
     def test_returns_existing_open_pr(self, forge, mock_session):
         mock_session.get.return_value = _make_response(
             200, [{"html_url": "https://github.com/owner/repo/pull/99"}]
         )
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://github.com/owner/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url == "https://github.com/owner/repo/pull/99"
         assert error is None
+        assert result.created is False
         mock_session.post.assert_not_called()
 
     def test_draft_includes_draft_field(self, forge, mock_session):

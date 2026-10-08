@@ -22,6 +22,7 @@ from agentic_ci.forge import (
     DEFAULT_SKIP_PATTERNS,
     Forge,
     ForgeError,
+    MergeRequestResult,
     parse_github_pr_url,
     repo_path_from_url,
 )
@@ -47,7 +48,7 @@ class GitHubForge(Forge):
         title: str,
         description: str,
         draft: bool = False,
-    ) -> tuple[str | None, str | None]:
+    ) -> MergeRequestResult:
         repo_path = repo_path_from_url(repo_url)
 
         owner = repo_path.split("/")[0]
@@ -64,7 +65,7 @@ class GitHubForge(Forge):
             if prs:
                 existing_url = prs[0].get("html_url")
                 log.info("Found existing open PR: %s", existing_url)
-                return existing_url, None
+                return MergeRequestResult(existing_url, None, created=False)
 
         payload: dict[str, str | bool] = {
             "head": source_branch,
@@ -80,8 +81,13 @@ class GitHubForge(Forge):
         if resp.status_code not in (200, 201):
             error = extract_api_error(resp)
             log.error("HTTP %d creating PR: %s", resp.status_code, error)
-            return None, error
-        return resp.json().get("html_url"), None
+            return MergeRequestResult(None, error)
+        pr_url = resp.json().get("html_url")
+        if not isinstance(pr_url, str) or not pr_url:
+            error = "PR created but response has no html_url"
+            log.error(error)
+            return MergeRequestResult(None, error)
+        return MergeRequestResult(pr_url, None, created=True)
 
     def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         repo_path, pr_number = parse_github_pr_url(mr_url)
