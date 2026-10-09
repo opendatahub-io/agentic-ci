@@ -1,0 +1,3297 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run AI coding agents in sandboxed CI environments">
+      
+      
+      
+        <link rel="canonical" href="https://opendatahub-io.github.io/agentic-ci/sandbox-profiles/">
+      
+      
+        <link rel="prev" href="../backends/openshell/">
+      
+      
+        <link rel="next" href="../api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Sandbox Profiles - agentic-ci</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sandbox-profiles" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="agentic-ci" class="md-header__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            agentic-ci
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sandbox Profiles
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="agentic-ci" class="md-nav__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    agentic-ci
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/openshell-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Development with OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/sandbox-overlay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a Sandbox Overlay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Container Images
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Container Images
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image/extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../image/skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Sandbox Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backends/podman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backends/openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profiles
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Rules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Validation Rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reserved-environment-variable-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reserved environment variable names
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#central-profiles-and-repo-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Central Profiles and Repo Overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#merge-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge Precedence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#egress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Egress
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Egress">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phases-and-the-setup-shim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phases and the setup shim
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolchains
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Toolchains">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-forms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version forms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-things-live-and-the-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where things live and the environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-validation-and-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup, validation and records
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup, validation and records">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-a-step-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a step runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discard_before_download" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        discard_before_download
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmentmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ENVIRONMENT.md
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stream Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/otel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTEL Collector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generic Event Transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factory & Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sandbox_profile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/toolchains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/redact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/verdict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verdict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/git/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Git Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/forge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forge (GitHub/GitLab)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/jira/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jira
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Utilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/skill_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#validation-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation Rules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Validation Rules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reserved-environment-variable-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reserved environment variable names
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#central-profiles-and-repo-overlays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Central Profiles and Repo Overlays
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#merge-precedence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge Precedence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resources
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#egress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Egress
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Egress">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phases-and-the-setup-shim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phases and the setup shim
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Toolchains
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Toolchains">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#catalog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#version-forms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Version forms
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#auto-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-things-live-and-the-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where things live and the environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-validation-and-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup, validation and records
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Setup, validation and records">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-a-step-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How a step runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setup-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validate-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#discard_before_download" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        discard_before_download
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#records" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Records
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environmentmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ENVIRONMENT.md
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        env
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="sandbox-profiles">Sandbox Profiles<a class="headerlink" href="#sandbox-profiles" title="Permanent link">&para;</a></h1>
+<p>A sandbox profile describes what one target repo needs inside the agent
+sandbox: toolchains, network egress, setup and validation commands, checks the
+sandbox can never run, environment variables, resources, and paths to drop
+before the workdir is copied back. Callers build one with
+<code>agentic_ci.sandbox_profile.parse_profile()</code> and hand it to the skill runner
+as <code>SkillConfig.sandbox_profile</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">What takes effect in this release</p>
+<p>Every field takes effect in the OpenShell backend: it sizes the sandbox
+with <code>resources</code>, opens the <code>egress</code> presets and raw endpoints (see
+<a href="#egress">Egress</a>), provisions the <code>toolchains</code> (see
+<a href="#toolchains">Toolchains</a>), runs the <code>setup</code> steps in the sandbox before
+the agent and the <code>validate</code> commands after it, records the declared
+<code>skips</code>, exports <code>env</code>, removes the <code>discard_before_download</code> paths and
+tells the agent all of it in <code>ENVIRONMENT.md</code> (see
+<a href="#setup-validation-and-records">Setup, validation and records</a>). The
+host-side <code>setup:</code> of <code>.agentic-ci/config.yml</code> no longer runs by default:
+it is deprecated, runs only with the local opt-in <code>--allow-host-setup</code>
+(<code>SkillConfig.allow_host_setup</code>), which is refused in CI, and is not
+containment (see <a href="../configuration/#setup-steps-deprecated-host-path">Setup Steps</a>).
+A profile's <code>setup</code> steps are the replacement.</p>
+</div>
+<p>Sandbox profiles apply only to the OpenShell backend. The Podman and local
+backends log a warning and ignore a profile (with further warnings counting
+the toolchains they do not provision and the setup steps and validate
+commands they do not run). Profile steps never run on the host.</p>
+<h2 id="schema">Schema<a class="headerlink" href="#schema" title="Permanent link">&para;</a></h2>
+<p>The same shape is used in JSON (central configuration) and YAML (a repo
+overlay):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">toolchains</span><span class="p">:</span><span class="w">            </span><span class="c1"># name -&gt; version</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">go</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">node</span><span class="p">:</span><span class="w"> </span><span class="s">"22"</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">shfmt</span><span class="p">:</span><span class="w"> </span><span class="s">"3.12.0"</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nt">egress</span><span class="p">:</span><span class="w">                </span><span class="c1"># preset names; raw host:port:access strings are central-only</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">goproxy</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">npm</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nt">setup</span><span class="p">:</span><span class="w">                 </span><span class="c1"># commands run inside the sandbox before the agent</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">modules</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">go mod download</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">900</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="nt">validate</span><span class="p">:</span><span class="w">              </span><span class="c1"># ordered validation commands</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lint</span><span class="w">         </span><span class="c1"># lint | build | test | generated</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">make lint</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">900</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nt">skips</span><span class="p">:</span><span class="w">                 </span><span class="c1"># checks the sandbox can never run</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">match</span><span class="p">:</span><span class="w"> </span><span class="s">"unshare</span><span class="nv"> </span><span class="s">--net"</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">network namespaces are blocked by seccomp</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="nt">env</span><span class="p">:</span><span class="w">                   </span><span class="c1"># non-secret variables for the sandbox</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="nt">CGO_ENABLED</span><span class="p">:</span><span class="w"> </span><span class="s">"0"</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="nt">resources</span><span class="p">:</span><span class="w">             </span><span class="c1"># central only</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">  </span><span class="nt">memory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8Gi</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">  </span><span class="nt">cpu</span><span class="p">:</span><span class="w"> </span><span class="s">"4"</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="nt">discard_before_download</span><span class="p">:</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">node_modules</span>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="nt">overlay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">merge</span><span class="w">         </span><span class="c1"># central only: merge | ignore</span>
+</code></pre></div>
+<p>Every field is optional. A field set to <code>null</code> (for example an empty YAML
+key) means its default.</p>
+<h2 id="validation-rules">Validation Rules<a class="headerlink" href="#validation-rules" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>toolchains</code></td>
+<td>Name is an entry of the <a href="#catalog">toolchain catalog</a>: <code>buf</code>, <code>go</code>, <code>golangci-lint</code>, <code>helm</code>, <code>kustomize</code>, <code>node</code>, <code>pnpm</code>, <code>protoc</code>, <code>python</code>, <code>rust</code>, <code>shfmt</code>, <code>yq</code>. Version matches <code>^[0-9]{1,9}(\.[0-9]{1,9}){0,2}$</code> or is exactly <code>auto</code>; which forms resolve depends on the tool (see <a href="#version-forms">Version forms</a>).</td>
+</tr>
+<tr>
+<td><code>egress</code></td>
+<td>Preset names are <code>pypi</code>, <code>npm</code>, <code>goproxy</code>, <code>crates</code>, <code>github-release-assets</code>. An entry containing <code>:</code> is a raw endpoint, <code>host:port:access[:protocol[:enforcement[:options]]]</code>, with no whitespace: <code>host</code> is an ASCII host name or IPv4 address, optionally starting with a <code>*.</code> wildcard; <code>port</code> is 1 to 65535; <code>access</code> is <code>read-only</code>, <code>read-write</code> or <code>full</code>; <code>protocol</code> is empty, <code>rest</code>, <code>websocket</code> or <code>sql</code>; <code>enforcement</code> is empty, <code>enforce</code> or <code>audit</code>, and needs a protocol; <code>options</code> is a comma-separated list of <code>allow-uninspected-credentials</code>, <code>websocket-credential-rewrite</code>, <code>request-body-credential-rewrite</code> and <code>allowed-ip=IPV4[/BITS]</code>, and must not be empty when the field is present.</td>
+</tr>
+<tr>
+<td><code>setup</code>, <code>validate</code></td>
+<td>Each step has a <code>name</code> of letters, digits, <code>.</code>, <code>_</code> or <code>-</code>, unique within its list; a non-empty <code>run</code> string; and a <code>timeout</code> in seconds from 1 to 3600 (default 600). A <code>validate</code> step also has a <code>kind</code>: <code>lint</code>, <code>build</code>, <code>test</code> or <code>generated</code>.</td>
+</tr>
+<tr>
+<td><code>skips</code></td>
+<td>Each entry has non-empty <code>match</code> and <code>reason</code> strings.</td>
+</tr>
+<tr>
+<td><code>env</code></td>
+<td>Names match <code>^[A-Za-z_][A-Za-z0-9_]*$</code>. See <a href="#reserved-environment-variable-names">Reserved environment variable names</a> for the names that are rejected. Values are strings; integers are converted with <code>str()</code>, and booleans, decimals, null, lists and mappings are rejected.</td>
+</tr>
+<tr>
+<td><code>resources</code></td>
+<td><code>memory</code> is a positive quantity string: digits with an optional unit of <code>Ki</code>, <code>Mi</code>, <code>Gi</code> or <code>Ti</code> (<code>512Mi</code>, <code>8Gi</code>). <code>cpu</code> is a positive string or number such as <code>"4"</code>, <code>"2.5"</code> or <code>"500m"</code>. <code>gpu</code> is a non-negative integer.</td>
+</tr>
+<tr>
+<td><code>discard_before_download</code></td>
+<td>Workdir-relative paths. No absolute paths, no <code>..</code> component, no empty string, not the workdir itself (<code>.</code>), and not <code>.git</code> or anything under it. Paths are normalized (<code>./dist/</code> becomes <code>dist</code>).</td>
+</tr>
+<tr>
+<td><code>overlay</code></td>
+<td><code>merge</code> (default) or <code>ignore</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Every list and mapping holds at most 1000 entries (<code>MAX_ENTRIES</code>). Every
+pattern must match the whole value; a trailing newline is rejected.</p>
+<h3 id="reserved-environment-variable-names">Reserved environment variable names<a class="headerlink" href="#reserved-environment-variable-names" title="Permanent link">&para;</a></h3>
+<p>Profile <code>env</code> goes into the same environment as the harness, so names that
+would change the harness (Claude Code, Codex, OpenCode), agentic-ci or
+OpenShell, their telemetry or credentials, the dynamic loader, the shell,
+git, the XDG directories the harnesses keep their config and credentials
+in, or TLS and proxy settings are rejected. All checks ignore case.</p>
+<ul>
+<li>Names: <code>ALL_PROXY</code>, <code>BASH_ENV</code>, <code>CURL_CA_BUNDLE</code>, <code>DENO_CERT</code>, <code>ENV</code>,
+  <code>HOME</code>, <code>HTTP_PROXY</code>, <code>HTTPS_PROXY</code>, <code>IFS</code>, <code>METADATA_SERVER_DETECTION</code>,
+  <code>NODE_EXTRA_CA_CERTS</code>, <code>NODE_OPTIONS</code>, <code>NO_PROXY</code>, <code>PATH</code>, <code>PYTHONHOME</code>,
+  <code>PYTHONSTARTUP</code>, <code>REQUESTS_CA_BUNDLE</code>, <code>SSL_CERT_DIR</code>, <code>SSL_CERT_FILE</code>,
+  <code>TERM</code>, <code>USER</code>.</li>
+<li>Prefixes: <code>AGENT_</code>, <code>AGENTIC_CI_</code>, <code>ANTHROPIC_</code>, <code>CLAUDE_</code>, <code>CLOUD_ML_</code>,
+  <code>CODEX_</code>, <code>GCP_</code>, <code>GIT_</code>, <code>GOOGLE_</code>, <code>LD_</code>, <code>OPENAI_</code>, <code>OPENCODE_</code>,
+  <code>OPENSHELL_</code>, <code>OTEL_</code>, <code>VERTEX_</code>, <code>XDG_</code>.</li>
+<li>Any name containing <code>token</code>, <code>secret</code>, <code>key</code>, <code>password</code> or <code>credential</code>
+  (a substring match, case-insensitive).</li>
+<li>Any name with <code>pat</code> (personal access token) as a whole <code>_</code>-separated word,
+  such as <code>PAT</code>, <code>GH_PAT</code> or <code>PAT_FILE</code>. <code>GOPATH</code>, <code>PYTHONPATH</code>, <code>NODE_PATH</code>
+  and <code>CLASSPATH</code> are allowed.</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Quote versions</p>
+<p>YAML reads an unquoted <code>1.20</code> as the number <code>1.2</code>, so the original text
+cannot be recovered. Unquoted decimal versions are rejected; write
+<code>go: "1.20"</code>. Unquoted integers such as <code>node: 22</code> are accepted.</p>
+</div>
+<p>Errors raise <code>SandboxProfileError</code>, a <code>ValueError</code> whose message names the
+field path and the rule broken, for example
+<code>validate[2].kind: must be one of build, generated, lint, test</code>. Messages
+never include <code>env</code> values or <code>run</code> strings.</p>
+<h2 id="central-profiles-and-repo-overlays">Central Profiles and Repo Overlays<a class="headerlink" href="#central-profiles-and-repo-overlays" title="Permanent link">&para;</a></h2>
+<p><code>parse_profile(data, source=...)</code> takes <code>source="central"</code> for reviewed CI
+configuration and <code>source="overlay"</code> for a file from the target repo.
+A repo writes its overlay as the <code>sandbox:</code> section of <code>.agentic-ci/config.yml</code>
+(see <a href="../configuration/#sandbox-overlay">Sandbox Overlay</a>). Central
+profiles fail loudly on any problem. An overlay must not be able to break the
+run or widen what central configuration allows, so the parser drops these with
+a warning instead of raising:</p>
+<ul>
+<li>unknown keys, at the top level or inside a step, skip or resource entry</li>
+<li>unknown toolchains and egress presets</li>
+<li>rejected <code>env</code> names</li>
+<li>a step whose name repeats an earlier step in the same list</li>
+<li>raw egress endpoints</li>
+<li><code>resources</code> (runner capacity is a central cost)</li>
+<li><code>overlay</code></li>
+</ul>
+<p>Other overlay problems, such as a bad toolchain version or a step without a
+<code>run</code>, still raise; the caller decides whether to drop the whole overlay.
+Warnings quote untrusted names, so a name cannot add a line to a log or
+comment, and at most 50 are returned (<code>MAX_WARNINGS</code>), followed by one line
+counting the rest.</p>
+<h2 id="merge-precedence">Merge Precedence<a class="headerlink" href="#merge-precedence" title="Permanent link">&para;</a></h2>
+<p><code>merge_profiles(central, overlay)</code> combines the two:</p>
+<ul>
+<li>Both <code>None</code>: returns <code>None</code>.</li>
+<li>A central profile with <code>overlay: ignore</code> drops the overlay entirely, with
+  one warning when an overlay was given.</li>
+<li>Central scalars and map keys win: <code>toolchains</code>, <code>env</code>, <code>resources</code> and
+  <code>overlay</code>.</li>
+<li>Lists (<code>setup</code>, <code>validate</code>, <code>skips</code>, <code>egress</code>, <code>discard_before_download</code>)
+  are concatenated central first and de-duplicated. Steps are matched by
+  <code>name</code> and skips by <code>match</code>; an overlay step or skip that the central
+  profile already defines is dropped with a warning.</li>
+<li>An overlay skip is dropped with a warning when its <code>match</code> and the name
+  or <code>run</code> of a central <code>validate</code> step contain one another, ignoring case
+  (for example <code>TEST</code> or <code>unit tests</code> against a step <code>unit</code> that runs
+  <code>make test</code>), so a repo cannot skip validation that central configuration
+  requires.</li>
+<li>Overlay egress presets outside <code>overlay_allowed_presets</code> (default <code>pypi</code>,
+  <code>npm</code>, <code>goproxy</code>, <code>crates</code>) are dropped with a warning.</li>
+<li>An overlay built directly instead of by <code>parse_profile()</code> is held to the
+  same rules: unknown toolchains, bad toolchain versions and rejected <code>env</code>
+  names are dropped with a warning.</li>
+<li>An overlay with no central profile is merged into a default envelope:
+  <code>overlay: merge</code>, only allowed presets, no resources and no raw egress.</li>
+</ul>
+<p>The result is a <code>MergedProfile</code> with the effective profile and a tuple of
+warnings. It never raises for an overlay that <code>parse_profile(...,
+source="overlay")</code> accepted.</p>
+<h2 id="serialization">Serialization<a class="headerlink" href="#serialization" title="Permanent link">&para;</a></h2>
+<p><code>profile_to_dict()</code> returns the shape <code>parse_profile()</code> accepts, so a central
+profile round-trips. <code>profile_hash()</code> is the sha256 hex digest of that dict as
+canonical JSON (<code>sort_keys=True</code>, compact separators).</p>
+<h2 id="resources">Resources<a class="headerlink" href="#resources" title="Permanent link">&para;</a></h2>
+<p>When the OpenShell backend receives a profile with <code>resources</code>, each of
+<code>memory</code>, <code>cpu</code> and <code>gpu</code> comes from the profile unless the caller passed that
+value to the backend explicitly; explicit values win. The backend logs one line
+saying where each value came from. As with explicit values, resources apply
+only when the sandbox is created; see
+<a href="../backends/openshell/#sandbox-resources">Sandbox Resources</a>.</p>
+<h2 id="egress">Egress<a class="headerlink" href="#egress" title="Permanent link">&para;</a></h2>
+<p>With a profile, the OpenShell backend builds the sandbox's network policy from
+the built-in defaults, the endpoints the harness's auth mode needs, and then
+the profile's egress: the endpoints of each preset open in the <code>agent</code> phase,
+followed by the profile's raw endpoints (central only), de-duplicated. These
+rules are bound to the agent binaries, like the defaults. The repo's
+<code>.agentic-ci/openshell-policy.yml</code> is ignored when a profile is set, so only
+reviewed configuration opens egress; the log says <code>Policy source: sandbox
+profile</code>, with <code>(repo policy file ignored)</code> appended when the repo has that
+file. An explicit <code>--policy</code> flag still applies.
+Without a profile the policy is exactly what it was before profiles existed.</p>
+<p>The profile's hash is recorded in the sandbox identity file, so a changed
+profile recreates the sandbox instead of reusing one with the old egress. A
+reused sandbox is switched to the <code>agent</code> phase before anything runs, in case
+an earlier run stopped in <code>setup</code> or <code>validate</code>. Resources the profile set
+are not reported as "not applied" on reuse, since the hash guarantees them.</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>Endpoints (all <code>443:read-only:rest:enforce</code>)</th>
+<th>Phases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pypi</code></td>
+<td><code>pypi.org</code>, <code>files.pythonhosted.org</code></td>
+<td>setup, validate, agent</td>
+</tr>
+<tr>
+<td><code>npm</code></td>
+<td><code>registry.npmjs.org</code></td>
+<td>setup, validate, agent</td>
+</tr>
+<tr>
+<td><code>goproxy</code></td>
+<td><code>proxy.golang.org</code>, <code>sum.golang.org</code>, <code>storage.googleapis.com</code></td>
+<td>setup, validate, agent</td>
+</tr>
+<tr>
+<td><code>crates</code></td>
+<td><code>index.crates.io</code>, <code>static.crates.io</code></td>
+<td>setup, validate, agent</td>
+</tr>
+<tr>
+<td><code>github-release-assets</code></td>
+<td><code>release-assets.githubusercontent.com</code>, <code>objects.githubusercontent.com</code>, <code>raw.githubusercontent.com</code></td>
+<td>setup, validate, agent</td>
+</tr>
+</tbody>
+</table>
+<p>The endpoint lists live in <code>agentic_ci.backends.openshell.policy.EGRESS_PRESETS</code>.
+Raw endpoints apply to all three phases.</p>
+<p><code>crates</code> covers cargo's sparse index (<code>index.crates.io</code>, the default
+protocol from cargo 1.70; the rust toolchain sets it for older releases too)
+and the crate downloads its <code>config.json</code> points to (<code>static.crates.io</code>).
+The crates.io API host is left out, since only search and publish use it.
+Git dependencies need their forge host, which only central configuration can
+open.</p>
+<p>Presets are read-only at L7. <code>rest</code> makes the OpenShell proxy terminate TLS
+and inspect every HTTP request, and <code>read-only</code> then allows only <code>GET</code>, <code>HEAD</code>
+and <code>OPTIONS</code>; any other method gets a <code>403</code> from the proxy (a JSON body with
+<code>"error": "policy_denied"</code>) and never reaches the registry. <code>enforce</code> is
+required, because OpenShell defaults to <code>audit</code>, which only logs the denied
+request and forwards it. Without a protocol an endpoint is an L4 <code>CONNECT</code>
+tunnel, where <code>read-only</code> blocks nothing: <code>npm publish</code> or an upload to any
+Cloud Storage bucket would get through. Reads still go out, so data sent in a
+<code>GET</code> request (a path or query string) remains an accepted residual risk. The
+proxy's CA is trusted through the variables OpenShell sets in the sandbox
+(<code>SSL_CERT_FILE</code>, <code>REQUESTS_CA_BUNDLE</code>, <code>NODE_EXTRA_CA_CERTS</code> and others).</p>
+<p>The <code>npm</code> preset's endpoint also allows an encoded slash
+(<code>allow_encoded_slash</code>): npm and pnpm fetch a scoped package's metadata as
+<code>/@scope%2fname</code>, and OpenShell's L7 check rejects <code>%2F</code> by default, which
+would deny every scoped package. <code>openshell policy update --add-endpoint</code>
+cannot set that option, so agentic-ci sets it in the YAML policy it applies
+with <code>openshell policy set</code>: on every phase switch, and right after creating
+a sandbox whose endpoints include the npm host, for profiles without setup
+or validate steps. The hosts that need it are
+<code>agentic_ci.backends.openshell.policy.ENCODED_SLASH_HOSTS</code>.</p>
+<p>A preset host always has exactly one endpoint, the preset's, in every phase.
+Any other endpoint on port <code>443</code> whose host overlaps a preset host the
+profile opens in that phase (the same host, or a wildcard such as
+<code>*.googleapis.com</code> that covers it) is replaced in its place by the preset's
+endpoint, whatever its access or protocol. That covers the defaults
+(<code>pypi.org:443:read-only</code> and <code>files.pythonhosted.org:443:read-only</code>, so with
+the <code>pypi</code> preset the agent also reaches PyPI through the L7 read-only rule),
+raw endpoints and <code>--policy</code> entries. A replaced raw or <code>--policy</code> endpoint is
+counted in a <code>WARNING: N egress endpoint(s) for an egress preset host
+replaced</code> line; a replaced wildcard no longer opens its other hosts, so list
+those explicitly. Without this the phases would differ: <code>openshell policy
+update</code> folds a second endpoint for a host into the preset's rule and keeps
+the preset's access for the agent, while a shim phase policy has one rule per
+endpoint, so a raw <code>registry.npmjs.org:443:full</code> would reopen <code>PUT</code> to the
+shim. Endpoints on another port, and every other raw endpoint, keep the
+access and protocol central configuration gives them. Without a profile
+nothing is replaced.</p>
+<h3 id="phases-and-the-setup-shim">Phases and the setup shim<a class="headerlink" href="#phases-and-the-setup-shim" title="Permanent link">&para;</a></h3>
+<p>A sandbox moves through three egress phases: <code>setup</code> (before the agent),
+<code>agent</code>, and <code>validate</code> (after the agent). For <code>setup</code> and <code>validate</code>, the
+backend adds one rule per endpoint of the presets open in that phase plus the
+raw endpoints, bound only to the setup shim
+<code>/usr/local/bin/agentic-ci-sandbox-setup</code>, and parks the agent's rules: each
+agent binary path becomes <code>/proc/agentic-ci-parked/&lt;path&gt;</code>, which no process
+can match, so a step that runs <code>codex</code> (or another agent binary) under the
+shim gets no agent egress. The <code>agent</code> phase strips every shim rule and
+restores the agent's rules unchanged, credential bindings included. The shim
+only gets the profile's presets and raw endpoints, never the default forge
+rules, LLM endpoints or the OTel collector (a preset such as <code>pypi</code> can still
+name a host that the defaults also allow): a raw endpoint whose host overlaps
+an agent-only host, or that carries a credential option such as
+<code>allow-uninspected-credentials</code>, is left out of the shim's rules and only
+their count is logged. The agent-only hosts are the hosts of every auth
+mode's endpoints, every endpoint host of the provider profiles agentic-ci
+vendors (<code>src/agentic_ci/backends/openshell/profiles/</code>, read at import, which
+fails on a malformed profile), <code>oauth2.googleapis.com</code>,
+<code>*.aiplatform.googleapis.com</code> and the OTel collector
+(<code>host.openshell.internal</code>). Wildcards on either side are compared as
+patterns, so <code>*.googleapis.com</code> overlaps <code>oauth2.googleapis.com</code>, and the
+Vertex profile's <code>*-aiplatform.googleapis.com</code> keeps
+<code>us-central1-aiplatform.googleapis.com</code> from the shim. The vendored profiles
+declare <code>api.openai.com</code>, <code>api.anthropic.com</code> and the Vertex AI hosts
+(<code>*-aiplatform.googleapis.com</code>, <code>aiplatform.googleapis.com</code>,
+<code>aiplatform.us.rep.googleapis.com</code>, <code>aiplatform.eu.rep.googleapis.com</code>),
+which no longer appear in any auth mode's endpoints. Each switch replaces
+the whole policy with <code>openshell policy set</code> and closes every open proxied
+connection, so it happens only while nothing runs in the sandbox.</p>
+<p>The shim lets setup and validate reach preset hosts without widening the
+agent's egress. It is an extra layer, not isolation: it is not a boundary
+against the agent, and any sandbox process that ran it while shim rules are
+live would get the shim's egress. OpenShell has no per-exec kill (a process an
+exec leaves running survives the exec) and no per-exec network profile, so the
+protections are, on every switch:</p>
+<ul>
+<li><strong>Shim rules exist only in <code>setup</code> and <code>validate</code>.</strong> The <code>agent</code> phase
+  strips them, and it must be in effect before the agent starts.</li>
+<li><strong>The agent's rules are parked</strong> while shim rules are live (see above).</li>
+<li><strong>Leftover processes are killed.</strong> Before any phase opens, a scan run as the
+  sandbox user inside the sandbox SIGKILLs every process of that user except
+  the sandbox's main process (<code>sleep infinity</code>, identified by the PID and start
+  time recorded right after <code>sandbox create</code> and saved with the sandbox
+  identity) and the scan itself: the agent's background jobs and <code>setsid</code>
+  daemons, earlier setup or validate steps, and what they started. Processes
+  are killed one by one, never by process group, since exec'd commands share
+  the supervisor's group. If anything survives, or the recorded main process
+  is not running (a stale record: nothing is killed then), the switch fails
+  and the phase does not run; a reused sandbox that cannot be switched to
+  <code>agent</code> is recreated. The scan, like every internal exec, runs with
+  <code>--no-login-shell</code>, so an agent-written <code>~/.bash_profile</code> cannot replace
+  it or start anything after it. The kill also runs on the way into <code>agent</code>,
+  so every phase starts with only the main process: a setup leftover could
+  otherwise write the workdir while the agent works, and on a reused sandbox
+  the previous run's processes would run next to the new agent. Setup
+  therefore cannot start a service for the agent or for validate.</li>
+<li><strong>The credential provider is detached</strong> while <code>setup</code> or <code>validate</code> is
+  open, for openai, api-key (Anthropic) and vertex auth. The rule OpenShell
+  composes from agentic-ci's provider profile binds the API hosts to the agent
+  binaries and is not part of <code>policy get --base</code>, so parking cannot remove
+  it, and a step could otherwise spend the credential by running an agent
+  binary under the shim. A running sandbox keeps injecting for up to about
+  10 s after <code>openshell sandbox provider detach</code>, so the switch first makes
+  sure a fresh exec gets the provider placeholder (attaching the provider if
+  not), detaches (<code>--wait</code>, which returns once the supervisor has installed
+  the change), and then checks (for up to 30 s) until a fresh exec no longer
+  gets it: the supervisor swaps a sandbox's environment and its credential
+  bindings together, and after the swap no placeholder resolves, including
+  one issued before the detach. That probe covers injection only; the
+  provider's composed rule leaves with the policy the supervisor reloads in
+  the same poll, and the phase's <code>policy set --wait</code>, issued after the
+  detach, confirms it whenever the policy changes. Detaching closes the
+  provider's route to the API hosts, not the credential: with api-key auth
+  the agent already holds the real key (the env script exports it until
+  RHAI-3011 is fixed) and could leave it in the workdir for setup or validate
+  code it also wrote to send out through the shim's egress. With openai and
+  vertex auth the agent only sees the placeholder. The <code>agent</code> switch
+  attaches the provider again and waits for the placeholder, so the agent
+  can authenticate; this also repairs a reused sandbox a run left detached.
+  The placeholder does not change across the detach and the attach, so one
+  the agent stored earlier (Codex's <code>auth.json</code>) still resolves. The <code>oauth</code>
+  mode has no provider.</li>
+</ul>
+<p>While the agent phase is in effect, the agent can still spend its own key
+through an agent binary wrapper such as <code>codex sandbox -- curl</code> (see
+<a href="../backends/openshell/#api-key-direct-anthropic-api">API Key</a>); detaching
+covers only setup and validate.</p>
+<p>The shim is a small static binary in the OpenShell sandbox images. It runs its
+arguments as a child process in a new process group, waits, forwards
+<code>SIGTERM</code>, <code>SIGINT</code>, <code>SIGHUP</code> and <code>SIGQUIT</code> to that whole group (so a step
+killed on timeout takes its own children with it), and exits with the child's
+status (<code>128+N</code> for a signal).
+OpenShell matches a connection by the caller's executable and its parent
+chain, so a command started through the shim, and everything it starts, gets
+the shim's rules; a bare process, or one the shim leaves behind after it
+exits, does not, and a process an earlier exec left running is killed before
+the phase opens anyway. The profile's setup steps and validate commands run
+through the shim (see <a href="#setup-validation-and-records">Setup, validation and records</a>).</p>
+<h2 id="toolchains">Toolchains<a class="headerlink" href="#toolchains" title="Permanent link">&para;</a></h2>
+<p>The OpenShell backend provisions each toolchain of the profile right after
+the workdir upload, before any setup step (see
+<a href="../backends/openshell/#setup-order">Setup order</a>). The work is split so that
+nothing from the repo or an archive ever runs on the host:</p>
+<ol>
+<li><strong>Host: resolve.</strong> The requested version becomes an exact release. For
+   <code>auto</code>, the host reads repo files at the workdir root as data (see
+   <a href="#auto-sources"><code>auto</code> sources</a>).</li>
+<li><strong>Host: download and verify.</strong> The host fetches the tool's official
+   checksum source and the archive, over HTTPS, from the entry's fixed
+   hosts only (a redirect to any other host is refused), with size and
+   time limits (32 MiB and 120 s for indexes and checksum files, 512 MiB
+   and 900 s for archives). For a GitHub release, every github.com hop,
+   redirects included, must stay under the entry's own
+   <code>/&lt;owner&gt;/&lt;repo&gt;/releases/</code> path, so a renamed or transferred repo
+   cannot supply the archive or its checksum, and GitHub's asset hosts are
+   accepted only as the last hop of such a redirect. A connection error or
+   a 5xx status before the body starts is retried twice (after 2 s and
+   5 s, within the time limit). The archive is kept only if its digest
+   matches the official one; a mismatch, or a missing checksum, fails
+   closed and nothing is installed.</li>
+<li><strong>Host: cache.</strong> Verified archives are stored in
+   <code>~/.cache/agentic-ci/toolchains/&lt;sha256&gt;</code> (<code>AGENTIC_CI_TOOLCHAIN_CACHE</code>
+   moves it), written to a temporary file and renamed, so a cache hit skips
+   the download. A cached archive is hashed again before use.</li>
+<li><strong>Sandbox: extract.</strong> The archive is uploaded (900 s limit; a failed
+   upload is removed again) and extracted by the sandbox image's
+   <code>/usr/bin/python3</code> (<code>tarfile</code> with gzip or xz, <code>zipfile</code>; the images ship
+   python3, tar, gzip and xz but no unzip) into
+   <code>/sandbox/.local/toolchains/&lt;name&gt;-&lt;version&gt;</code>. The upload is opened once
+   (not through a symlink, a regular file only) and copied into a fresh
+   private directory while it is hashed; only that copy, with the sha256
+   the host verified, is extracted. Every member is checked before anything
+   is extracted: no absolute path, no <code>..</code>, no member under a symlink, no
+   duplicate, no device, FIFO or other special file, and every symlink or
+   hard link must resolve inside the target directory. The extraction goes
+   to a temporary directory that is renamed into place with a marker file
+   recording the sha256. For <code>rust</code>, only the listed components of the
+   standalone installer are extracted (links in them are refused) and their
+   files are merged into one tree, the layout the installer's <code>install.sh</code>
+   produces, without running it; a file two components both provide is
+   refused.</li>
+</ol>
+<p>A reused sandbox skips a toolchain only when the host's record of that
+sandbox (the saved sandbox identity lists every toolchain directory it
+installed, with its sha256) and the marker agree; such a toolchain is not
+downloaded, and it is not even read from the host cache (pnpm, whose
+official digest is sha512, is read from the cache to learn its sha256).
+Anything else is installed again, which replaces the directory. The marker
+only records what was installed: it is not an integrity check of the
+installed files. <code>/sandbox/.local</code> is writable by the agent, so a directory
+an earlier agent planted (even with a matching marker) is never trusted,
+but files an earlier agent run changed inside a recorded toolchain are not
+detected either. A changed profile, toolchains included, recreates the
+sandbox and with it the record.</p>
+<p>A toolchain that cannot be resolved, downloaded, verified or extracted is
+recorded as <code>failed</code> and skipped; the other toolchains and the run go on.
+Results go to the job log and, for skill runs, to <code>_run/toolchains.json</code> on
+the host, one entry per toolchain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">[</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"go"</span><span class="p">,</span><span class="w"> </span><span class="nt">"requested"</span><span class="p">:</span><span class="w"> </span><span class="s2">"auto"</span><span class="p">,</span><span class="w"> </span><span class="nt">"resolved"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.26.5"</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">   </span><span class="nt">"sha256"</span><span class="p">:</span><span class="w"> </span><span class="s2">"9fa5..."</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"installed"</span><span class="p">,</span><span class="w"> </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">}</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">]</span>
+</code></pre></div>
+<p><code>status</code> is <code>installed</code>, <code>present</code> (a reused sandbox already had it, by
+the host's record and the marker) or <code>failed</code>, with <code>reason</code> saying why.
+<code>run()</code> writes the file again after the workdir download, since the
+workdir's <code>_run</code> comes back from the sandbox too and the host's record must
+win. Reasons are fixed messages plus validated
+versions and file names; they never contain repo file content, exception
+text or command output.</p>
+<p>The download hosts (<code>go.dev</code>, <code>dl.google.com</code>, <code>nodejs.org</code>,
+<code>static.rust-lang.org</code>, <code>registry.npmjs.org</code> as a download source, GitHub
+release downloads, <code>get.helm.sh</code>) are contacted by the host only. Toolchains add nothing to the
+sandbox policy: the sandbox reaches a registry only through an
+<a href="#egress">egress preset</a>.</p>
+<h3 id="catalog">Catalog<a class="headerlink" href="#catalog" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Archive (host)</th>
+<th>Checksum source</th>
+<th><code>PATH</code> entry</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>go</code></td>
+<td><code>dl.google.com/go/go&lt;v&gt;.linux-&lt;arch&gt;.tar.gz</code></td>
+<td><code>go.dev/dl/?mode=json&amp;include=all</code> (<code>sha256</code>)</td>
+<td><code>go/bin</code></td>
+</tr>
+<tr>
+<td><code>node</code></td>
+<td><code>nodejs.org/dist/v&lt;v&gt;/node-v&lt;v&gt;-linux-&lt;arch&gt;.tar.gz</code></td>
+<td><code>SHASUMS256.txt</code> of the release</td>
+<td><code>node-v&lt;v&gt;-linux-&lt;arch&gt;/bin</code></td>
+</tr>
+<tr>
+<td><code>pnpm</code></td>
+<td><code>registry.npmjs.org/pnpm/-/pnpm-&lt;v&gt;.tgz</code></td>
+<td>npm <code>dist.integrity</code> (sha512)</td>
+<td>launchers <code>pnpm</code>, <code>pnpx</code> (run with <code>node</code>)</td>
+</tr>
+<tr>
+<td><code>shfmt</code></td>
+<td>GitHub release of <code>mvdan/sh</code></td>
+<td><code>sha256sums.txt</code></td>
+<td>the binary</td>
+</tr>
+<tr>
+<td><code>golangci-lint</code></td>
+<td>GitHub release</td>
+<td><code>golangci-lint-&lt;v&gt;-checksums.txt</code></td>
+<td><code>golangci-lint-&lt;v&gt;-linux-&lt;arch&gt;</code></td>
+</tr>
+<tr>
+<td><code>helm</code></td>
+<td><code>get.helm.sh/helm-v&lt;v&gt;-linux-&lt;arch&gt;.tar.gz</code></td>
+<td><code>.sha256sum</code> next to it</td>
+<td><code>linux-&lt;arch&gt;</code></td>
+</tr>
+<tr>
+<td><code>yq</code></td>
+<td>GitHub release of <code>mikefarah/yq</code></td>
+<td><code>checksums</code> (the <code>SHA-256</code> column named by <code>checksums_hashes_order</code>)</td>
+<td>the binary</td>
+</tr>
+<tr>
+<td><code>kustomize</code></td>
+<td>GitHub release (<code>kustomize/v&lt;v&gt;</code> tag)</td>
+<td><code>checksums.txt</code></td>
+<td>the archive root</td>
+</tr>
+<tr>
+<td><code>buf</code></td>
+<td>GitHub release</td>
+<td><code>sha256.txt</code></td>
+<td><code>buf/bin</code></td>
+</tr>
+<tr>
+<td><code>protoc</code></td>
+<td>GitHub release of <code>protocolbuffers/protobuf</code> (zip)</td>
+<td><code>tool_integrity.bzl</code> from v36.0; a vendored table before</td>
+<td><code>bin</code></td>
+</tr>
+<tr>
+<td><code>python</code></td>
+<td>GitHub release of <code>astral-sh/python-build-standalone</code> (the <code>install_only</code> builds uv uses)</td>
+<td><code>SHA256SUMS</code> of the newest release</td>
+<td><code>python/bin</code></td>
+</tr>
+<tr>
+<td><code>rust</code></td>
+<td><code>static.rust-lang.org/dist/rust-&lt;v&gt;-&lt;arch&gt;-unknown-linux-gnu.tar.xz</code> (about 210 MB; the <code>rustc</code>, <code>rust-std</code>, <code>cargo</code>, <code>clippy-preview</code> and <code>rustfmt-preview</code> components, about 650 MB installed)</td>
+<td><code>.sha256</code> next to it</td>
+<td><code>bin</code></td>
+</tr>
+</tbody>
+</table>
+<p>protoc publishes no checksum manifest before v36.0, so agentic-ci vendors the
+sha256 of 28.3, 29.5, 30.2, 31.1, 32.1, 33.0, 33.6, 34.1 and 35.1
+(<code>agentic_ci.toolchains.PROTOC_SHA256</code>); any other version before 36.0 is
+refused. Every vendored sha256 was computed from the release download and
+cross-checked against a second source: 28.3 to 33.0 against the
+<code>aspect-build/toolchains_protoc</code> table, 33.6, 34.1 and 35.1 against the
+integrity table inside protobuf's own release source archive, whose digest
+the Bazel Central Registry pins. protoc versions are exactly <code>MAJOR.MINOR</code>
+(<code>33.0</code>, not <code>33.0.0</code>). The machine is the host's (<code>x86_64</code> or <code>aarch64</code>), since OpenShell
+runs the sandbox natively.</p>
+<h3 id="version-forms">Version forms<a class="headerlink" href="#version-forms" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Exact</strong> (<code>1.26.5</code>, <code>22.19.0</code>, protoc <code>33.0</code>): every tool.</li>
+<li><strong>Partial</strong> (<code>22</code>, <code>1.26</code>): resolves to the newest matching release for
+  <code>go</code> (stable releases in the go.dev JSON), <code>node</code> (<code>index.json</code>, releases
+  with a Linux build for the machine), <code>pnpm</code> (the npm registry, no
+  prereleases), <code>python</code> (the builds in the newest python-build-standalone
+  release) and <code>rust</code> (<code>MAJOR.MINOR</code> only: the <code>[pkg.rust]</code> version of
+  <code>channel-rust-&lt;MAJOR.MINOR&gt;.toml</code>, that minor release's newest patch). For
+  every other tool a partial version is an error that asks for an exact
+  version.</li>
+<li><strong>Minimum</strong> (<code>rust</code> only): 1.68. An earlier release is refused before any
+  download, since its cargo cannot use the sparse crates.io index, the only
+  index the <code>crates</code> preset opens.</li>
+<li><strong><code>auto</code></strong>: see below; the version read is then resolved like a requested
+  one, so <code>go 1.26</code> in go.mod gives the newest 1.26.x.</li>
+</ul>
+<p>A partial <code>python</code> version resolves against the newest
+python-build-standalone release, which carries one patch release per minor
+version. An exact version it lacks (<code>3.12.3</code>, say, once a newer 3.12 ships)
+resolves through <code>agentic_ci.toolchains.PYTHON_BUILD_TAGS</code>, a vendored table
+of the release that holds each CPython 3.9 and later version's newest build
+(taken from uv's download metadata); its sha256 still comes from that
+release's <code>SHA256SUMS</code>. A version released after agentic-ci and already
+superseded in the newest release is an error until the table is updated.</p>
+<h3 id="auto-sources"><code>auto</code> sources<a class="headerlink" href="#auto-sources" title="Permanent link">&para;</a></h3>
+<p>Files are read from the workdir root, at most 256 KiB each (1 MiB for
+<code>package.json</code>), as UTF-8 text. A symlink is followed only while it stays
+inside the workdir, and anything but a regular file is refused. Every value
+read must match the version regex; nothing is ever executed.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Sources, first found wins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>go</code></td>
+<td><code>go.mod</code>: the higher of the <code>toolchain goX.Y.Z</code> and <code>go</code> lines, as the go command needs both (<code>toolchain default</code> counts as absent)</td>
+</tr>
+<tr>
+<td><code>node</code></td>
+<td><code>.nvmrc</code>, <code>.node-version</code> (a leading <code>v</code> is dropped), <code>package.json</code> <code>engines.node</code>, <code>.tool-versions</code> (<code>nodejs</code> or <code>node</code>)</td>
+</tr>
+<tr>
+<td><code>pnpm</code></td>
+<td><code>package.json</code> <code>packageManager</code>: <code>pnpm@X.Y.Z</code> or <code>pnpm@X.Y.Z+sha512.&lt;hex&gt;</code>; with the hash, the registry's sha512 must match it too</td>
+</tr>
+<tr>
+<td><code>python</code></td>
+<td><code>.python-version</code>, <code>.tool-versions</code> (<code>python</code>)</td>
+</tr>
+<tr>
+<td><code>rust</code></td>
+<td><code>rust-toolchain</code> (TOML, or the legacy bare channel line), <code>rust-toolchain.toml</code> (<code>channel</code> in <code>[toolchain]</code>), <code>.tool-versions</code> (<code>rust</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><code>engines.node</code> accepts only simple forms: an exact or partial version, or
+<code>^</code>, <code>~</code> or <code>&gt;=</code> followed by a major (<code>&gt;=22</code> resolves the newest 22.x).
+Anything else, such as <code>&gt;=22.18.0 &lt;23</code> or <code>lts/*</code> in <code>.nvmrc</code>, is an error
+naming the file. A rust <code>channel</code> must be a version: <code>stable</code>, <code>beta</code>,
+<code>nightly</code>, a dated or target-suffixed channel and a <code>path</code> toolchain are
+errors, and <code>components</code> and <code>targets</code> are ignored (the toolchain always
+has the five components above, for the host's target only). <code>auto</code> for any
+other tool is an error.</p>
+<h3 id="where-things-live-and-the-environment">Where things live and the environment<a class="headerlink" href="#where-things-live-and-the-environment" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>What</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/sandbox/.local/toolchains/&lt;name&gt;-&lt;version&gt;/</code></td>
+<td>extracted toolchain, with <code>.agentic-ci-toolchain.json</code> (the marker)</td>
+</tr>
+<tr>
+<td><code>/sandbox/.local/gopath</code></td>
+<td><code>GOPATH</code> (its <code>bin</code> is on <code>PATH</code>)</td>
+</tr>
+<tr>
+<td><code>/sandbox/.cache/go-mod</code>, <code>/sandbox/.cache/go-build</code></td>
+<td><code>GOMODCACHE</code>, <code>GOCACHE</code></td>
+</tr>
+<tr>
+<td><code>/sandbox/.cache/npm</code></td>
+<td><code>npm_config_cache</code></td>
+</tr>
+<tr>
+<td><code>/sandbox/.cache/pnpm-store</code></td>
+<td><code>npm_config_store_dir</code> (pnpm 10 and earlier), <code>pnpm_config_store_dir</code> (pnpm 11)</td>
+</tr>
+<tr>
+<td><code>/sandbox/.local/cargo</code></td>
+<td><code>CARGO_HOME</code> (registry cache and <code>cargo install</code> binaries; its <code>bin</code> is on <code>PATH</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>All of it is outside the workdir, so none of it is downloaded back or
+committed. The env script sourced before the agent prepends each
+provisioned toolchain's <code>PATH</code> entries and exports <code>GOTOOLCHAIN=local</code>,
+<code>GOPATH</code>, <code>GOMODCACHE</code> and <code>GOCACHE</code> (with go), <code>npm_config_cache</code> (with
+node or pnpm), the pnpm store variables (with pnpm), and <code>CARGO_HOME</code> and
+<code>CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse</code> (with rust). <code>CARGO_TARGET_DIR</code>
+is not set, so builds write <code>target/</code> in the workdir; list it in
+<code>discard_before_download</code> to keep it out of the download. A toolchain that
+failed exports nothing. <code>GOTOOLCHAIN=local</code> makes a go.mod that needs a
+newer Go fail (<code>go.mod requires go &gt;= ...; GOTOOLCHAIN=local</code>) instead of
+downloading that toolchain. <code>OpenShellBackend.toolchain_env</code> holds the same
+variables, which the setup steps and validate commands get too.</p>
+<h2 id="setup-validation-and-records">Setup, validation and records<a class="headerlink" href="#setup-validation-and-records" title="Permanent link">&para;</a></h2>
+<p>The OpenShell backend runs the profile's <code>setup</code> steps and <code>validate</code>
+commands inside the sandbox, never on the CI host (see
+<a href="../backends/openshell/#setup-order">Setup order</a> and
+<a href="../backends/openshell/#run-order">Run order</a>).</p>
+<h3 id="how-a-step-runs">How a step runs<a class="headerlink" href="#how-a-step-runs" title="Permanent link">&para;</a></h3>
+<p>Each setup step and validate command runs as</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>openshell<span class="w"> </span>sandbox<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>--name<span class="w"> </span>ci<span class="w"> </span>--no-tty<span class="w"> </span>--no-login-shell<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>/usr/bin/python3<span class="w"> </span>-I<span class="w"> </span>-S<span class="w"> </span>-c<span class="w"> </span>&lt;step<span class="w"> </span>wrapper&gt;<span class="w"> </span>&lt;spec&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>/usr/local/bin/agentic-ci-sandbox-setup<span class="w"> </span>/usr/bin/bash<span class="w"> </span>-c<span class="w"> </span><span class="s2">"&lt;run&gt;"</span>
+</code></pre></div>
+<p>The step wrapper (<code>agentic_ci.backends.openshell.steps</code>) changes to the
+workdir (<code>/sandbox/&lt;workdir name&gt;</code>), builds the step's environment from
+scratch and runs the shim, which runs <code>bash -c "&lt;run&gt;"</code> in its own process
+group, so the phase's egress reaches the step and everything it starts. The
+environment is:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PATH</code></td>
+<td>the provisioned toolchains' directories, then <code>/sandbox/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin</code></td>
+</tr>
+<tr>
+<td><code>HOME</code>, <code>LANG</code></td>
+<td><code>/sandbox</code>, <code>C.UTF-8</code></td>
+</tr>
+<tr>
+<td>toolchain variables</td>
+<td><code>GOTOOLCHAIN</code>, <code>GOPATH</code>, <code>GOMODCACHE</code>, <code>GOCACHE</code>, <code>npm_config_cache</code>, the pnpm store (see above)</td>
+</tr>
+<tr>
+<td>profile <code>env</code></td>
+<td>as set (wins over a toolchain variable of the same name)</td>
+</tr>
+<tr>
+<td>inherited</td>
+<td>only OpenShell's CA bundle variables (<code>SSL_CERT_FILE</code>, <code>REQUESTS_CA_BUNDLE</code>, <code>NODE_EXTRA_CA_CERTS</code>, <code>CURL_CA_BUNDLE</code>, <code>GIT_SSL_CAINFO</code>, <code>DENO_CERT</code>, <code>SSL_CERT_DIR</code>), proxy variables if a runtime sets them, <code>OPENSHELL_SANDBOX</code>, <code>TERM</code> and <code>USER</code></td>
+</tr>
+</tbody>
+</table>
+<p>Nothing else reaches the step: not the LLM env script (never sourced), not
+the provider placeholder, not a forge, Jira or LLM credential of the host.
+The internal exec runs with <code>--no-login-shell</code>, so an agent-written
+<code>~/.bash_profile</code> does not run before a validate command either.</p>
+<p>Each step has its own <code>timeout</code> (default 600 s, at most 3600 s), enforced in
+the sandbox: when it passes, the wrapper sends <code>SIGTERM</code> to the shim (which
+forwards it to the step's process group) and to every process below it, then
+<code>SIGKILL</code> 10 s later, and the step is recorded as <code>timeout</code> (exit 124). The
+host gives up on an exec that does not return a minute after that.</p>
+<p>No step process outlives its step. The wrapper is a child subreaper
+(<code>PR_SET_CHILD_SUBREAPER</code>), so a background job or a double-forked daemon the
+step starts is reparented to it rather than to the sandbox's init; as soon as
+the shim exits (the step passed, failed or timed out), the wrapper sends
+<code>SIGKILL</code> to every process still below it and reaps them. A step that leaves
+a daemon holding its output therefore ends when its shell does, and a
+process that ignores <code>SIGTERM</code> does not survive the timeout.</p>
+<h3 id="setup-steps">Setup steps<a class="headerlink" href="#setup-steps" title="Permanent link">&para;</a></h3>
+<p>When the sandbox is created, after the toolchains are provisioned, the
+backend switches to the <code>setup</code> phase (kill the leftovers, detach the
+provider, apply the setup policy), runs every setup step in order and
+switches back to the <code>agent</code> phase before anything else happens. A step
+that fails or times out is recorded and the next step still runs; the agent
+is told in <code>ENVIRONMENT.md</code>. When the setup phase cannot be opened, no step
+runs and each is recorded as <code>not_run</code>; a failed switch back to <code>agent</code>
+fails <code>setup()</code>, because the agent must never start with setup egress open.</p>
+<p>A reused sandbox (same identity, so the same profile) does not run its setup
+steps again: their effects are still in the sandbox, and the results saved
+with the sandbox identity when it was created are reported again. A profile
+without setup steps switches no phase in <code>setup()</code>.</p>
+<h3 id="validate-commands">Validate commands<a class="headerlink" href="#validate-commands" title="Permanent link">&para;</a></h3>
+<p>After the agent exits and the OTel flush, and before the workdir is
+downloaded, the backend:</p>
+<ol>
+<li>switches to the <code>validate</code> phase, which kills every process left in the
+   sandbox and then deletes the harness credential files: Codex's
+   <code>$CODEX_HOME/auth.json</code> (<code>/sandbox/.codex/auth.json</code>), Claude Code's
+   <code>/sandbox/.claude/.credentials.json</code>, OpenCode's
+   <code>/sandbox/.local/share/opencode/auth.json</code> and the env script
+   <code>/tmp/.agentic-ci-env.sh</code> if it is still there. The wipe runs after the
+   kill, so a process the agent left cannot write a file back, and it must
+   be confirmed: otherwise no validate command runs. Then the provider is
+   detached and the validate policy applied: the agent's rules parked, the
+   shim bound to the presets open in the validate phase, and never an LLM
+   or forge host;</li>
+<li>runs each validate command in order, as above;</li>
+<li>switches back to the <code>agent</code> phase, so a reused sandbox starts clean. A
+   failure here is logged and remembered: the next <code>setup()</code> repairs or
+   recreates the sandbox, and a <code>run()</code> on the same backend without a
+   <code>setup()</code> first switches to the <code>agent</code> phase before it writes the env
+   script, and raises (no agent starts) while that fails.</li>
+</ol>
+<p>A copy of a credential the agent made elsewhere during its run is not
+covered; that is the agent phase's existing exposure. Validation never
+changes the run's exit code: a validate phase that cannot be opened records
+every command as <code>not_run</code>. A model-routing classifier run
+(<code>run_routed_skill</code>) changes no code, so it skips validation
+(<code>SkillSession.run(..., validate=False)</code> sets <code>Backend.validate_after_run</code>);
+the skill run that follows validates.</p>
+<h3 id="discard_before_download">discard_before_download<a class="headerlink" href="#discard_before_download" title="Permanent link">&para;</a></h3>
+<p>After validation, each <code>discard_before_download</code> path is moved out of the
+workdir inside the sandbox, to <code>/sandbox/.agentic-ci/discarded</code>, before the
+download, so a large <code>node_modules</code> is never copied back. The next <code>run()</code> on
+the same sandbox (the skill run after a classifier run, or a retry) moves it
+back before its agent starts, so what the setup steps installed stays
+available; a path whose place was taken in the meantime is not restored, and
+the stash is deleted either way. Paths are workdir-relative; <code>..</code>, absolute
+paths, the workdir itself and <code>.git</code> are refused when the profile is parsed
+and again in the sandbox. Every directory on the way is opened without
+following symlinks, so a symlink anywhere in the path makes it <code>refused</code>
+instead of reaching outside the workdir, and a symlink as the last component
+is removed itself, never its target. Without a usable stash directory (a
+symlink planted there) paths are deleted instead. Failures are recorded, not
+fatal.</p>
+<h3 id="records">Records<a class="headerlink" href="#records" title="Permanent link">&para;</a></h3>
+<p>The host writes the records into the run directory (<code>&lt;workdir&gt;/_run</code> for a
+skill run) and writes them again after the workdir download, which brings
+the sandbox's copy of <code>_run</code> back: a record the agent forged there is
+replaced. Every record name in the table below that the run did not write
+is removed after the download, whatever the profile (with no profile too),
+so a forged <code>sandbox-validation.json</code> for a profile without validate
+commands, say, never survives. A <code>_run</code> the agent replaced with a symlink or
+a file is replaced by a directory first; nothing is written or removed
+through the link. A write error is logged, never raised.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Written for</th>
+<th>Entries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sandbox-setup.json</code></td>
+<td>a profile with setup steps</td>
+<td><code>{name, status, rc, seconds, tail[, reason]}</code></td>
+</tr>
+<tr>
+<td><code>sandbox-validation.json</code></td>
+<td>a profile with validate commands or skips, in a run that validated (not a classifier run)</td>
+<td><code>{name, kind, status, rc, seconds, tail[, reason]}</code></td>
+</tr>
+<tr>
+<td><code>sandbox-discard.json</code></td>
+<td>a profile with discard paths</td>
+<td><code>{path, status}</code></td>
+</tr>
+<tr>
+<td><code>toolchains.json</code></td>
+<td>a profile with toolchains</td>
+<td>see <a href="#toolchains">Toolchains</a></td>
+</tr>
+</tbody>
+</table>
+<p><code>status</code> is <code>passed</code>, <code>failed</code> (non-zero <code>rc</code>), <code>timeout</code>, <code>error</code> (could
+not be started) or <code>not_run</code> (the phase could not be opened; <code>reason</code> says
+so). Declared skips are entries of <code>sandbox-validation.json</code> with <code>kind:
+"skip"</code>, <code>status: "skipped"</code>, the skip's <code>match</code> as <code>name</code>, its <code>reason</code> and
+<code>rc: null</code>, so consumers can show what did not run. Discard statuses are
+<code>removed</code>, <code>absent</code>, <code>refused</code>, <code>failed</code> or <code>error</code>.</p>
+<p><code>tail</code> holds at most the last 50 lines of the step's combined output, each
+cut to 400 characters, with ANSI escapes and control characters removed and
+secrets redacted (<code>agentic_ci.redact</code>): <code>Authorization</code>, <code>Cookie</code> and API key
+headers, <code>Bearer</code> and <code>Basic</code> credentials, credentials in URLs, well-known
+token shapes (OpenAI, Anthropic, GitHub, GitLab, npm, Slack, AWS, Google,
+JWTs, OpenShell placeholders), the value of <code>NAME=value</code> and <code>"name":
+"value"</code> pairs whose name looks like a credential, and the value of every
+variable the host holds whose name looks like one. Redaction is a filter for
+accidental leaks, not a guarantee. It runs in time linear in the output (a
+credential-like name is matched only where a run of name characters starts,
+with at most 128 characters before and after its credential word).</p>
+<div class="admonition warning">
+<p class="admonition-title">What a validate record proves</p>
+<p>The host ran the command and recorded its exit status and output; it
+does not prove the command was the one the repo intended or ran
+unmodified tools. The validate commands run in the workdir the agent
+changed, with the toolchains under <code>/sandbox/.local/toolchains</code> and
+<code>/sandbox/.local/bin</code> first on <code>PATH</code>, all of which the agent can write
+during its run (a replaced <code>node</code> or an edited test can make a command
+pass). Consumers such as a merge gate should treat <code>passed</code> as a signal
+from the sandbox, not as host-verified evidence, and pair it with CI or
+review.</p>
+</div>
+<h3 id="environmentmd">ENVIRONMENT.md<a class="headerlink" href="#environmentmd" title="Permanent link">&para;</a></h3>
+<p>For every profile, before the agent starts, the backend writes
+<code>/sandbox/.agentic-ci/ENVIRONMENT.md</code> and <code>environment.json</code>: the
+provisioned toolchains, the egress presets open to the agent, the setup
+steps and their results (with the last output lines of a failed step), the
+validate commands to run, the declared skips and the names of the profile's
+<code>env</code> variables. The directory is outside the workdir, so neither file is
+downloaded back or committed; a symlink or file the agent left at that path
+is replaced, never written through. The sandbox <code>AGENTS.md</code> tells the agent
+to read <code>ENVIRONMENT.md</code> first and to treat it as authoritative.</p>
+<p>Repo-controlled strings stay data: step names (letters, digits, <code>.</code>, <code>_</code> and
+<code>-</code> only) appear in inline code, and commands, skip text and output tails only
+inside fenced code blocks whose fence is longer than any backtick run they
+contain, under a note that they are data, not instructions. Lists are capped
+at 50 entries and strings at a few thousand characters. Writing the files is
+best effort: a failure is logged and the run goes on.</p>
+<h3 id="env">env<a class="headerlink" href="#env" title="Permanent link">&para;</a></h3>
+<p>The profile's <code>env</code> is exported by the agent's env script too, so the
+agent, the setup steps and the validate commands see the same values. In
+the env script the toolchain variables and then the profile's <code>env</code> come
+last, after every command the script runs (<code>agentic-ci enable-plugins</code>), so
+they reach only the agent. A profile name the script already exports, or
+that the caller passes in the backend's <code>extra_env</code> (<code>container_env</code>), is
+not exported (<code>WARNING: N profile env variable(s) not exported to the
+agent</code>, with the names in the job log): agentic-ci's own values always win,
+also for a name the <a href="#reserved-environment-variable-names">reserved list</a>
+misses.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

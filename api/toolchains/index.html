@@ -1,0 +1,4483 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run AI coding agents in sandboxed CI environments">
+      
+      
+      
+        <link rel="canonical" href="https://opendatahub-io.github.io/agentic-ci/api/toolchains/">
+      
+      
+        <link rel="prev" href="../sandbox_profile/">
+      
+      
+        <link rel="next" href="../redact/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Toolchains - agentic-ci</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#toolchains" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="agentic-ci" class="md-header__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            agentic-ci
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Toolchains
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="agentic-ci" class="md-nav__button md-logo" aria-label="agentic-ci" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    agentic-ci
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/opendatahub-io/agentic-ci" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    opendatahub-io/agentic-ci
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/openshell-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Development with OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/sandbox-overlay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Write a Sandbox Overlay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Container Images
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Container Images
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../image/skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Sandbox Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backends/podman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backends/openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sandbox-profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stream Processors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../otel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTEL Collector
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Generic Event Transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Factory & Podman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openshell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenShell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5_4" id="__nav_5_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Pipeline
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox_profile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Toolchains
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Toolchains
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolchains
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="toolchains">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.VERSION_RE" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VERSION_RE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.SANDBOX_TOOLCHAIN_ROOT" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SANDBOX_TOOLCHAIN_ROOT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CACHE_ENV" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CACHE_ENV
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.PROTOC_SHA256" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PROTOC_SHA256
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.PYTHON_BUILD_TAGS" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PYTHON_BUILD_TAGS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CATALOG" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CATALOG
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainError
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CatalogEntry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CatalogEntry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CatalogEntry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CatalogEntry.path_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        path_prefix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Fetcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fetcher
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fetcher">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Fetcher.stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stream
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.HttpFetcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HttpFetcher
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="HttpFetcher">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.HttpFetcher.close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resolved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Resolved.digest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        digest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoVersion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AutoVersion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion.source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion.sha512" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sha512
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        InstallPlan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InstallPlan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan.target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan.components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        components
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer.is_installed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        is_installed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer.install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        install
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainEnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainEnv
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ToolchainEnv">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainEnv.script_lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        script_lines
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainResult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainResult
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Provisioned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provisioned
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.host_machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        host_machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.auto_version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto_version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.default_cache_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_cache_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.write_atomic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_atomic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.fetch_archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fetch_archive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.toolchain_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolchain_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.provision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        provision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.write_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../redact/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verdict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verdict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../git/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Git Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../forge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Forge (GitHub/GitLab)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jira/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jira
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_6" id="__nav_5_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Utilities
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../skill_metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Skill Metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolchains
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="toolchains">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.VERSION_RE" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VERSION_RE
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.SANDBOX_TOOLCHAIN_ROOT" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SANDBOX_TOOLCHAIN_ROOT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CACHE_ENV" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CACHE_ENV
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.PROTOC_SHA256" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PROTOC_SHA256
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.PYTHON_BUILD_TAGS" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PYTHON_BUILD_TAGS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CATALOG" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CATALOG
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainError
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CatalogEntry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CatalogEntry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CatalogEntry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.CatalogEntry.path_prefix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        path_prefix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Fetcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fetcher
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fetcher">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Fetcher.stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        stream
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.HttpFetcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HttpFetcher
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="HttpFetcher">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.HttpFetcher.close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Resolved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Resolved.digest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        digest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AutoVersion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AutoVersion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion.source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        source
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.AutoVersion.sha512" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sha512
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        InstallPlan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="InstallPlan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan.target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.InstallPlan.components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        components
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer.is_installed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        is_installed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Installer.install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        install
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainEnv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainEnv
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ToolchainEnv">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainEnv.script_lines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        script_lines
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.ToolchainResult" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ToolchainResult
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.Provisioned" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provisioned
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.host_machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        host_machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.auto_version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto_version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.resolve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.default_cache_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        default_cache_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.write_atomic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_atomic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.fetch_archive" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fetch_archive
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.toolchain_env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        toolchain_env
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.provision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        provision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic_ci.toolchains.write_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        write_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="toolchains">Toolchains<a class="headerlink" href="#toolchains" title="Permanent link">&para;</a></h1>
+
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="agentic_ci.toolchains" class="doc doc-heading">
+            <code>toolchains</code>
+
+
+<a href="#agentic_ci.toolchains" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Toolchain catalog and host-side provisioning for sandbox profiles.</p>
+<p>A sandbox profile's <code>toolchains</code> map names an entry in :data:<code>CATALOG</code> to a
+version: exact (<code>1.26.5</code>), partial (<code>22</code>, <code>1.26</code>) where the tool's
+official index lists releases without an API token, or <code>auto</code>, read from
+repo files (<code>go.mod</code>, <code>package.json</code>, <code>.nvmrc</code>, <code>.node-version</code>,
+<code>.python-version</code>, <code>rust-toolchain</code>, <code>rust-toolchain.toml</code>,
+<code>.tool-versions</code>).</p>
+<p>Everything here runs on the host and never executes anything from the repo
+or from an archive:</p>
+<ol>
+<li>:func:<code>resolve</code> turns the requested version into an exact release, the
+   archive URL on the tool's fixed official host and the digest published by
+   the tool's official checksum source (a vendored table for protoc versions
+   without one). Repo files are read as data, with a size cap, and a symlink
+   that leads out of the workdir is refused.</li>
+<li>:func:<code>fetch_archive</code> downloads the archive (size and time limits, HTTPS
+   only, redirects only to the entry's own hosts and, on GitHub, its own
+   release path), verifies it and stores it in the host cache
+   (<code>~/.cache/agentic-ci/toolchains/</code>, keyed by sha256, atomic writes).
+   Nothing unverified is ever kept or installed.</li>
+<li>:func:<code>provision</code> does both for every toolchain of a profile and hands
+   each verified archive to a backend :class:<code>Installer</code>, which extracts it
+   inside the sandbox; one the installer already has is skipped without a
+   download when its official digest is a sha256. A failure is recorded in
+   the toolchain's :class:<code>ToolchainResult</code> and that toolchain is skipped;
+   the others go on.</li>
+</ol>
+<p>:class:<code>ToolchainEnv</code> holds the variables a provisioned toolchain needs
+(<code>PATH</code> prepends, <code>GOTOOLCHAIN=local</code>, Go and npm caches, the pnpm
+store, <code>CARGO_HOME</code>), all under <code>/sandbox/.local</code> or <code>/sandbox/.cache</code> so they stay out
+of the workdir that is downloaded back.</p>
+<p>Messages never carry repo-controlled text: they are fixed strings plus
+validated versions and file names chosen here. Details (exception classes,
+HTTP hosts) go to the job log.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.VERSION_RE" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">VERSION_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s1">'[0-9]{1,9}(</span><span class="se">\\</span><span class="s1">.[0-9]{1,9}){0,2}'</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.VERSION_RE" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>A toolchain version (use <code>fullmatch</code>): <code>MAJOR[.MINOR[.PATCH]]</code>, at most 9 digits each.</p>
+<p>The bound keeps a repo file from putting an arbitrarily long number into
+URLs, results and messages.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.SANDBOX_TOOLCHAIN_ROOT" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">SANDBOX_TOOLCHAIN_ROOT</span> <span class="o">=</span> <span class="s1">'/sandbox/.local/toolchains'</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.SANDBOX_TOOLCHAIN_ROOT" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Where toolchains are extracted inside the sandbox, one <code>&lt;name&gt;-&lt;version&gt;</code> dir each.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.CACHE_ENV" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">CACHE_ENV</span> <span class="o">=</span> <span class="s1">'AGENTIC_CI_TOOLCHAIN_CACHE'</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.CACHE_ENV" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Environment variable that moves the host cache (default <code>~/.cache/agentic-ci/toolchains</code>).</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.PROTOC_SHA256" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">PROTOC_SHA256</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">({</span><span class="s1">'protoc-28.3-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'0ad949f04a6a174da83cdcbdb36dee0a4925272a5b6d83f79a6bf9852076d53f'</span><span class="p">,</span> <span class="s1">'protoc-28.3-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'1de522032a8b194002fe35cab86d747848238b5e4de4f99648372079f5b46f9a'</span><span class="p">,</span> <span class="s1">'protoc-29.5-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'a3f094363cd205c6f7af0d1b9305cb4c8517043f265cdb188f098cae93e8b217'</span><span class="p">,</span> <span class="s1">'protoc-29.5-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'25eb0848ff13a90a0b2d2a3b4a9d2babc7fbfe158f596c00d8c26a21028dd6f5'</span><span class="p">,</span> <span class="s1">'protoc-30.2-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'327e9397c6fb3ea2a542513a3221334c6f76f7aa524a7d2561142b67b312a01f'</span><span class="p">,</span> <span class="s1">'protoc-30.2-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'a3173ea338ef91b1605b88c4f8120d6c8ccf36f744d9081991d595d0d4352996'</span><span class="p">,</span> <span class="s1">'protoc-31.1-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'96553041f1a91ea0efee963cb16f462f5985b4d65365f3907414c360044d8065'</span><span class="p">,</span> <span class="s1">'protoc-31.1-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'6c554de11cea04c56ebf8e45b54434019b1cd85223d4bbd25c282425e306ecc2'</span><span class="p">,</span> <span class="s1">'protoc-32.1-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'e9c129c176bb7df02546c4cd6185126ca53c89e7d2f09511e209319704b5dd7e'</span><span class="p">,</span> <span class="s1">'protoc-32.1-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'4a802ed23d70f7bad7eb19e5a3e724b3aa967250d572cadfd537c1ba939aee6a'</span><span class="p">,</span> <span class="s1">'protoc-33.0-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'d99c011b799e9e412064244f0be417e5d76c9b6ace13a2ac735330fa7d57ad8f'</span><span class="p">,</span> <span class="s1">'protoc-33.0-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'4b96bc91f8b54d829b8c3ca2207ff1ceb774843321e4fa5a68502faece584272'</span><span class="p">,</span> <span class="s1">'protoc-33.6-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'9c49962391ff8b5754342509efc3885db91dfe11a358e1e98c9a71518f0ad199'</span><span class="p">,</span> <span class="s1">'protoc-33.6-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'4016cd2ad24c6a2405332a2ef7e04b719240e40d811587c6a1c4bbe514cd668c'</span><span class="p">,</span> <span class="s1">'protoc-34.1-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'af27ea66cd26938fe48587804ca7d4817457a08350021a1c6e23a27ccc8c6904'</span><span class="p">,</span> <span class="s1">'protoc-34.1-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'31c5e9e3c7bf013cf41fb97765ee255c140024a6b175b6cc9b64beddd7c23ba7'</span><span class="p">,</span> <span class="s1">'protoc-35.1-linux-x86_64.zip'</span><span class="p">:</span> <span class="s1">'6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'</span><span class="p">,</span> <span class="s1">'protoc-35.1-linux-aarch_64.zip'</span><span class="p">:</span> <span class="s1">'01bf9d08808c7f96678b63f4bd8efa559bb4f83d5a7a270d5edaf507f9d5d9cf'</span><span class="p">})</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.PROTOC_SHA256" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Vendored, cross-checked sha256 of protoc releases that predate protobuf's checksum manifest.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.PYTHON_BUILD_TAGS" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">PYTHON_BUILD_TAGS</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">({</span><span class="n">version</span><span class="p">:</span> <span class="n">tag</span> <span class="k">for</span> <span class="n">tag</span><span class="p">,</span> <span class="n">versions</span> <span class="ow">in</span> <span class="n">_PYTHON_BUILDS</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">for</span> <span class="n">version</span> <span class="ow">in</span> <span class="n">versions</span><span class="o">.</span><span class="n">split</span><span class="p">()})</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.PYTHON_BUILD_TAGS" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>python-build-standalone release tag by exact CPython version, for pins the newest lacks.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="agentic_ci.toolchains.CATALOG" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">CATALOG</span> <span class="o">=</span> <span class="n">MappingProxyType</span><span class="p">({</span><span class="n">e</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">_ENTRIES</span><span class="p">})</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-module-attribute"><code>module-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.CATALOG" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Every toolchain a sandbox profile may request, by name.</p>
+
+    </div>
+
+</div>
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.ToolchainError" class="doc doc-heading">
+            <code>ToolchainError</code>
+
+
+<a href="#agentic_ci.toolchains.ToolchainError" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="Exception">Exception</span></code></p>
+
+
+
+        <p>A toolchain could not be resolved, downloaded, verified or installed.</p>
+<p>The message is a fixed string plus validated versions and file names, so
+it can be shown to users and recorded as a result's <code>reason</code>.</p>
+
+
+
+
+
+
+
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.CatalogEntry" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">CatalogEntry</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">hosts</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">bin_dirs</span><span class="p">,</span> <span class="n">arch</span><span class="p">,</span> <span class="n">archive</span><span class="o">=</span><span class="s1">'tar.gz'</span><span class="p">,</span> <span class="n">checksum_url</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">binary</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">node_scripts</span><span class="o">=</span><span class="nb">dict</span><span class="p">(),</span> <span class="n">components</span><span class="o">=</span><span class="p">(),</span> <span class="n">component_root</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">partial</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">auto</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">min_parts</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">max_parts</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.CatalogEntry" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>How to fetch and verify one toolchain.</p>
+<p><code>url</code> is the archive URL template (<code>{version}</code>, <code>{arch}</code> and, for
+python, <code>{tag}</code>) on a fixed official host; its last path segment,
+URL-decoded, is the file name the checksum source lists. <code>hosts</code> is
+every host the entry may contact, redirects included. <code>source</code> names
+the resolver and checksum source (see :func:<code>resolve</code>). <code>bin_dirs</code> are
+the directories, relative to the extracted toolchain, prepended to
+<code>PATH</code>. <code>archive</code> is <code>tar.gz</code>, <code>tar.xz</code>, <code>zip</code> or <code>binary</code> (a
+single executable stored as <code>&lt;WRAPPER_DIR&gt;/&lt;binary&gt;</code>). <code>components</code>
+(with <code>{arch}</code>) names the directories under the archive's
+<code>component_root</code> (with <code>{version}</code> and <code>{arch}</code>) that are merged
+into the toolchain directory, as the tool's own installer would; the rest
+of the archive is not installed. <code>node_scripts</code> maps a
+launcher name to a script in the archive that the launcher runs with
+<code>node</code>. <code>arch</code> maps the host machine (<code>x86_64</code>, <code>aarch64</code>) to the
+name the tool uses. <code>partial</code> says whether a partial version resolves.
+<code>auto</code> names the repo files <code>auto</code> reads (empty: <code>auto</code> is an
+error). <code>min_parts</code> is the fewest version parts an exact version has,
+<code>max_parts</code> the most a version may have.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.CatalogEntry.path_prefix" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">path_prefix</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.CatalogEntry.path_prefix" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p><code>/&lt;owner&gt;/&lt;repo&gt;/releases/</code> for an entry on github.com, else <code>""</code>.</p>
+<p>Every github.com URL the entry fetches, redirects included, must start
+with it, so a renamed or transferred repo cannot supply the archive.</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.Fetcher" class="doc doc-heading">
+            <code>Fetcher</code>
+
+
+<a href="#agentic_ci.toolchains.Fetcher" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="typing.Protocol">Protocol</span></code></p>
+
+
+
+        <p>Streams an HTTPS resource; the tests replace the real one.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.toolchains.Fetcher.stream" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">stream</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">hosts</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">path_prefix</span><span class="o">=</span><span class="s1">''</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.Fetcher.stream" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Yield the body of <em>url</em> in chunks.</p>
+<p>Raises :class:<code>ToolchainError</code> when <em>url</em> or a redirect breaks
+:func:<code>_check_url</code> (with <em>hosts</em> and <em>path_prefix</em>), the status is
+not 200, the body exceeds <em>limit</em> bytes or the whole transfer takes
+longer than <em>timeout</em> seconds.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-512">512</a></span>
+<span class="normal"><a href="#__codelineno-0-513">513</a></span>
+<span class="normal"><a href="#__codelineno-0-514">514</a></span>
+<span class="normal"><a href="#__codelineno-0-515">515</a></span>
+<span class="normal"><a href="#__codelineno-0-516">516</a></span>
+<span class="normal"><a href="#__codelineno-0-517">517</a></span>
+<span class="normal"><a href="#__codelineno-0-518">518</a></span>
+<span class="normal"><a href="#__codelineno-0-519">519</a></span>
+<span class="normal"><a href="#__codelineno-0-520">520</a></span>
+<span class="normal"><a href="#__codelineno-0-521">521</a></span>
+<span class="normal"><a href="#__codelineno-0-522">522</a></span>
+<span class="normal"><a href="#__codelineno-0-523">523</a></span>
+<span class="normal"><a href="#__codelineno-0-524">524</a></span>
+<span class="normal"><a href="#__codelineno-0-525">525</a></span>
+<span class="normal"><a href="#__codelineno-0-526">526</a></span>
+<span class="normal"><a href="#__codelineno-0-527">527</a></span>
+<span class="normal"><a href="#__codelineno-0-528">528</a></span>
+<span class="normal"><a href="#__codelineno-0-529">529</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="k">def</span><span class="w"> </span><span class="nf">stream</span><span class="p">(</span>
+<a id="__codelineno-0-513" name="__codelineno-0-513"></a>    <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-0-514" name="__codelineno-0-514"></a>    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<a id="__codelineno-0-515" name="__codelineno-0-515"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-516" name="__codelineno-0-516"></a>    <span class="n">hosts</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<a id="__codelineno-0-517" name="__codelineno-0-517"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<a id="__codelineno-0-518" name="__codelineno-0-518"></a>    <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+<a id="__codelineno-0-519" name="__codelineno-0-519"></a>    <span class="n">headers</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-520" name="__codelineno-0-520"></a>    <span class="n">path_prefix</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span><span class="p">,</span>
+<a id="__codelineno-0-521" name="__codelineno-0-521"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="nb">bytes</span><span class="p">]:</span>
+<a id="__codelineno-0-522" name="__codelineno-0-522"></a><span class="w">    </span><span class="sd">"""Yield the body of *url* in chunks.</span>
+<a id="__codelineno-0-523" name="__codelineno-0-523"></a>
+<a id="__codelineno-0-524" name="__codelineno-0-524"></a><span class="sd">    Raises :class:`ToolchainError` when *url* or a redirect breaks</span>
+<a id="__codelineno-0-525" name="__codelineno-0-525"></a><span class="sd">    :func:`_check_url` (with *hosts* and *path_prefix*), the status is</span>
+<a id="__codelineno-0-526" name="__codelineno-0-526"></a><span class="sd">    not 200, the body exceeds *limit* bytes or the whole transfer takes</span>
+<a id="__codelineno-0-527" name="__codelineno-0-527"></a><span class="sd">    longer than *timeout* seconds.</span>
+<a id="__codelineno-0-528" name="__codelineno-0-528"></a><span class="sd">    """</span>
+<a id="__codelineno-0-529" name="__codelineno-0-529"></a>    <span class="o">...</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.HttpFetcher" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">HttpFetcher</span><span class="p">(</span><span class="n">session</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.HttpFetcher" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>:class:<code>Fetcher</code> over <code>requests</code>, following redirects only within <em>hosts</em>.</p>
+
+
+
+
+
+
+
+
+                  <details class="mkdocstrings-source">
+                    <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-574">574</a></span>
+<span class="normal"><a href="#__codelineno-0-575">575</a></span>
+<span class="normal"><a href="#__codelineno-0-576">576</a></span>
+<span class="normal"><a href="#__codelineno-0-577">577</a></span>
+<span class="normal"><a href="#__codelineno-0-578">578</a></span>
+<span class="normal"><a href="#__codelineno-0-579">579</a></span>
+<span class="normal"><a href="#__codelineno-0-580">580</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session</span><span class="p">:</span> <span class="n">requests</span><span class="o">.</span><span class="n">Session</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-575" name="__codelineno-0-575"></a>    <span class="k">if</span> <span class="n">session</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-576" name="__codelineno-0-576"></a>        <span class="n">session</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">Session</span><span class="p">()</span>
+<a id="__codelineno-0-577" name="__codelineno-0-577"></a>        <span class="c1"># No ~/.netrc credentials for the official hosts; proxies and the</span>
+<a id="__codelineno-0-578" name="__codelineno-0-578"></a>        <span class="c1"># CA bundle still come from the environment (see _request_settings).</span>
+<a id="__codelineno-0-579" name="__codelineno-0-579"></a>        <span class="n">session</span><span class="o">.</span><span class="n">trust_env</span> <span class="o">=</span> <span class="kc">False</span>
+<a id="__codelineno-0-580" name="__codelineno-0-580"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_session</span> <span class="o">=</span> <span class="n">session</span>
+</code></pre></div></td></tr></table></div>
+                  </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.toolchains.HttpFetcher.close" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">close</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.toolchains.HttpFetcher.close" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Close the HTTP session.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-589">589</a></span>
+<span class="normal"><a href="#__codelineno-0-590">590</a></span>
+<span class="normal"><a href="#__codelineno-0-591">591</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-589" name="__codelineno-0-589"></a><span class="k">def</span><span class="w"> </span><span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-590" name="__codelineno-0-590"></a><span class="w">    </span><span class="sd">"""Close the HTTP session."""</span>
+<a id="__codelineno-0-591" name="__codelineno-0-591"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">_session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.Resolved" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">Resolved</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">algorithm</span><span class="p">,</span> <span class="n">digest</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.Resolved" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>An exact release and the digest its official checksum source publishes.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.Resolved.digest" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">digest</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.Resolved.digest" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Hex digest of the archive in :attr:<code>algorithm</code> (<code>sha256</code> or <code>sha512</code>).</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.AutoVersion" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">AutoVersion</span><span class="p">(</span><span class="n">version</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">sha512</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.AutoVersion" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>A version read from a repo file for <code>auto</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.AutoVersion.source" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">source</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.AutoVersion.source" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The repo file it came from (a fixed name, safe to show).</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.AutoVersion.sha512" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">sha512</span> <span class="o">=</span> <span class="kc">None</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.AutoVersion.sha512" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>pnpm's <code>packageManager</code> hash, when it pins one.</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.InstallPlan" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">InstallPlan</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">sha256</span><span class="p">,</span> <span class="n">archive</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">binary</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">node_scripts</span><span class="o">=</span><span class="nb">dict</span><span class="p">(),</span> <span class="n">components</span><span class="o">=</span><span class="p">(),</span> <span class="n">component_root</span><span class="o">=</span><span class="s1">''</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.InstallPlan" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>What a backend extracts where, for one verified archive.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.InstallPlan.target" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">target</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.InstallPlan.target" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p><code>&lt;SANDBOX_TOOLCHAIN_ROOT&gt;/&lt;name&gt;-&lt;version&gt;</code>.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h4 id="agentic_ci.toolchains.InstallPlan.components" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">components</span> <span class="o">=</span> <span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.InstallPlan.components" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Directories under <code>component_root</code> merged into <code>target</code>; empty: the whole archive.</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.Installer" class="doc doc-heading">
+            <code>Installer</code>
+
+
+<a href="#agentic_ci.toolchains.Installer" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="typing.Protocol">Protocol</span></code></p>
+
+
+
+        <p>Puts verified archives into the sandbox (the OpenShell backend implements it).</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.toolchains.Installer.is_installed" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">is_installed</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.Installer.is_installed" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Whether <em>plan</em> is already extracted with the same sha256, so it can be skipped.</p>
+<p>This records what was installed; it does not verify the installed files.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1416">1416</a></span>
+<span class="normal"><a href="#__codelineno-0-1417">1417</a></span>
+<span class="normal"><a href="#__codelineno-0-1418">1418</a></span>
+<span class="normal"><a href="#__codelineno-0-1419">1419</a></span>
+<span class="normal"><a href="#__codelineno-0-1420">1420</a></span>
+<span class="normal"><a href="#__codelineno-0-1421">1421</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1416" name="__codelineno-0-1416"></a><span class="k">def</span><span class="w"> </span><span class="nf">is_installed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plan</span><span class="p">:</span> <span class="n">InstallPlan</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<a id="__codelineno-0-1417" name="__codelineno-0-1417"></a><span class="w">    </span><span class="sd">"""Whether *plan* is already extracted with the same sha256, so it can be skipped.</span>
+<a id="__codelineno-0-1418" name="__codelineno-0-1418"></a>
+<a id="__codelineno-0-1419" name="__codelineno-0-1419"></a><span class="sd">    This records what was installed; it does not verify the installed files.</span>
+<a id="__codelineno-0-1420" name="__codelineno-0-1420"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1421" name="__codelineno-0-1421"></a>    <span class="o">...</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.toolchains.Installer.install" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">install</span><span class="p">(</span><span class="n">plan</span><span class="p">,</span> <span class="n">archive</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.Installer.install" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Upload <em>archive</em> and extract it to <code>plan.target</code>; raise :class:<code>ToolchainError</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1423">1423</a></span>
+<span class="normal"><a href="#__codelineno-0-1424">1424</a></span>
+<span class="normal"><a href="#__codelineno-0-1425">1425</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1423" name="__codelineno-0-1423"></a><span class="k">def</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">plan</span><span class="p">:</span> <span class="n">InstallPlan</span><span class="p">,</span> <span class="n">archive</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1424" name="__codelineno-0-1424"></a><span class="w">    </span><span class="sd">"""Upload *archive* and extract it to ``plan.target``; raise :class:`ToolchainError`."""</span>
+<a id="__codelineno-0-1425" name="__codelineno-0-1425"></a>    <span class="o">...</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.ToolchainEnv" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">ToolchainEnv</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="p">(),</span> <span class="n">variables</span><span class="o">=</span><span class="nb">dict</span><span class="p">())</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.ToolchainEnv" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Variables for the provisioned toolchains, for the env script and the setup shim.</p>
+<p><code>path</code> is prepended to <code>PATH</code> in order; <code>variables</code> are exported
+as they are.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="agentic_ci.toolchains.ToolchainEnv.script_lines" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">script_lines</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.toolchains.ToolchainEnv.script_lines" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p><code>export</code> lines for a bash script.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1465">1465</a></span>
+<span class="normal"><a href="#__codelineno-0-1466">1466</a></span>
+<span class="normal"><a href="#__codelineno-0-1467">1467</a></span>
+<span class="normal"><a href="#__codelineno-0-1468">1468</a></span>
+<span class="normal"><a href="#__codelineno-0-1469">1469</a></span>
+<span class="normal"><a href="#__codelineno-0-1470">1470</a></span>
+<span class="normal"><a href="#__codelineno-0-1471">1471</a></span>
+<span class="normal"><a href="#__codelineno-0-1472">1472</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1465" name="__codelineno-0-1465"></a><span class="k">def</span><span class="w"> </span><span class="nf">script_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-1466" name="__codelineno-0-1466"></a><span class="w">    </span><span class="sd">"""``export`` lines for a bash script."""</span>
+<a id="__codelineno-0-1467" name="__codelineno-0-1467"></a>    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1468" name="__codelineno-0-1468"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">:</span>
+<a id="__codelineno-0-1469" name="__codelineno-0-1469"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">'export PATH=</span><span class="si">{</span><span class="n">shlex</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="s2">":"</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">))</span><span class="si">}</span><span class="s1">:"$PATH"'</span><span class="p">)</span>
+<a id="__codelineno-0-1470" name="__codelineno-0-1470"></a>    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+<a id="__codelineno-0-1471" name="__codelineno-0-1471"></a>        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"export </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">=</span><span class="si">{</span><span class="n">shlex</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>    <span class="k">return</span> <span class="n">lines</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.ToolchainResult" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">ToolchainResult</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">requested</span><span class="p">,</span> <span class="n">resolved</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">sha256</span><span class="o">=</span><span class="s1">''</span><span class="p">,</span> <span class="n">status</span><span class="o">=</span><span class="s1">'failed'</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s1">''</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.ToolchainResult" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>One toolchain's outcome, as recorded in <code>_run/toolchains.json</code>.</p>
+<p><code>status</code> is <code>installed</code>, <code>present</code> (a reused sandbox already had
+it) or <code>failed</code>; <code>reason</code> says why it failed.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="agentic_ci.toolchains.Provisioned" class="doc doc-heading">
+              <code class="highlight language-python"><span class="n">Provisioned</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="n">env</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#agentic_ci.toolchains.Provisioned" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Result of :func:<code>provision</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.host_machine" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">host_machine</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.toolchains.host_machine" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The sandbox's machine (the host's, OpenShell runs it natively): <code>x86_64</code> or <code>aarch64</code>.</p>
+<p>Raises :class:<code>ToolchainError</code> on any other machine.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-495">495</a></span>
+<span class="normal"><a href="#__codelineno-0-496">496</a></span>
+<span class="normal"><a href="#__codelineno-0-497">497</a></span>
+<span class="normal"><a href="#__codelineno-0-498">498</a></span>
+<span class="normal"><a href="#__codelineno-0-499">499</a></span>
+<span class="normal"><a href="#__codelineno-0-500">500</a></span>
+<span class="normal"><a href="#__codelineno-0-501">501</a></span>
+<span class="normal"><a href="#__codelineno-0-502">502</a></span>
+<span class="normal"><a href="#__codelineno-0-503">503</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-495" name="__codelineno-0-495"></a><span class="k">def</span><span class="w"> </span><span class="nf">host_machine</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-0-496" name="__codelineno-0-496"></a><span class="w">    </span><span class="sd">"""The sandbox's machine (the host's, OpenShell runs it natively): ``x86_64`` or ``aarch64``.</span>
+<a id="__codelineno-0-497" name="__codelineno-0-497"></a>
+<a id="__codelineno-0-498" name="__codelineno-0-498"></a><span class="sd">    Raises :class:`ToolchainError` on any other machine.</span>
+<a id="__codelineno-0-499" name="__codelineno-0-499"></a><span class="sd">    """</span>
+<a id="__codelineno-0-500" name="__codelineno-0-500"></a>    <span class="n">machine</span> <span class="o">=</span> <span class="n">_MACHINES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">platform</span><span class="o">.</span><span class="n">machine</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+<a id="__codelineno-0-501" name="__codelineno-0-501"></a>    <span class="k">if</span> <span class="n">machine</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-502" name="__codelineno-0-502"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span><span class="s2">"the host machine is not x86_64 or aarch64"</span><span class="p">)</span>
+<a id="__codelineno-0-503" name="__codelineno-0-503"></a>    <span class="k">return</span> <span class="n">machine</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.auto_version" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">auto_version</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">workdir</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.auto_version" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Read the version <code>auto</code> means for toolchain <em>name</em> from repo files in <em>workdir</em>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1220">1220</a></span>
+<span class="normal"><a href="#__codelineno-0-1221">1221</a></span>
+<span class="normal"><a href="#__codelineno-0-1222">1222</a></span>
+<span class="normal"><a href="#__codelineno-0-1223">1223</a></span>
+<span class="normal"><a href="#__codelineno-0-1224">1224</a></span>
+<span class="normal"><a href="#__codelineno-0-1225">1225</a></span>
+<span class="normal"><a href="#__codelineno-0-1226">1226</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1220" name="__codelineno-0-1220"></a><span class="k">def</span><span class="w"> </span><span class="nf">auto_version</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workdir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AutoVersion</span><span class="p">:</span>
+<a id="__codelineno-0-1221" name="__codelineno-0-1221"></a><span class="w">    </span><span class="sd">"""Read the version ``auto`` means for toolchain *name* from repo files in *workdir*."""</span>
+<a id="__codelineno-0-1222" name="__codelineno-0-1222"></a>    <span class="n">entry</span> <span class="o">=</span> <span class="n">CATALOG</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+<a id="__codelineno-0-1223" name="__codelineno-0-1223"></a>    <span class="n">reader</span> <span class="o">=</span> <span class="n">_AUTO</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">auto</span><span class="p">)</span>
+<a id="__codelineno-0-1224" name="__codelineno-0-1224"></a>    <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1225" name="__codelineno-0-1225"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: auto is not supported; pin a version"</span><span class="p">)</span>
+<a id="__codelineno-0-1226" name="__codelineno-0-1226"></a>    <span class="k">return</span> <span class="n">reader</span><span class="p">(</span><span class="n">workdir</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.resolve" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">resolve</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">requested</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">workdir</span><span class="p">,</span> <span class="n">fetcher</span><span class="p">,</span> <span class="n">arch</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.resolve" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Resolve <em>requested</em> (a version or <code>auto</code>) for catalog entry <em>name</em>.</p>
+<p>Returns the release and, for <code>auto</code>, what was read from the repo.
+Raises :class:<code>ToolchainError</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1229">1229</a></span>
+<span class="normal"><a href="#__codelineno-0-1230">1230</a></span>
+<span class="normal"><a href="#__codelineno-0-1231">1231</a></span>
+<span class="normal"><a href="#__codelineno-0-1232">1232</a></span>
+<span class="normal"><a href="#__codelineno-0-1233">1233</a></span>
+<span class="normal"><a href="#__codelineno-0-1234">1234</a></span>
+<span class="normal"><a href="#__codelineno-0-1235">1235</a></span>
+<span class="normal"><a href="#__codelineno-0-1236">1236</a></span>
+<span class="normal"><a href="#__codelineno-0-1237">1237</a></span>
+<span class="normal"><a href="#__codelineno-0-1238">1238</a></span>
+<span class="normal"><a href="#__codelineno-0-1239">1239</a></span>
+<span class="normal"><a href="#__codelineno-0-1240">1240</a></span>
+<span class="normal"><a href="#__codelineno-0-1241">1241</a></span>
+<span class="normal"><a href="#__codelineno-0-1242">1242</a></span>
+<span class="normal"><a href="#__codelineno-0-1243">1243</a></span>
+<span class="normal"><a href="#__codelineno-0-1244">1244</a></span>
+<span class="normal"><a href="#__codelineno-0-1245">1245</a></span>
+<span class="normal"><a href="#__codelineno-0-1246">1246</a></span>
+<span class="normal"><a href="#__codelineno-0-1247">1247</a></span>
+<span class="normal"><a href="#__codelineno-0-1248">1248</a></span>
+<span class="normal"><a href="#__codelineno-0-1249">1249</a></span>
+<span class="normal"><a href="#__codelineno-0-1250">1250</a></span>
+<span class="normal"><a href="#__codelineno-0-1251">1251</a></span>
+<span class="normal"><a href="#__codelineno-0-1252">1252</a></span>
+<span class="normal"><a href="#__codelineno-0-1253">1253</a></span>
+<span class="normal"><a href="#__codelineno-0-1254">1254</a></span>
+<span class="normal"><a href="#__codelineno-0-1255">1255</a></span>
+<span class="normal"><a href="#__codelineno-0-1256">1256</a></span>
+<span class="normal"><a href="#__codelineno-0-1257">1257</a></span>
+<span class="normal"><a href="#__codelineno-0-1258">1258</a></span>
+<span class="normal"><a href="#__codelineno-0-1259">1259</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1229" name="__codelineno-0-1229"></a><span class="k">def</span><span class="w"> </span><span class="nf">resolve</span><span class="p">(</span>
+<a id="__codelineno-0-1230" name="__codelineno-0-1230"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">requested</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">workdir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">fetcher</span><span class="p">:</span> <span class="n">Fetcher</span><span class="p">,</span> <span class="n">arch</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1231" name="__codelineno-0-1231"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Resolved</span><span class="p">,</span> <span class="n">AutoVersion</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
+<a id="__codelineno-0-1232" name="__codelineno-0-1232"></a><span class="w">    </span><span class="sd">"""Resolve *requested* (a version or ``auto``) for catalog entry *name*.</span>
+<a id="__codelineno-0-1233" name="__codelineno-0-1233"></a>
+<a id="__codelineno-0-1234" name="__codelineno-0-1234"></a><span class="sd">    Returns the release and, for ``auto``, what was read from the repo.</span>
+<a id="__codelineno-0-1235" name="__codelineno-0-1235"></a><span class="sd">    Raises :class:`ToolchainError`.</span>
+<a id="__codelineno-0-1236" name="__codelineno-0-1236"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1237" name="__codelineno-0-1237"></a>    <span class="n">entry</span> <span class="o">=</span> <span class="n">CATALOG</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+<a id="__codelineno-0-1238" name="__codelineno-0-1238"></a>    <span class="k">if</span> <span class="n">entry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1239" name="__codelineno-0-1239"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span><span class="s2">"unknown toolchain"</span><span class="p">)</span>
+<a id="__codelineno-0-1240" name="__codelineno-0-1240"></a>    <span class="n">machine</span> <span class="o">=</span> <span class="n">arch</span> <span class="ow">or</span> <span class="n">host_machine</span><span class="p">()</span>
+<a id="__codelineno-0-1241" name="__codelineno-0-1241"></a>    <span class="n">auto</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1242" name="__codelineno-0-1242"></a>    <span class="n">version</span> <span class="o">=</span> <span class="n">requested</span>
+<a id="__codelineno-0-1243" name="__codelineno-0-1243"></a>    <span class="k">if</span> <span class="n">requested</span> <span class="o">==</span> <span class="n">AUTO</span><span class="p">:</span>
+<a id="__codelineno-0-1244" name="__codelineno-0-1244"></a>        <span class="n">auto</span> <span class="o">=</span> <span class="n">auto_version</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">workdir</span><span class="p">)</span>
+<a id="__codelineno-0-1245" name="__codelineno-0-1245"></a>        <span class="n">version</span> <span class="o">=</span> <span class="n">auto</span><span class="o">.</span><span class="n">version</span>
+<a id="__codelineno-0-1246" name="__codelineno-0-1246"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">VERSION_RE</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">version</span><span class="p">):</span>
+<a id="__codelineno-0-1247" name="__codelineno-0-1247"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: version must be auto or MAJOR[.MINOR[.PATCH]] digits"</span><span class="p">)</span>
+<a id="__codelineno-0-1248" name="__codelineno-0-1248"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">_parts</span><span class="p">(</span><span class="n">version</span><span class="p">))</span> <span class="o">&gt;</span> <span class="n">entry</span><span class="o">.</span><span class="n">max_parts</span><span class="p">:</span>
+<a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>        <span class="n">form</span> <span class="o">=</span> <span class="s2">"."</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s2">"MAJOR"</span><span class="p">,</span> <span class="s2">"MINOR"</span><span class="p">,</span> <span class="s2">"PATCH"</span><span class="p">][:</span> <span class="n">entry</span><span class="o">.</span><span class="n">max_parts</span><span class="p">])</span>
+<a id="__codelineno-0-1250" name="__codelineno-0-1250"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">version</span><span class="si">}</span><span class="s2"> has too many parts; use an exact </span><span class="si">{</span><span class="n">form</span><span class="si">}</span><span class="s2"> version"</span><span class="p">)</span>
+<a id="__codelineno-0-1251" name="__codelineno-0-1251"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">_parts</span><span class="p">(</span><span class="n">version</span><span class="p">))</span> <span class="o">&lt;</span> <span class="n">entry</span><span class="o">.</span><span class="n">min_parts</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">partial</span><span class="p">:</span>
+<a id="__codelineno-0-1252" name="__codelineno-0-1252"></a>        <span class="n">_require_exact</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+<a id="__codelineno-0-1253" name="__codelineno-0-1253"></a>    <span class="n">resolved</span> <span class="o">=</span> <span class="n">_RESOLVERS</span><span class="p">[</span><span class="n">entry</span><span class="o">.</span><span class="n">source</span><span class="p">](</span><span class="n">entry</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">arch</span><span class="p">[</span><span class="n">machine</span><span class="p">],</span> <span class="n">fetcher</span><span class="p">)</span>
+<a id="__codelineno-0-1254" name="__codelineno-0-1254"></a>    <span class="k">if</span> <span class="n">auto</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">auto</span><span class="o">.</span><span class="n">sha512</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">auto</span><span class="o">.</span><span class="n">sha512</span> <span class="o">!=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span>
+<a id="__codelineno-0-1255" name="__codelineno-0-1255"></a>        <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span>
+<a id="__codelineno-0-1256" name="__codelineno-0-1256"></a>            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">: the packageManager hash in package.json does not "</span>
+<a id="__codelineno-0-1257" name="__codelineno-0-1257"></a>            <span class="s2">"match the registry"</span>
+<a id="__codelineno-0-1258" name="__codelineno-0-1258"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1259" name="__codelineno-0-1259"></a>    <span class="k">return</span> <span class="n">resolved</span><span class="p">,</span> <span class="n">auto</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.default_cache_dir" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">default_cache_dir</span><span class="p">()</span></code>
+
+<a href="#agentic_ci.toolchains.default_cache_dir" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p><code>$AGENTIC_CI_TOOLCHAIN_CACHE</code>, else <code>~/.cache/agentic-ci/toolchains</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1265">1265</a></span>
+<span class="normal"><a href="#__codelineno-0-1266">1266</a></span>
+<span class="normal"><a href="#__codelineno-0-1267">1267</a></span>
+<span class="normal"><a href="#__codelineno-0-1268">1268</a></span>
+<span class="normal"><a href="#__codelineno-0-1269">1269</a></span>
+<span class="normal"><a href="#__codelineno-0-1270">1270</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1265" name="__codelineno-0-1265"></a><span class="k">def</span><span class="w"> </span><span class="nf">default_cache_dir</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<a id="__codelineno-0-1266" name="__codelineno-0-1266"></a><span class="w">    </span><span class="sd">"""``$AGENTIC_CI_TOOLCHAIN_CACHE``, else ``~/.cache/agentic-ci/toolchains``."""</span>
+<a id="__codelineno-0-1267" name="__codelineno-0-1267"></a>    <span class="n">override</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">CACHE_ENV</span><span class="p">)</span>
+<a id="__codelineno-0-1268" name="__codelineno-0-1268"></a>    <span class="k">if</span> <span class="n">override</span><span class="p">:</span>
+<a id="__codelineno-0-1269" name="__codelineno-0-1269"></a>        <span class="k">return</span> <span class="n">Path</span><span class="p">(</span><span class="n">override</span><span class="p">)</span>
+<a id="__codelineno-0-1270" name="__codelineno-0-1270"></a>    <span class="k">return</span> <span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s2">".cache"</span> <span class="o">/</span> <span class="s2">"agentic-ci"</span> <span class="o">/</span> <span class="s2">"toolchains"</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.write_atomic" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">write_atomic</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.write_atomic" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Write <em>data</em> to <em>path</em> atomically, through a fresh <code>mkstemp</code> name in its directory.</p>
+<p>Nothing left at another name in the directory (a symlink, say) is
+written through; <em>path</em> itself is replaced, never followed.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1283">1283</a></span>
+<span class="normal"><a href="#__codelineno-0-1284">1284</a></span>
+<span class="normal"><a href="#__codelineno-0-1285">1285</a></span>
+<span class="normal"><a href="#__codelineno-0-1286">1286</a></span>
+<span class="normal"><a href="#__codelineno-0-1287">1287</a></span>
+<span class="normal"><a href="#__codelineno-0-1288">1288</a></span>
+<span class="normal"><a href="#__codelineno-0-1289">1289</a></span>
+<span class="normal"><a href="#__codelineno-0-1290">1290</a></span>
+<span class="normal"><a href="#__codelineno-0-1291">1291</a></span>
+<span class="normal"><a href="#__codelineno-0-1292">1292</a></span>
+<span class="normal"><a href="#__codelineno-0-1293">1293</a></span>
+<span class="normal"><a href="#__codelineno-0-1294">1294</a></span>
+<span class="normal"><a href="#__codelineno-0-1295">1295</a></span>
+<span class="normal"><a href="#__codelineno-0-1296">1296</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1283" name="__codelineno-0-1283"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_atomic</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1284" name="__codelineno-0-1284"></a><span class="w">    </span><span class="sd">"""Write *data* to *path* atomically, through a fresh ``mkstemp`` name in its directory.</span>
+<a id="__codelineno-0-1285" name="__codelineno-0-1285"></a>
+<a id="__codelineno-0-1286" name="__codelineno-0-1286"></a><span class="sd">    Nothing left at another name in the directory (a symlink, say) is</span>
+<a id="__codelineno-0-1287" name="__codelineno-0-1287"></a><span class="sd">    written through; *path* itself is replaced, never followed.</span>
+<a id="__codelineno-0-1288" name="__codelineno-0-1288"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1289" name="__codelineno-0-1289"></a>    <span class="n">fd</span><span class="p">,</span> <span class="n">tmp</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkstemp</span><span class="p">(</span><span class="nb">dir</span><span class="o">=</span><span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">".partial-"</span><span class="p">)</span>
+<a id="__codelineno-0-1290" name="__codelineno-0-1290"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1291" name="__codelineno-0-1291"></a>        <span class="k">with</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+<a id="__codelineno-0-1292" name="__codelineno-0-1292"></a>            <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+<a id="__codelineno-0-1293" name="__codelineno-0-1293"></a>        <span class="n">os</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+<a id="__codelineno-0-1294" name="__codelineno-0-1294"></a>    <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
+<a id="__codelineno-0-1295" name="__codelineno-0-1295"></a>        <span class="n">Path</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1296" name="__codelineno-0-1296"></a>        <span class="k">raise</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.fetch_archive" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">fetch_archive</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fetcher</span><span class="p">,</span> <span class="n">cache_dir</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.fetch_archive" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Return the verified archive for <em>resolved</em> from the host cache, downloading it if needed.</p>
+<p>The archive is written to a temporary file and renamed to
+<code>&lt;cache_dir&gt;/&lt;sha256&gt;</code> only once its digest matches the official one;
+a mismatch deletes it and raises :class:<code>ToolchainError</code>. A digest other
+than sha256 (pnpm's sha512) gets an alias file <code>&lt;algorithm&gt;/&lt;hex&gt;</code>
+holding the sha256. Returns the path and the archive's sha256.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1322">1322</a></span>
+<span class="normal"><a href="#__codelineno-0-1323">1323</a></span>
+<span class="normal"><a href="#__codelineno-0-1324">1324</a></span>
+<span class="normal"><a href="#__codelineno-0-1325">1325</a></span>
+<span class="normal"><a href="#__codelineno-0-1326">1326</a></span>
+<span class="normal"><a href="#__codelineno-0-1327">1327</a></span>
+<span class="normal"><a href="#__codelineno-0-1328">1328</a></span>
+<span class="normal"><a href="#__codelineno-0-1329">1329</a></span>
+<span class="normal"><a href="#__codelineno-0-1330">1330</a></span>
+<span class="normal"><a href="#__codelineno-0-1331">1331</a></span>
+<span class="normal"><a href="#__codelineno-0-1332">1332</a></span>
+<span class="normal"><a href="#__codelineno-0-1333">1333</a></span>
+<span class="normal"><a href="#__codelineno-0-1334">1334</a></span>
+<span class="normal"><a href="#__codelineno-0-1335">1335</a></span>
+<span class="normal"><a href="#__codelineno-0-1336">1336</a></span>
+<span class="normal"><a href="#__codelineno-0-1337">1337</a></span>
+<span class="normal"><a href="#__codelineno-0-1338">1338</a></span>
+<span class="normal"><a href="#__codelineno-0-1339">1339</a></span>
+<span class="normal"><a href="#__codelineno-0-1340">1340</a></span>
+<span class="normal"><a href="#__codelineno-0-1341">1341</a></span>
+<span class="normal"><a href="#__codelineno-0-1342">1342</a></span>
+<span class="normal"><a href="#__codelineno-0-1343">1343</a></span>
+<span class="normal"><a href="#__codelineno-0-1344">1344</a></span>
+<span class="normal"><a href="#__codelineno-0-1345">1345</a></span>
+<span class="normal"><a href="#__codelineno-0-1346">1346</a></span>
+<span class="normal"><a href="#__codelineno-0-1347">1347</a></span>
+<span class="normal"><a href="#__codelineno-0-1348">1348</a></span>
+<span class="normal"><a href="#__codelineno-0-1349">1349</a></span>
+<span class="normal"><a href="#__codelineno-0-1350">1350</a></span>
+<span class="normal"><a href="#__codelineno-0-1351">1351</a></span>
+<span class="normal"><a href="#__codelineno-0-1352">1352</a></span>
+<span class="normal"><a href="#__codelineno-0-1353">1353</a></span>
+<span class="normal"><a href="#__codelineno-0-1354">1354</a></span>
+<span class="normal"><a href="#__codelineno-0-1355">1355</a></span>
+<span class="normal"><a href="#__codelineno-0-1356">1356</a></span>
+<span class="normal"><a href="#__codelineno-0-1357">1357</a></span>
+<span class="normal"><a href="#__codelineno-0-1358">1358</a></span>
+<span class="normal"><a href="#__codelineno-0-1359">1359</a></span>
+<span class="normal"><a href="#__codelineno-0-1360">1360</a></span>
+<span class="normal"><a href="#__codelineno-0-1361">1361</a></span>
+<span class="normal"><a href="#__codelineno-0-1362">1362</a></span>
+<span class="normal"><a href="#__codelineno-0-1363">1363</a></span>
+<span class="normal"><a href="#__codelineno-0-1364">1364</a></span>
+<span class="normal"><a href="#__codelineno-0-1365">1365</a></span>
+<span class="normal"><a href="#__codelineno-0-1366">1366</a></span>
+<span class="normal"><a href="#__codelineno-0-1367">1367</a></span>
+<span class="normal"><a href="#__codelineno-0-1368">1368</a></span>
+<span class="normal"><a href="#__codelineno-0-1369">1369</a></span>
+<span class="normal"><a href="#__codelineno-0-1370">1370</a></span>
+<span class="normal"><a href="#__codelineno-0-1371">1371</a></span>
+<span class="normal"><a href="#__codelineno-0-1372">1372</a></span>
+<span class="normal"><a href="#__codelineno-0-1373">1373</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1322" name="__codelineno-0-1322"></a><span class="k">def</span><span class="w"> </span><span class="nf">fetch_archive</span><span class="p">(</span><span class="n">resolved</span><span class="p">:</span> <span class="n">Resolved</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fetcher</span><span class="p">:</span> <span class="n">Fetcher</span><span class="p">,</span> <span class="n">cache_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<a id="__codelineno-0-1323" name="__codelineno-0-1323"></a><span class="w">    </span><span class="sd">"""Return the verified archive for *resolved* from the host cache, downloading it if needed.</span>
+<a id="__codelineno-0-1324" name="__codelineno-0-1324"></a>
+<a id="__codelineno-0-1325" name="__codelineno-0-1325"></a><span class="sd">    The archive is written to a temporary file and renamed to</span>
+<a id="__codelineno-0-1326" name="__codelineno-0-1326"></a><span class="sd">    ``&lt;cache_dir&gt;/&lt;sha256&gt;`` only once its digest matches the official one;</span>
+<a id="__codelineno-0-1327" name="__codelineno-0-1327"></a><span class="sd">    a mismatch deletes it and raises :class:`ToolchainError`. A digest other</span>
+<a id="__codelineno-0-1328" name="__codelineno-0-1328"></a><span class="sd">    than sha256 (pnpm's sha512) gets an alias file ``&lt;algorithm&gt;/&lt;hex&gt;``</span>
+<a id="__codelineno-0-1329" name="__codelineno-0-1329"></a><span class="sd">    holding the sha256. Returns the path and the archive's sha256.</span>
+<a id="__codelineno-0-1330" name="__codelineno-0-1330"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1331" name="__codelineno-0-1331"></a>    <span class="n">cache_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1332" name="__codelineno-0-1332"></a>    <span class="n">hit</span> <span class="o">=</span> <span class="n">_cached</span><span class="p">(</span><span class="n">resolved</span><span class="p">,</span> <span class="n">cache_dir</span><span class="p">)</span>
+<a id="__codelineno-0-1333" name="__codelineno-0-1333"></a>    <span class="k">if</span> <span class="n">hit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1334" name="__codelineno-0-1334"></a>        <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">: host cache hit"</span><span class="p">)</span>
+<a id="__codelineno-0-1335" name="__codelineno-0-1335"></a>        <span class="k">return</span> <span class="n">hit</span>
+<a id="__codelineno-0-1336" name="__codelineno-0-1336"></a>    <span class="n">fd</span><span class="p">,</span> <span class="n">tmp_name</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkstemp</span><span class="p">(</span><span class="nb">dir</span><span class="o">=</span><span class="n">cache_dir</span><span class="p">,</span> <span class="n">prefix</span><span class="o">=</span><span class="s2">".partial-"</span><span class="p">)</span>
+<a id="__codelineno-0-1337" name="__codelineno-0-1337"></a>    <span class="n">tmp</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tmp_name</span><span class="p">)</span>
+<a id="__codelineno-0-1338" name="__codelineno-0-1338"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1339" name="__codelineno-0-1339"></a>        <span class="n">sha256</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">()</span>
+<a id="__codelineno-0-1340" name="__codelineno-0-1340"></a>        <span class="n">other</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">resolved</span><span class="o">.</span><span class="n">algorithm</span><span class="p">)</span>
+<a id="__codelineno-0-1341" name="__codelineno-0-1341"></a>        <span class="n">size</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-1342" name="__codelineno-0-1342"></a>        <span class="k">with</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="s2">"wb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+<a id="__codelineno-0-1343" name="__codelineno-0-1343"></a>            <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">fetcher</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span>
+<a id="__codelineno-0-1344" name="__codelineno-0-1344"></a>                <span class="n">resolved</span><span class="o">.</span><span class="n">url</span><span class="p">,</span>
+<a id="__codelineno-0-1345" name="__codelineno-0-1345"></a>                <span class="n">hosts</span><span class="o">=</span><span class="n">CATALOG</span><span class="p">[</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">hosts</span><span class="p">,</span>
+<a id="__codelineno-0-1346" name="__codelineno-0-1346"></a>                <span class="n">limit</span><span class="o">=</span><span class="n">ARCHIVE_MAX_BYTES</span><span class="p">,</span>
+<a id="__codelineno-0-1347" name="__codelineno-0-1347"></a>                <span class="n">timeout</span><span class="o">=</span><span class="n">ARCHIVE_TIMEOUT_SECONDS</span><span class="p">,</span>
+<a id="__codelineno-0-1348" name="__codelineno-0-1348"></a>                <span class="n">path_prefix</span><span class="o">=</span><span class="n">CATALOG</span><span class="p">[</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">path_prefix</span><span class="p">,</span>
+<a id="__codelineno-0-1349" name="__codelineno-0-1349"></a>            <span class="p">):</span>
+<a id="__codelineno-0-1350" name="__codelineno-0-1350"></a>                <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+<a id="__codelineno-0-1351" name="__codelineno-0-1351"></a>                <span class="n">sha256</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+<a id="__codelineno-0-1352" name="__codelineno-0-1352"></a>                <span class="n">other</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+<a id="__codelineno-0-1353" name="__codelineno-0-1353"></a>                <span class="n">size</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+<a id="__codelineno-0-1354" name="__codelineno-0-1354"></a>        <span class="k">if</span> <span class="n">other</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span> <span class="o">!=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">digest</span><span class="p">:</span>
+<a id="__codelineno-0-1355" name="__codelineno-0-1355"></a>            <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span>
+<a id="__codelineno-0-1356" name="__codelineno-0-1356"></a>                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">: checksum mismatch; the download was discarded"</span>
+<a id="__codelineno-0-1357" name="__codelineno-0-1357"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1358" name="__codelineno-0-1358"></a>        <span class="k">if</span> <span class="n">resolved</span><span class="o">.</span><span class="n">size</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">size</span> <span class="o">!=</span> <span class="n">resolved</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+<a id="__codelineno-0-1359" name="__codelineno-0-1359"></a>            <span class="k">raise</span> <span class="n">ToolchainError</span><span class="p">(</span>
+<a id="__codelineno-0-1360" name="__codelineno-0-1360"></a>                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">: size differs from the release index; "</span>
+<a id="__codelineno-0-1361" name="__codelineno-0-1361"></a>                <span class="s2">"the download was discarded"</span>
+<a id="__codelineno-0-1362" name="__codelineno-0-1362"></a>            <span class="p">)</span>
+<a id="__codelineno-0-1363" name="__codelineno-0-1363"></a>        <span class="n">digest</span> <span class="o">=</span> <span class="n">sha256</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+<a id="__codelineno-0-1364" name="__codelineno-0-1364"></a>        <span class="n">blob</span> <span class="o">=</span> <span class="n">cache_dir</span> <span class="o">/</span> <span class="n">digest</span>
+<a id="__codelineno-0-1365" name="__codelineno-0-1365"></a>        <span class="n">os</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span> <span class="n">blob</span><span class="p">)</span>
+<a id="__codelineno-0-1366" name="__codelineno-0-1366"></a>    <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
+<a id="__codelineno-0-1367" name="__codelineno-0-1367"></a>        <span class="n">tmp</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1368" name="__codelineno-0-1368"></a>        <span class="k">raise</span>
+<a id="__codelineno-0-1369" name="__codelineno-0-1369"></a>    <span class="k">if</span> <span class="n">resolved</span><span class="o">.</span><span class="n">algorithm</span> <span class="o">!=</span> <span class="s2">"sha256"</span><span class="p">:</span>
+<a id="__codelineno-0-1370" name="__codelineno-0-1370"></a>        <span class="p">(</span><span class="n">cache_dir</span> <span class="o">/</span> <span class="n">resolved</span><span class="o">.</span><span class="n">algorithm</span><span class="p">)</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1371" name="__codelineno-0-1371"></a>        <span class="n">write_atomic</span><span class="p">(</span><span class="n">cache_dir</span> <span class="o">/</span> <span class="n">resolved</span><span class="o">.</span><span class="n">algorithm</span> <span class="o">/</span> <span class="n">resolved</span><span class="o">.</span><span class="n">digest</span><span class="p">,</span> <span class="n">digest</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"ascii"</span><span class="p">))</span>
+<a id="__codelineno-0-1372" name="__codelineno-0-1372"></a>    <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">: downloaded and verified (</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2"> bytes)"</span><span class="p">)</span>
+<a id="__codelineno-0-1373" name="__codelineno-0-1373"></a>    <span class="k">return</span> <span class="n">blob</span><span class="p">,</span> <span class="n">digest</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.toolchain_env" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">toolchain_env</span><span class="p">(</span><span class="n">installed</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.toolchain_env" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>The :class:<code>ToolchainEnv</code> for <em>installed</em> toolchains (in the given order).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1478">1478</a></span>
+<span class="normal"><a href="#__codelineno-0-1479">1479</a></span>
+<span class="normal"><a href="#__codelineno-0-1480">1480</a></span>
+<span class="normal"><a href="#__codelineno-0-1481">1481</a></span>
+<span class="normal"><a href="#__codelineno-0-1482">1482</a></span>
+<span class="normal"><a href="#__codelineno-0-1483">1483</a></span>
+<span class="normal"><a href="#__codelineno-0-1484">1484</a></span>
+<span class="normal"><a href="#__codelineno-0-1485">1485</a></span>
+<span class="normal"><a href="#__codelineno-0-1486">1486</a></span>
+<span class="normal"><a href="#__codelineno-0-1487">1487</a></span>
+<span class="normal"><a href="#__codelineno-0-1488">1488</a></span>
+<span class="normal"><a href="#__codelineno-0-1489">1489</a></span>
+<span class="normal"><a href="#__codelineno-0-1490">1490</a></span>
+<span class="normal"><a href="#__codelineno-0-1491">1491</a></span>
+<span class="normal"><a href="#__codelineno-0-1492">1492</a></span>
+<span class="normal"><a href="#__codelineno-0-1493">1493</a></span>
+<span class="normal"><a href="#__codelineno-0-1494">1494</a></span>
+<span class="normal"><a href="#__codelineno-0-1495">1495</a></span>
+<span class="normal"><a href="#__codelineno-0-1496">1496</a></span>
+<span class="normal"><a href="#__codelineno-0-1497">1497</a></span>
+<span class="normal"><a href="#__codelineno-0-1498">1498</a></span>
+<span class="normal"><a href="#__codelineno-0-1499">1499</a></span>
+<span class="normal"><a href="#__codelineno-0-1500">1500</a></span>
+<span class="normal"><a href="#__codelineno-0-1501">1501</a></span>
+<span class="normal"><a href="#__codelineno-0-1502">1502</a></span>
+<span class="normal"><a href="#__codelineno-0-1503">1503</a></span>
+<span class="normal"><a href="#__codelineno-0-1504">1504</a></span>
+<span class="normal"><a href="#__codelineno-0-1505">1505</a></span>
+<span class="normal"><a href="#__codelineno-0-1506">1506</a></span>
+<span class="normal"><a href="#__codelineno-0-1507">1507</a></span>
+<span class="normal"><a href="#__codelineno-0-1508">1508</a></span>
+<span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
+<span class="normal"><a href="#__codelineno-0-1510">1510</a></span>
+<span class="normal"><a href="#__codelineno-0-1511">1511</a></span>
+<span class="normal"><a href="#__codelineno-0-1512">1512</a></span>
+<span class="normal"><a href="#__codelineno-0-1513">1513</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1478" name="__codelineno-0-1478"></a><span class="k">def</span><span class="w"> </span><span class="nf">toolchain_env</span><span class="p">(</span><span class="n">installed</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Resolved</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">ToolchainEnv</span><span class="p">:</span>
+<a id="__codelineno-0-1479" name="__codelineno-0-1479"></a><span class="w">    </span><span class="sd">"""The :class:`ToolchainEnv` for *installed* toolchains (in the given order)."""</span>
+<a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>    <span class="n">names</span> <span class="o">=</span> <span class="p">{</span><span class="n">r</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">installed</span><span class="p">}</span>
+<a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>    <span class="n">machine</span> <span class="o">=</span> <span class="n">host_machine</span><span class="p">()</span> <span class="k">if</span> <span class="n">installed</span> <span class="k">else</span> <span class="s2">""</span>
+<a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>    <span class="k">for</span> <span class="n">resolved</span> <span class="ow">in</span> <span class="n">installed</span><span class="p">:</span>
+<a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>        <span class="n">entry</span> <span class="o">=</span> <span class="n">CATALOG</span><span class="p">[</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+<a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>        <span class="n">base</span> <span class="o">=</span> <span class="n">sandbox_dir</span><span class="p">(</span><span class="n">resolved</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="p">)</span>
+<a id="__codelineno-0-1487" name="__codelineno-0-1487"></a>        <span class="k">for</span> <span class="n">template</span> <span class="ow">in</span> <span class="n">entry</span><span class="o">.</span><span class="n">bin_dirs</span><span class="p">:</span>
+<a id="__codelineno-0-1488" name="__codelineno-0-1488"></a>            <span class="n">subdir</span> <span class="o">=</span> <span class="n">template</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">version</span><span class="o">=</span><span class="n">resolved</span><span class="o">.</span><span class="n">version</span><span class="p">,</span> <span class="n">arch</span><span class="o">=</span><span class="n">entry</span><span class="o">.</span><span class="n">arch</span><span class="p">[</span><span class="n">machine</span><span class="p">])</span>
+<a id="__codelineno-0-1489" name="__codelineno-0-1489"></a>            <span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">posixpath</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">posixpath</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">subdir</span><span class="p">)))</span>
+<a id="__codelineno-0-1490" name="__codelineno-0-1490"></a>    <span class="k">if</span> <span class="s2">"go"</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+<a id="__codelineno-0-1491" name="__codelineno-0-1491"></a>        <span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">posixpath</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">SANDBOX_GOPATH</span><span class="p">,</span> <span class="s2">"bin"</span><span class="p">))</span>
+<a id="__codelineno-0-1492" name="__codelineno-0-1492"></a>        <span class="n">variables</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+<a id="__codelineno-0-1493" name="__codelineno-0-1493"></a>            <span class="p">{</span>
+<a id="__codelineno-0-1494" name="__codelineno-0-1494"></a>                <span class="s2">"GOTOOLCHAIN"</span><span class="p">:</span> <span class="s2">"local"</span><span class="p">,</span>
+<a id="__codelineno-0-1495" name="__codelineno-0-1495"></a>                <span class="s2">"GOPATH"</span><span class="p">:</span> <span class="n">SANDBOX_GOPATH</span><span class="p">,</span>
+<a id="__codelineno-0-1496" name="__codelineno-0-1496"></a>                <span class="s2">"GOMODCACHE"</span><span class="p">:</span> <span class="n">SANDBOX_GOMODCACHE</span><span class="p">,</span>
+<a id="__codelineno-0-1497" name="__codelineno-0-1497"></a>                <span class="s2">"GOCACHE"</span><span class="p">:</span> <span class="n">SANDBOX_GOCACHE</span><span class="p">,</span>
+<a id="__codelineno-0-1498" name="__codelineno-0-1498"></a>            <span class="p">}</span>
+<a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1500" name="__codelineno-0-1500"></a>    <span class="k">if</span> <span class="n">names</span> <span class="o">&amp;</span> <span class="p">{</span><span class="s2">"node"</span><span class="p">,</span> <span class="s2">"pnpm"</span><span class="p">}:</span>
+<a id="__codelineno-0-1501" name="__codelineno-0-1501"></a>        <span class="n">variables</span><span class="p">[</span><span class="s2">"npm_config_cache"</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_NPM_CACHE</span>
+<a id="__codelineno-0-1502" name="__codelineno-0-1502"></a>    <span class="k">if</span> <span class="s2">"pnpm"</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+<a id="__codelineno-0-1503" name="__codelineno-0-1503"></a>        <span class="c1"># pnpm 11 reads pnpm_config_*, earlier releases npm_config_*.</span>
+<a id="__codelineno-0-1504" name="__codelineno-0-1504"></a>        <span class="n">variables</span><span class="p">[</span><span class="s2">"npm_config_store_dir"</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_PNPM_STORE</span>
+<a id="__codelineno-0-1505" name="__codelineno-0-1505"></a>        <span class="n">variables</span><span class="p">[</span><span class="s2">"pnpm_config_store_dir"</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_PNPM_STORE</span>
+<a id="__codelineno-0-1506" name="__codelineno-0-1506"></a>    <span class="k">if</span> <span class="s2">"rust"</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+<a id="__codelineno-0-1507" name="__codelineno-0-1507"></a>        <span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">posixpath</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">SANDBOX_CARGO_HOME</span><span class="p">,</span> <span class="s2">"bin"</span><span class="p">))</span>
+<a id="__codelineno-0-1508" name="__codelineno-0-1508"></a>        <span class="c1"># Sparse is the default from cargo 1.70; 1.68 and 1.69 would clone the</span>
+<a id="__codelineno-0-1509" name="__codelineno-0-1509"></a>        <span class="c1"># git index from github.com instead.</span>
+<a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>        <span class="n">variables</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+<a id="__codelineno-0-1511" name="__codelineno-0-1511"></a>            <span class="p">{</span><span class="s2">"CARGO_HOME"</span><span class="p">:</span> <span class="n">SANDBOX_CARGO_HOME</span><span class="p">,</span> <span class="s2">"CARGO_REGISTRIES_CRATES_IO_PROTOCOL"</span><span class="p">:</span> <span class="s2">"sparse"</span><span class="p">}</span>
+<a id="__codelineno-0-1512" name="__codelineno-0-1512"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1513" name="__codelineno-0-1513"></a>    <span class="k">return</span> <span class="n">ToolchainEnv</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">path</span><span class="p">)),</span> <span class="n">variables</span><span class="o">=</span><span class="n">variables</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.provision" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">provision</span><span class="p">(</span><span class="n">toolchains</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">workdir</span><span class="p">,</span> <span class="n">installer</span><span class="p">,</span> <span class="n">fetcher</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cache_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.provision" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Resolve, fetch, verify and install every toolchain in <em>toolchains</em>.</p>
+<p>A toolchain that fails is recorded as <code>failed</code> and skipped; the run goes
+on. Names outside the catalog and versions that are neither <code>auto</code> nor
+digits are skipped the same way (<code>parse_profile</code> never lets them
+through).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1606">1606</a></span>
+<span class="normal"><a href="#__codelineno-0-1607">1607</a></span>
+<span class="normal"><a href="#__codelineno-0-1608">1608</a></span>
+<span class="normal"><a href="#__codelineno-0-1609">1609</a></span>
+<span class="normal"><a href="#__codelineno-0-1610">1610</a></span>
+<span class="normal"><a href="#__codelineno-0-1611">1611</a></span>
+<span class="normal"><a href="#__codelineno-0-1612">1612</a></span>
+<span class="normal"><a href="#__codelineno-0-1613">1613</a></span>
+<span class="normal"><a href="#__codelineno-0-1614">1614</a></span>
+<span class="normal"><a href="#__codelineno-0-1615">1615</a></span>
+<span class="normal"><a href="#__codelineno-0-1616">1616</a></span>
+<span class="normal"><a href="#__codelineno-0-1617">1617</a></span>
+<span class="normal"><a href="#__codelineno-0-1618">1618</a></span>
+<span class="normal"><a href="#__codelineno-0-1619">1619</a></span>
+<span class="normal"><a href="#__codelineno-0-1620">1620</a></span>
+<span class="normal"><a href="#__codelineno-0-1621">1621</a></span>
+<span class="normal"><a href="#__codelineno-0-1622">1622</a></span>
+<span class="normal"><a href="#__codelineno-0-1623">1623</a></span>
+<span class="normal"><a href="#__codelineno-0-1624">1624</a></span>
+<span class="normal"><a href="#__codelineno-0-1625">1625</a></span>
+<span class="normal"><a href="#__codelineno-0-1626">1626</a></span>
+<span class="normal"><a href="#__codelineno-0-1627">1627</a></span>
+<span class="normal"><a href="#__codelineno-0-1628">1628</a></span>
+<span class="normal"><a href="#__codelineno-0-1629">1629</a></span>
+<span class="normal"><a href="#__codelineno-0-1630">1630</a></span>
+<span class="normal"><a href="#__codelineno-0-1631">1631</a></span>
+<span class="normal"><a href="#__codelineno-0-1632">1632</a></span>
+<span class="normal"><a href="#__codelineno-0-1633">1633</a></span>
+<span class="normal"><a href="#__codelineno-0-1634">1634</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1606" name="__codelineno-0-1606"></a><span class="k">def</span><span class="w"> </span><span class="nf">provision</span><span class="p">(</span>
+<a id="__codelineno-0-1607" name="__codelineno-0-1607"></a>    <span class="n">toolchains</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+<a id="__codelineno-0-1608" name="__codelineno-0-1608"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-1609" name="__codelineno-0-1609"></a>    <span class="n">workdir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+<a id="__codelineno-0-1610" name="__codelineno-0-1610"></a>    <span class="n">installer</span><span class="p">:</span> <span class="n">Installer</span><span class="p">,</span>
+<a id="__codelineno-0-1611" name="__codelineno-0-1611"></a>    <span class="n">fetcher</span><span class="p">:</span> <span class="n">Fetcher</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1612" name="__codelineno-0-1612"></a>    <span class="n">cache_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-1613" name="__codelineno-0-1613"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Provisioned</span><span class="p">:</span>
+<a id="__codelineno-0-1614" name="__codelineno-0-1614"></a><span class="w">    </span><span class="sd">"""Resolve, fetch, verify and install every toolchain in *toolchains*.</span>
+<a id="__codelineno-0-1615" name="__codelineno-0-1615"></a>
+<a id="__codelineno-0-1616" name="__codelineno-0-1616"></a><span class="sd">    A toolchain that fails is recorded as ``failed`` and skipped; the run goes</span>
+<a id="__codelineno-0-1617" name="__codelineno-0-1617"></a><span class="sd">    on. Names outside the catalog and versions that are neither ``auto`` nor</span>
+<a id="__codelineno-0-1618" name="__codelineno-0-1618"></a><span class="sd">    digits are skipped the same way (``parse_profile`` never lets them</span>
+<a id="__codelineno-0-1619" name="__codelineno-0-1619"></a><span class="sd">    through).</span>
+<a id="__codelineno-0-1620" name="__codelineno-0-1620"></a><span class="sd">    """</span>
+<a id="__codelineno-0-1621" name="__codelineno-0-1621"></a>    <span class="n">own_fetcher</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-1622" name="__codelineno-0-1622"></a>    <span class="k">if</span> <span class="n">fetcher</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1623" name="__codelineno-0-1623"></a>        <span class="n">fetcher</span> <span class="o">=</span> <span class="n">own_fetcher</span> <span class="o">=</span> <span class="n">HttpFetcher</span><span class="p">()</span>
+<a id="__codelineno-0-1624" name="__codelineno-0-1624"></a>    <span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-0-1625" name="__codelineno-0-1625"></a>        <span class="k">return</span> <span class="n">_provision_all</span><span class="p">(</span>
+<a id="__codelineno-0-1626" name="__codelineno-0-1626"></a>            <span class="n">toolchains</span><span class="p">,</span>
+<a id="__codelineno-0-1627" name="__codelineno-0-1627"></a>            <span class="n">workdir</span><span class="o">=</span><span class="n">workdir</span><span class="p">,</span>
+<a id="__codelineno-0-1628" name="__codelineno-0-1628"></a>            <span class="n">installer</span><span class="o">=</span><span class="n">installer</span><span class="p">,</span>
+<a id="__codelineno-0-1629" name="__codelineno-0-1629"></a>            <span class="n">fetcher</span><span class="o">=</span><span class="n">fetcher</span><span class="p">,</span>
+<a id="__codelineno-0-1630" name="__codelineno-0-1630"></a>            <span class="n">cache_dir</span><span class="o">=</span><span class="n">cache_dir</span> <span class="ow">or</span> <span class="n">default_cache_dir</span><span class="p">(),</span>
+<a id="__codelineno-0-1631" name="__codelineno-0-1631"></a>        <span class="p">)</span>
+<a id="__codelineno-0-1632" name="__codelineno-0-1632"></a>    <span class="k">finally</span><span class="p">:</span>
+<a id="__codelineno-0-1633" name="__codelineno-0-1633"></a>        <span class="k">if</span> <span class="n">own_fetcher</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1634" name="__codelineno-0-1634"></a>            <span class="n">own_fetcher</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="agentic_ci.toolchains.write_results" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">write_results</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span></code>
+
+<a href="#agentic_ci.toolchains.write_results" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Write <em>results</em> as a JSON list to <em>path</em> (<code>_run/toolchains.json</code>).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/agentic_ci/toolchains.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1671">1671</a></span>
+<span class="normal"><a href="#__codelineno-0-1672">1672</a></span>
+<span class="normal"><a href="#__codelineno-0-1673">1673</a></span>
+<span class="normal"><a href="#__codelineno-0-1674">1674</a></span>
+<span class="normal"><a href="#__codelineno-0-1675">1675</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1671" name="__codelineno-0-1671"></a><span class="k">def</span><span class="w"> </span><span class="nf">write_results</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">results</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">ToolchainResult</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-1672" name="__codelineno-0-1672"></a><span class="w">    </span><span class="sd">"""Write *results* as a JSON list to *path* (``_run/toolchains.json``)."""</span>
+<a id="__codelineno-0-1673" name="__codelineno-0-1673"></a>    <span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-1674" name="__codelineno-0-1674"></a>    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">([</span><span class="n">r</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">],</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">+</span> <span class="s2">"</span><span class="se">\n</span><span class="s2">"</span>
+<a id="__codelineno-0-1675" name="__codelineno-0-1675"></a>    <span class="n">write_atomic</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s2">"utf-8"</span><span class="p">))</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
