@@ -29,12 +29,20 @@ GitHub check uses author_association, not repository permissions)::
 GitHub comments carry ``author_association`` and GitLab comments carry
 ``author_access_level``. Only ``TRUSTED_GITHUB_ASSOCIATIONS`` and levels
 at or above ``MIN_TRUSTED_GITLAB_ACCESS_LEVEL`` (Developer) are trusted.
+Accounts that do not meet that bar but whose feedback is wanted, such as
+review bots, are passed as ``trusted_authors`` and matched by account name
+(see :func:`comment_author_id`)::
+
+    threads = filter_trusted_threads(
+        forge.review_comments(mr_url), trusted_authors={"coderabbitai[bot]"}
+    )
 """
 
 from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from urllib.parse import urlparse
 
 # Default hex color for newly created labels (no leading '#').
@@ -283,15 +291,40 @@ GITLAB_DEVELOPER_ACCESS_LEVEL = 30
 MIN_TRUSTED_GITLAB_ACCESS_LEVEL = GITLAB_DEVELOPER_ACCESS_LEVEL
 
 
-def is_trusted_comment(comment: dict) -> bool:
+def comment_author_id(comment: dict) -> str:
+    """Return the account name that ``trusted_authors`` matches, lowercased.
+
+    A GitHub comment (one with an ``author_association`` key) is identified
+    by its login in ``author``, which ends in ``[bot]`` for a GitHub App, so
+    an App cannot be confused with a user account of the same name. A
+    GitLab comment is identified by ``author_username``, never by
+    ``author``, which is the display name any user can set. Returns ``""``
+    when the account is unknown (a deleted account, for example).
+    """
+    if "author_association" in comment:
+        login = comment.get("author") or ""
+        return "" if login == "Unknown" else login.lower()
+    return (comment.get("author_username") or "").lower()
+
+
+def _normalized_authors(trusted_authors: Iterable[str]) -> frozenset[str]:
+    return frozenset(a.strip().lower() for a in trusted_authors if a and a.strip())
+
+
+def is_trusted_comment(comment: dict, trusted_authors: Iterable[str] = ()) -> bool:
     """Return whether a forge comment was written by a trusted author.
 
-    A GitHub comment (one with an ``author_association`` key) is trusted
-    when the association is in ``TRUSTED_GITHUB_ASSOCIATIONS``. Any other
-    comment is trusted only when its ``author_access_level`` is an integer
-    at or above ``MIN_TRUSTED_GITLAB_ACCESS_LEVEL``. Comments carrying
-    neither field are untrusted, so the check fails closed.
+    A comment whose :func:`comment_author_id` is in *trusted_authors*
+    (account names, compared without case) is trusted. Otherwise a GitHub
+    comment (one with an ``author_association`` key) is trusted when the
+    association is in ``TRUSTED_GITHUB_ASSOCIATIONS``, and any other comment
+    only when its ``author_access_level`` is an integer at or above
+    ``MIN_TRUSTED_GITLAB_ACCESS_LEVEL``. Comments carrying neither field
+    are untrusted, so the check fails closed.
     """
+    author = comment_author_id(comment)
+    if author and author in _normalized_authors(trusted_authors):
+        return True
     if "author_association" in comment:
         return comment["author_association"] in TRUSTED_GITHUB_ASSOCIATIONS
     level = comment.get("author_access_level")
@@ -300,17 +333,20 @@ def is_trusted_comment(comment: dict) -> bool:
     return level >= MIN_TRUSTED_GITLAB_ACCESS_LEVEL
 
 
-def filter_trusted_comments(comments: list[dict]) -> list[dict]:
+def filter_trusted_comments(
+    comments: list[dict], trusted_authors: Iterable[str] = ()
+) -> list[dict]:
     """Return only the comments written by trusted authors.
 
     Takes the output of :meth:`Forge.general_comments` (or any list of
     comment dicts) and keeps those for which :func:`is_trusted_comment`
-    holds.
+    holds, with *trusted_authors* as extra trusted account names.
     """
-    return [c for c in comments if is_trusted_comment(c)]
+    authors = _normalized_authors(trusted_authors)
+    return [c for c in comments if is_trusted_comment(c, authors)]
 
 
-def filter_trusted_threads(threads: list[dict]) -> list[dict]:
+def filter_trusted_threads(threads: list[dict], trusted_authors: Iterable[str] = ()) -> list[dict]:
     """Return review threads reduced to their trusted comments.
 
     Takes the output of :meth:`Forge.review_comments`. Each thread's
@@ -318,12 +354,14 @@ def filter_trusted_threads(threads: list[dict]) -> list[dict]:
     them, so an untrusted reply inside a trusted author's thread is
     dropped. A thread with no trusted comment left, or without a
     ``comments`` list, is dropped. The thread's position, ``author`` and
-    trust fields still describe the thread starter. Input dicts are not
-    modified.
+    trust fields still describe the thread starter. *trusted_authors* are
+    extra trusted account names (see :func:`is_trusted_comment`). Input
+    dicts are not modified.
     """
+    authors = _normalized_authors(trusted_authors)
     result: list[dict] = []
     for thread in threads:
-        trusted = filter_trusted_comments(thread.get("comments") or [])
+        trusted = filter_trusted_comments(thread.get("comments") or [], authors)
         if not trusted:
             continue
         body = "\n".join(f"{c.get('author', 'Unknown')}: {c.get('body', '')}" for c in trusted)

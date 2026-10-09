@@ -206,7 +206,7 @@ class GitHubForge(Forge):
                       line
                       createdAt
                       authorAssociation
-                      author { login }
+                      author { login __typename }
                     }
                   }
                 }
@@ -499,10 +499,18 @@ class GitHubForge(Forge):
 def _login(node: dict) -> str:
     """Return a GraphQL comment author's login, or ``"Unknown"``.
 
-    GraphQL returns ``author: null`` for deleted accounts.
+    GraphQL returns ``author: null`` for deleted accounts, and a GitHub
+    App's login without the ``[bot]`` suffix REST uses; the suffix is added
+    back for ``Bot`` authors, so both APIs name an App the same way and it
+    cannot be taken for a user account of the same name.
     """
     author = node.get("author") or {}
-    return author.get("login") or "Unknown"
+    login = author.get("login")
+    if not login:
+        return "Unknown"
+    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
+        return f"{login}[bot]"
+    return login
 
 
 _FAILED_CONCLUSIONS = frozenset(
