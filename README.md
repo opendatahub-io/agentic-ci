@@ -410,7 +410,9 @@ pipelines:
   `author_access_level`), and `filter_trusted_threads()` /
   `filter_trusted_comments()` keep only owners, members and collaborators
   (GitHub) or Developer and above (GitLab), including per reply inside a
-  review thread.
+  review thread. `trusted_authors` adds accounts by name (a GitHub login,
+  `[bot]` for Apps, or a GitLab username, never a display name), for review
+  bots that do not meet that bar.
 - **`agentic_ci.git`** — Git operations (clone, branch, push, diff,
   commit info extraction) with security hardening.
 - **`agentic_ci.pipeline`** — GitLab child pipeline YAML generation
