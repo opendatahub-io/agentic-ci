@@ -8,6 +8,7 @@ from agentic_ci.forge import (
     TRUSTED_GITHUB_ASSOCIATIONS,
     Forge,
     ForgeError,
+    MergeRequestResult,
     detect_forge,
     filter_trusted_comments,
     filter_trusted_threads,
@@ -16,6 +17,20 @@ from agentic_ci.forge import (
     parse_gitlab_mr_url,
     repo_path_from_url,
 )
+
+
+class TestMergeRequestResult:
+    def test_preserves_tuple_contract_and_defaults_created_to_false(self):
+        result = MergeRequestResult("https://example.com/merge/1", None)
+
+        url, error = result
+
+        assert url == "https://example.com/merge/1"
+        assert error is None
+        assert result == ("https://example.com/merge/1", None)
+        assert result[0] == "https://example.com/merge/1"
+        assert len(result) == 2
+        assert result.created is False
 
 
 class TestForgeDetect:

@@ -16,6 +16,7 @@ from agentic_ci.forge import (
     DEFAULT_SKIP_PATTERNS,
     Forge,
     ForgeError,
+    MergeRequestResult,
     parse_gitlab_mr_url,
     repo_path_from_url,
 )
@@ -177,7 +178,7 @@ class GitLabForge(Forge):
         title: str,
         description: str,
         draft: bool = False,
-    ) -> tuple[str | None, str | None]:
+    ) -> MergeRequestResult:
         project_path = repo_path_from_url(repo_url)
         pid = self.project_id(project_path)
 
@@ -194,7 +195,7 @@ class GitLabForge(Forge):
             if mrs:
                 existing_url = mrs[0].get("web_url")
                 log.info("Found existing open MR: %s", existing_url)
-                return existing_url, None
+                return MergeRequestResult(existing_url, None, created=False)
 
         payload: dict[str, str | bool] = {
             "source_branch": source_branch,
@@ -212,8 +213,13 @@ class GitLabForge(Forge):
         if resp.status_code not in (200, 201):
             error = extract_api_error(resp)
             log.error("HTTP %d creating MR: %s", resp.status_code, error)
-            return None, error
-        return resp.json().get("web_url"), None
+            return MergeRequestResult(None, error)
+        mr_url = resp.json().get("web_url")
+        if not isinstance(mr_url, str) or not mr_url:
+            error = "MR created but response has no web_url"
+            log.error(error)
+            return MergeRequestResult(None, error)
+        return MergeRequestResult(mr_url, None, created=True)
 
     def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         project_path, mr_iid = parse_gitlab_mr_url(mr_url)

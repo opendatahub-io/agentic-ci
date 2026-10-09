@@ -64,15 +64,17 @@ class TestCreateMergeRequest:
         mock_session.post.return_value = _make_response(
             201, {"web_url": "https://gitlab.com/org/repo/-/merge_requests/99"}
         )
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://gitlab.com/org/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url == "https://gitlab.com/org/repo/-/merge_requests/99"
         assert error is None
+        assert result.created is True
 
     def test_failure_returns_error(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
@@ -80,15 +82,34 @@ class TestCreateMergeRequest:
         mock_session.get.side_effect = [project_resp, no_existing]
         error_resp = _make_response(422, {"message": "Branch already exists"}, "error body")
         mock_session.post.return_value = error_resp
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://gitlab.com/org/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url is None
         assert error == "Branch already exists"
+        assert result.created is False
+
+    def test_success_without_url_returns_error(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        no_existing = _make_response(200, [])
+        mock_session.get.side_effect = [project_resp, no_existing]
+        mock_session.post.return_value = _make_response(201, {})
+
+        result = forge.create_merge_request(
+            "https://gitlab.com/org/repo",
+            "feature-branch",
+            "main",
+            "Fix bug",
+            "Description",
+        )
+
+        assert result == (None, "MR created but response has no web_url")
+        assert result.created is False
 
     def test_returns_existing_open_mr(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
@@ -96,15 +117,17 @@ class TestCreateMergeRequest:
             200, [{"web_url": "https://gitlab.com/org/repo/-/merge_requests/50"}]
         )
         mock_session.get.side_effect = [project_resp, existing_mr]
-        url, error = forge.create_merge_request(
+        result = forge.create_merge_request(
             "https://gitlab.com/org/repo",
             "feature-branch",
             "main",
             "Fix bug",
             "Description",
         )
+        url, error = result
         assert url == "https://gitlab.com/org/repo/-/merge_requests/50"
         assert error is None
+        assert result.created is False
         mock_session.post.assert_not_called()
 
     def test_draft_includes_draft_field(self, forge, mock_session):

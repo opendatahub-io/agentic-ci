@@ -45,6 +45,42 @@ class ForgeError(Exception):
     """Raised when a forge API operation fails."""
 
 
+class MergeRequestResult(tuple[str | None, str | None]):
+    """Result of creating or reusing a merge/pull request.
+
+    The result is a two-item ``(url, error)`` tuple, preserving the complete
+    historical tuple contract. Consumers that need to distinguish a newly
+    created request from a reused one should inspect :attr:`created`.
+    """
+
+    created: bool
+
+    def __new__(
+        cls,
+        url: str | None,
+        error: str | None,
+        created: bool = False,
+    ) -> MergeRequestResult:
+        """Build a tuple-compatible result with creation metadata."""
+        result = super().__new__(cls, (url, error))
+        result.created = created
+        return result
+
+    @property
+    def url(self) -> str | None:
+        """Return the merge/pull request URL."""
+        return self[0]
+
+    @property
+    def error(self) -> str | None:
+        """Return the forge error, if any."""
+        return self[1]
+
+    def __getnewargs__(self) -> tuple[str | None, str | None, bool]:
+        """Preserve ``created`` when copying or serializing the result."""
+        return self.url, self.error, self.created
+
+
 class Forge(ABC):
     """Abstract base for git forge (GitLab/GitHub) API operations.
 
@@ -85,11 +121,13 @@ class Forge(ABC):
         title: str,
         description: str,
         draft: bool = False,
-    ) -> tuple[str | None, str | None]:
+    ) -> MergeRequestResult:
         """Create an MR/PR.
 
-        Returns ``(web_url, None)`` on success or ``(None, error_msg)``
-        on failure.
+        Returns a :class:`MergeRequestResult`.  The result's ``created`` field
+        is true only when this call created the MR/PR; it is false when an
+        existing open MR/PR was reused or the operation failed.  The result
+        continues to support ``url, error =`` unpacking for existing callers.
         """
 
     @abstractmethod

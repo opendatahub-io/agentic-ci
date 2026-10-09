@@ -78,12 +78,12 @@
 #
 # No LLM call is made. The providers need a credential to be created, so fake
 # ones are used and a real OPENAI_API_KEY, ANTHROPIC_API_KEY or Google
-# credential is never read. The key checks send the fake key to the
-# API: OpenAI's 401 echoes it masked ("Incorrect API key provided:
-# sk-e2e-o***"), and Anthropic answers a key-shaped value with "API key is
-# invalid." but an unresolved placeholder with "invalid x-api-key", which
-# shows the proxy injected it. Section 9 runs commands under the claude binary
-# from a SessionStart hook that stops claude before it sends its prompt.
+# credential is never read. The key checks send the fake key to the API:
+# OpenAI's 401 echoes it masked ("Incorrect API key provided: sk-e2e-o***"),
+# while Anthropic's provider check uses the OpenShell proxy's ALLOWED request
+# log and rejects credential_unavailable instead of relying on Anthropic's
+# authentication-error wording. Section 9 runs commands under the claude
+# binary from a SessionStart hook that stops claude before it sends its prompt.
 #
 # Requires: podman, openshell, openshell-gateway, agentic-ci (the ci-openshell
 # image provides all of them), network access to the probed registries and,
@@ -185,6 +185,11 @@ CURL_CALLER=/usr/bin/curl
 # read_log: the sandbox log of the last 10 minutes, empty when it cannot be read.
 read_log() { openshell logs "$SANDBOX" --source sandbox --since 10m -n 5000 2>/dev/null || true; }
 
+# read_proxy_log: the proxy log for the last 10 minutes, empty when it cannot
+# be read. Successful credentialed requests are recorded here as ALLOWED;
+# failed credential resolution is recorded as credential_unavailable.
+read_proxy_log() { openshell logs "$SANDBOX" --since 10m -n 5000 2>/dev/null || true; }
+
 # denial_mark CALLER_RE HOST [METHOD]: the MARK for denial_logged, taken right
 # before the probe runs: the later of now and the stamp of the newest sandbox
 # log line that already records such a denial. The sandbox shares the host's
@@ -205,6 +210,62 @@ denial_logged() {
         if read_log | python3 "$DENIALS" "$mark" "$@"; then
             return 0
         fi
+        sleep 1
+    done
+    return 1
+}
+
+# proxy_log_mark PATTERN: return the later of now and the timestamp of the
+# newest proxy log line matching PATTERN. This prevents a previous successful
+# request from satisfying the check for the probe about to run.
+proxy_log_mark() {
+    local pattern="$1"
+    read_proxy_log | python3 -c '
+import re
+import sys
+import time
+
+pattern = re.compile(sys.argv[1])
+newest = time.time()
+for line in sys.stdin:
+    if pattern.search(line):
+        match = re.match(r"^\[([0-9]+(?:\.[0-9]+)?)\]", line)
+        if match:
+            newest = max(newest, float(match.group(1)))
+print(f"{newest:.6f}")
+' "$pattern"
+}
+
+# proxy_injection_seen MARK PATTERN: find a successful credentialed request
+# stamped after MARK, while rejecting a credential_unavailable response for
+# the same probe. The proxy ships log records asynchronously, so poll for up
+# to 20 s.
+proxy_injection_seen() {
+    local mark="$1" pattern="$2"
+    for _ in $(seq 20); do
+        local status=0
+        read_proxy_log | python3 -c '
+import re
+import sys
+
+after = float(sys.argv[1])
+pattern = re.compile(sys.argv[2])
+failure = re.compile(r"credential_unavailable|prohibited characters")
+positive = False
+for line in sys.stdin:
+    stamp = re.match(r"^\[([0-9]+(?:\.[0-9]+)?)\]", line)
+    if stamp and float(stamp.group(1)) > after:
+        if failure.search(line):
+            raise SystemExit(2)
+        positive = positive or bool(pattern.search(line))
+if positive:
+    raise SystemExit(0)
+raise SystemExit(1)
+' "$mark" "$pattern" || status=$?
+        if [[ "$status" -eq 0 ]]; then
+            return 0
+        fi
+        [[ "$status" -eq 2 ]] && return 1
         sleep 1
     done
     return 1
@@ -1089,8 +1150,9 @@ expect ALLOWED "validate: npm from a new shim exec" -- "$SHIM" "${PY_PROBE[@]}" 
 # Set before calling: HARNESS and HARNESS_IMAGE (for driver), AGENT (label),
 # AGENT_EXEC (runs a command under the agent binary), KEY_VAR (the provider
 # placeholder's variable), KEY_HOST (the API host), KEY_PROBE (calls the API
-# with its first argument or $KEY_VAR) and INJECTED (what the API answers
-# when the proxy injected the fake key).
+# with its first argument or $KEY_VAR), INJECTED (what the API answers when
+# the proxy injected the fake key), and optionally INJECTION_LOG_PATTERN (a
+# proxy log line proving injection when the API response is not distinctive).
 #
 # What curl prints when no rule admits it to the API host: OpenShell v0.0.116
 # answers the CONNECT with 403, v0.1.x refuses the connect. Either counts only
@@ -1101,9 +1163,11 @@ DENIED_403="CONNECT tunnel failed, response 403"
 # key_check WANT DESC -- CMD...: WANT is "injected" or "not-injected".
 key_check() {
     local want="$1" desc="$2"; shift 3
-    local out mark="" refused="" injected="" logged=""
+    local out mark="" refused="" injected="" logged="" injection_mark=""
     if [[ "$want" == not-injected ]]; then
         mark="$(denial_mark "$CURL_CALLER" "$KEY_HOST")"
+    elif [[ -n "${INJECTION_LOG_PATTERN:-}" ]]; then
+        injection_mark="$(proxy_log_mark "$INJECTION_LOG_PATTERN")"
     fi
     out="$(timeout 90 openshell sandbox exec --name "$SANDBOX" --no-tty --no-login-shell -- \
         "$@" 2>&1 || true)"
@@ -1113,7 +1177,13 @@ key_check() {
     elif grep -qF "curl: (7) Failed to connect to $KEY_HOST" <<<"$out"; then
         refused=connect
     fi
-    grep -qF "$INJECTED" <<<"$out" && injected=1
+    if [[ -n "${INJECTED:-}" ]] && grep -qF "$INJECTED" <<<"$out"; then
+        injected=1
+    fi
+    if [[ "$want" == injected && -n "${INJECTION_LOG_PATTERN:-}" ]] &&
+        proxy_injection_seen "$injection_mark" "$INJECTION_LOG_PATTERN"; then
+        injected=1
+    fi
     if [[ "$want" == not-injected && -n "$refused" && -z "$injected" ]] &&
         denial_logged "$mark" "$CURL_CALLER" "$KEY_HOST" >/dev/null; then
         logged=1
@@ -1126,6 +1196,8 @@ key_check() {
         # Only a refusal with no injected answer was looked up in the log.
         if [[ "$want" == not-injected && -n "$refused" && -z "$injected" ]]; then
             echo "  Sandbox log: no DENIED line for curl -> $KEY_HOST after $mark"
+        elif [[ "$want" == injected && -n "${INJECTION_LOG_PATTERN:-}" ]]; then
+            echo "  Proxy log: no successful credential injection for $KEY_HOST after $injection_mark"
         fi
     fi
     return 0
@@ -1252,6 +1324,8 @@ AGENT=codex
 AGENT_EXEC=("${CODEX_EXEC[@]}")
 KEY_VAR=OPENAI_API_KEY
 KEY_HOST=api.openai.com
+# OpenAI's response remains a useful credential signal.
+INJECTION_LOG_PATTERN=""
 # OpenAI's 401 echoes the key masked, which shows the proxy injected it.
 # shellcheck disable=SC2016 # expanded inside the sandbox
 KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.openai.com/v1/models \
@@ -1291,14 +1365,17 @@ while pid > 1:
     # put the claude binary in the parent chain, as codex sandbox does.
     assert_ok "claude: the wrapper runs a command under the claude binary" \
         grep -q UNDER_CLAUDE_BINARY <<<"$(sx "${AGENT_EXEC[@]}" python3 -c "$ANCESTOR_SCRIPT")"
-    # Anthropic's 401 never echoes the key. The fake key, which is key-shaped,
-    # gets "API key is invalid."; an unresolved placeholder gets "invalid
-    # x-api-key" instead, so only an injected key gives INJECTED.
+    # Anthropic changed its authentication errors so a fake key and an
+    # unresolved placeholder both produce "invalid x-api-key". Use the proxy's
+    # request log instead: an ALLOWED request with no credential_unavailable
+    # record proves that the provider resolved the placeholder and injected
+    # the fake key before the request was sent.
     # shellcheck disable=SC2016 # expanded inside the sandbox
     KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.anthropic.com/v1/models \
         -H "x-api-key: ${1:-$ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" 2>&1 |
         head -c 200' key-probe)
-    INJECTED="API key is invalid."
+    INJECTED=""
+    INJECTION_LOG_PATTERN='ALLOWED (GET|POST) .*api\.anthropic\.com:443/v1/models'
     key_provider_checks
 else
     fail "claude: sandbox created with api-key auth and the profile"
@@ -1432,6 +1509,7 @@ print(provider.auth_mode())' | tail -1)" = vertex
     AGENT_EXEC=(bash "$UNDER_CLAUDE")
     KEY_VAR="$VERTEX_TOKEN_VAR"
     KEY_HOST=aiplatform.googleapis.com
+    INJECTION_LOG_PATTERN=""
     # Google answers a bearer token it cannot validate with a 401 ("Request
     # had invalid authentication credentials"), and the fake token is one, so
     # the answer shows that the request went through the provider's rule to
