@@ -134,8 +134,16 @@ mkdir -p "$WORKDIR"
 print_step "Running routed skill (opencode, classifier)..."
 ROUTED_LOG="$TMPDIR_E2E/routed-out.txt"
 RC=0
+# The registry's low and medium OpenCode tiers use the deprecated
+# google-vertex/claude-sonnet-4-5@20250929, and the routed run on it has
+# failed on Vertex since 2026-10-08 while the default model still works.
+# This test checks routing, not a model, so route both tiers to the default
+# model. Remove the overrides once the registry tiers move to a supported
+# model (RHAI-7286).
 "$(agentic_python)" "$SCRIPT_DIR/routed_skill_driver.py" \
     --backend podman --harness opencode --image "$IMAGE" --workdir "$WORKDIR" \
+    --model-tier low=google-vertex/claude-opus-4-6@default \
+    --model-tier medium=google-vertex/claude-opus-4-6@default:high \
     > "$ROUTED_LOG" 2>&1 || RC=$?
 
 OUTPUT="$(cat "$ROUTED_LOG")"
