@@ -1,8 +1,11 @@
 """Tests for OpenCodeStreamProcessor."""
 
 import json
+from pathlib import Path
 
 from agentic_ci.stream import OpenCodeStreamProcessor
+
+_RUN_FIXTURE = Path(__file__).parent / "fixtures" / "opencode" / "run.ndjson"
 
 
 def _make_event(event_type, **kwargs):
@@ -246,6 +249,122 @@ class TestProcess:
         assert result is False
         captured = capsys.readouterr()
         assert "Hello" in captured.out
+
+
+class TestUsageTracking:
+    """Usage parsed from step_finish events, persisted by the local backend."""
+
+    def test_accumulates_step_finish_usage(self):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(
+            _make_event(
+                "step_finish",
+                part={
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {
+                        "input": 500,
+                        "output": 100,
+                        "reasoning": 384,
+                        "cache": {"read": 10, "write": 400},
+                    },
+                    "cost": 0.0123,
+                },
+            )
+        )
+        proc.process_line(
+            _make_event(
+                "step_finish",
+                part={
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {
+                        "input": 300,
+                        "output": 50,
+                        "reasoning": 0,
+                        "cache": {"read": 150, "write": 0},
+                    },
+                    "cost": 0.005,
+                },
+            )
+        )
+        assert proc.usage_steps == [
+            {
+                "input": 500,
+                "output": 100,
+                "reasoning": 384,
+                "cache_read": 10,
+                "cache_write": 400,
+                "cost": 0.0123,
+            },
+            {
+                "input": 300,
+                "output": 50,
+                "reasoning": 0,
+                "cache_read": 150,
+                "cache_write": 0,
+                "cost": 0.005,
+            },
+        ]
+
+    def test_counts_turns_and_duration(self):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(_make_event("step_start", part={"type": "step-start"}, timestamp=1000))
+        proc.process_line(_make_event("text", part={"type": "text", "text": "hi"}, timestamp=1000))
+        proc.process_line(_make_event("step_start", part={"type": "step-start"}, timestamp=2500))
+        proc.process_line(
+            _make_event(
+                "step_finish", part={"type": "step-finish", "reason": "stop"}, timestamp=3000
+            )
+        )
+        assert proc.num_turns == 2
+        assert proc.duration_ms == 2000
+
+    def test_no_usage_without_events(self):
+        proc = OpenCodeStreamProcessor(color=False)
+        assert proc.usage_steps == []
+        assert proc.num_turns == 0
+        assert proc.duration_ms is None
+        assert proc.saw_error is False
+
+    def test_error_event_sets_saw_error(self):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(_make_event("error", error={"data": {"message": "Model not found"}}))
+        assert proc.saw_error is True
+
+    def test_null_cost_is_kept_as_none(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(
+            _make_event(
+                "step_finish",
+                part={
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {"input": 10, "output": 5, "cache": {}},
+                    "cost": None,
+                },
+            )
+        )
+        assert proc.usage_steps[0]["cost"] is None
+        captured = capsys.readouterr()
+        assert "cost=$0.0000" in captured.out
+
+    def test_real_capture_from_v2_0_26(self, capsys):
+        """Feed a real OpenCode v2.0.26 run stream through the processor.
+
+        The final step of the capture ends in text without a step_finish,
+        which documents that usage_steps is a lower bound.
+        """
+        proc = OpenCodeStreamProcessor(color=False)
+        with open(_RUN_FIXTURE, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        for line in lines:
+            if proc.process_line(line):
+                break
+        assert proc.num_turns == 3
+        assert len(proc.usage_steps) == 2
+        assert proc.saw_error is False
+        assert proc.duration_ms is not None and proc.duration_ms > 0
 
 
 class TestToolFormatting:

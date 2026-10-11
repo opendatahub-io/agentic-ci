@@ -8,7 +8,7 @@ import os
 import subprocess
 from typing import TYPE_CHECKING
 
-from agentic_ci import log
+from agentic_ci import log, otel
 from agentic_ci.backend import Backend
 from agentic_ci.harness import AGENT_EFFORT_ENV_VAR, SKILL_DIR_ENV_VAR
 from agentic_ci.plugins import find_skill_dir, is_skill_name
@@ -57,6 +57,7 @@ class LocalBackend(Backend):
         extra_args=None,
         traceparent=None,
         effort=None,
+        otel_log_file=None,
     ):
         log.section(f"Executing {self.harness.name} locally")
 
@@ -88,10 +89,44 @@ class LocalBackend(Backend):
             env=env,
         )
 
-        rc, stream_complete = self._process_stream(proc, streaming)
+        # The processor is created here, not in _process_stream, so the
+        # usage it parses from the stream can be persisted below.
+        processor = self.harness.create_stream_processor(pid=proc.pid) if streaming else None
+        rc, stream_complete = self._process_stream(proc, streaming, processor=processor)
         rc = self._resolve_exit_code(rc, stream_complete)
+        self._persist_stream_usage(processor, model, rc, otel_log_file)
         self._wait_for_otel_flush(otel_port)
         return rc
+
+    def _persist_stream_usage(self, processor, model, rc, otel_log_file):
+        """Persist stream-derived usage metrics into the OTEL JSONL artifact.
+
+        OpenCode's OTEL export carries no token or cost usage (verified
+        against v2.0.26), so the usage its stream processor parsed from
+        ``step_finish`` NDJSON events is appended to the run's OTEL JSONL
+        artifact as OTLP records instead. Only the OpenCode processor
+        reports usage steps; other harnesses export usage via OTEL itself.
+        Best effort: a failure to write never fails the run.
+        """
+        if not otel_log_file or processor is None:
+            return
+        steps = getattr(processor, "usage_steps", None)
+        if not steps:
+            return
+        try:
+            appended = otel.append_opencode_usage(
+                otel_log_file,
+                model,
+                steps,
+                num_turns=processor.num_turns,
+                duration_ms=processor.duration_ms,
+                is_error=(rc != 0) or processor.saw_error,
+            )
+        except OSError as exc:
+            log.warning("Could not persist OpenCode usage metrics: %s", exc)
+            return
+        if appended:
+            log.detail("OpenCode usage records", str(appended))
 
     def _set_skill_dir(self, env: dict[str, str]) -> None:
         """Set ``CLAUDE_SKILL_DIR`` in *env* to the directory of the skill this run executes.

@@ -1,9 +1,11 @@
 """Tests for backend factory."""
 
 import hashlib
+import io
 import json
 import subprocess
 import threading
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -16,7 +18,8 @@ from agentic_ci.backends.openshell import (
     _token_keepalive,
 )
 from agentic_ci.backends.podman import PodmanBackend
-from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, create_harness
+from agentic_ci.harness import ClaudeCodeHarness, CodexHarness, OpenCodeHarness, create_harness
+from agentic_ci.otel import parse_metrics
 from agentic_ci.sandbox_profile import Resources, SandboxProfile, SetupStep, ValidateStep
 from agentic_ci.toolchains import ToolchainEnv
 
@@ -291,6 +294,63 @@ def test_local_claude_code_leaves_skill_dir_alone(monkeypatch, tmp_path):
         backend.run("prompt", "model", streaming=False)
     assert "CLAUDE_SKILL_DIR" not in popen.call_args.kwargs["env"]
     find.assert_not_called()
+
+
+def test_local_opencode_persists_usage_to_otel_log(monkeypatch, tmp_path, capsys):
+    """A local OpenCode run appends stream-parsed usage to the OTEL artifact.
+
+    Feeds a real OpenCode v2.0.26 run stream (fixtures/opencode/run.ndjson)
+    through the backend and checks the appended records parse back into
+    token/cost rows via parse_metrics.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
+    fixture = Path(__file__).parent / "fixtures" / "opencode" / "run.ndjson"
+    stream = fixture.read_bytes()
+
+    proc = mock.Mock(pid=123)
+    proc.stdout = io.BytesIO(stream)
+    proc.stderr = None
+    proc.returncode = 0
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=OpenCodeHarness())
+    otel_log = tmp_path / "opencode-otel.jsonl"
+
+    with mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc):
+        rc = backend.run(
+            "prompt",
+            "openai/gpt-5",
+            otel_log_file=str(otel_log),
+        )
+
+    assert rc == 0
+    records = [json.loads(line) for line in otel_log.read_text().splitlines() if line.strip()]
+    token_totals, cost_totals, api_requests, _ = parse_metrics(records)
+    assert token_totals[("openai/gpt-5", "input")] > 0
+    assert token_totals[("openai/gpt-5", "output")] > 0
+    assert cost_totals["openai/gpt-5"] > 0
+    assert len(api_requests) == 1
+    assert api_requests[0]["model"] == "openai/gpt-5"
+    assert api_requests[0]["num_turns"] == 3
+    assert api_requests[0]["is_error"] is False
+
+
+def test_local_claude_run_writes_no_usage_records(monkeypatch, tmp_path, capsys):
+    """Only the OpenCode processor reports usage steps; claude runs do not."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    proc = mock.Mock(pid=123)
+    proc.stdout = io.BytesIO(b"{}\n")
+    proc.stderr = None
+    proc.returncode = 0
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())
+    otel_log = tmp_path / "claude-otel.jsonl"
+
+    with mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc):
+        rc = backend.run("prompt", "claude-opus-4-6", otel_log_file=str(otel_log))
+
+    assert rc == 0
+    assert not otel_log.exists()
 
 
 def test_openshell_run_passes_effort_to_env_script(monkeypatch, tmp_path):

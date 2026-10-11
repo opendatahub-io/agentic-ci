@@ -562,9 +562,16 @@ class TestOpenCodeHarness:
         env = OpenCodeHarness().build_local_env()
         assert env["GOOGLE_CLOUD_PROJECT"] == "gcp-proj"
 
-    def test_build_local_env_no_otel(self, monkeypatch):
+    def test_build_local_env_with_otel(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
         env = OpenCodeHarness().build_local_env(otel_port=4318)
+        assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:4318"
+        assert env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/json"
+        assert env["OTEL_BSP_SCHEDULE_DELAY"] == "0"
+
+    def test_build_local_env_no_otel_without_port(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        env = OpenCodeHarness().build_local_env()
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in env
 
     def test_build_env_script_lines(self, monkeypatch):

@@ -1,7 +1,9 @@
 """Tests for the OTLP HTTP/JSON collector."""
 
 import json
+import shutil
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -9,12 +11,21 @@ from agentic_ci.otel import (
     _build_root_span_record,
     _find_orphan_traces,
     _has_any_traces,
+    _iter_spans,
+    _otel_attribute_value,
+    append_opencode_usage,
     generate_trace_context,
     inject_root_spans,
+    opencode_usage_records,
+    otel_log_filename,
     parse_metrics,
     start_collector,
     stop_collector,
 )
+
+
+def _attr_value(attribute):
+    return _otel_attribute_value(attribute.get("value"))
 
 
 @pytest.fixture()
@@ -875,3 +886,245 @@ class TestParseMetricsRobustness:
         _, _, api_requests, _ = parse_metrics(records)
         assert len(api_requests) == 1
         assert api_requests[0]["event.name"] == "codex.api_request"
+
+
+class TestOtelLogFilename:
+    def test_claude_keeps_historical_name(self):
+        assert otel_log_filename("claude-code") == "claude-otel.jsonl"
+
+    def test_opencode_gets_its_own_name(self):
+        assert otel_log_filename("opencode") == "opencode-otel.jsonl"
+
+    def test_codex_keeps_historical_name(self):
+        assert otel_log_filename("codex") == "claude-otel.jsonl"
+
+    def test_unknown_harness_falls_back_to_claude_name(self):
+        assert otel_log_filename("other") == "claude-otel.jsonl"
+
+
+class TestCollectorLogName:
+    def test_start_collector_default_name(self, tmp_path):
+        proc, _port, log, rate = start_collector(str(tmp_path))
+        try:
+            assert log.endswith("claude-otel.jsonl")
+            assert rate.endswith("claude-otel-rate.json")
+        finally:
+            stop_collector(proc)
+
+    def test_start_collector_opencode_name(self, tmp_path):
+        proc, port, log, rate = start_collector(
+            str(tmp_path), log_name=otel_log_filename("opencode")
+        )
+        try:
+            assert log.endswith("opencode-otel.jsonl")
+            assert rate.endswith("opencode-otel-rate.json")
+            status = _post(port, "/v1/logs", {"resourceLogs": []})
+            assert status == 200
+            records = _read_log(log)
+            assert len(records) == 1
+        finally:
+            stop_collector(proc)
+
+
+def _opencode_steps():
+    """Two step_finish usage dicts shaped like the OpenCode stream."""
+    return [
+        {
+            "input": 500,
+            "output": 100,
+            "reasoning": 384,
+            "cache_read": 0,
+            "cache_write": 400,
+            "cost": 0.0123,
+        },
+        {
+            "input": 300,
+            "output": 50,
+            "reasoning": 0,
+            "cache_read": 150,
+            "cache_write": 0,
+            "cost": 0.005,
+        },
+    ]
+
+
+class TestOpenCodeUsageRecords:
+    def test_records_shape(self):
+        records = opencode_usage_records(
+            "openai/gpt-5", _opencode_steps(), num_turns=3, duration_ms=9500
+        )
+        assert len(records) == 2
+        metrics = records[0]["payload"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+        by_name = {m["name"]: m for m in metrics}
+        points = {}
+        for dp in by_name["opencode.token.usage"]["sum"]["dataPoints"]:
+            attrs = {a["key"]: _attr_value(a) for a in dp["attributes"]}
+            points[attrs["type"]] = dp["asInt"]
+        assert points == {
+            "input": 800,
+            "output": 150,
+            "reasoning": 384,
+            "cacheRead": 150,
+            "cacheCreation": 400,
+        }
+        cost_points = by_name["opencode.cost.usage"]["sum"]["dataPoints"]
+        assert cost_points[0]["asDouble"] == pytest.approx(0.0173)
+
+    def test_run_summary_row(self):
+        records = opencode_usage_records(
+            "openai/gpt-5", _opencode_steps(), num_turns=3, duration_ms=9500, is_error=True
+        )
+        attrs = {
+            a["key"]: _attr_value(a)
+            for a in records[1]["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+                "attributes"
+            ]
+        }
+        assert attrs["event.name"] == "opencode.run_summary"
+        assert attrs["model"] == "openai/gpt-5"
+        assert attrs["input_tokens"] == 800
+        assert attrs["output_tokens"] == 150
+        assert attrs["cache_read_tokens"] == 150
+        assert attrs["cache_creation_tokens"] == 400
+        assert attrs["reasoning_tokens"] == 384
+        assert attrs["num_turns"] == 3
+        assert attrs["duration_ms"] == 9500
+        assert attrs["is_error"] is True
+        assert attrs["total_cost_usd"] == pytest.approx(0.0173)
+
+    def test_missing_cost_is_omitted(self):
+        steps = [{"input": 10, "output": 5, "reasoning": 0, "cache_read": 0, "cache_write": 0}]
+        records = opencode_usage_records("m", steps)
+        metrics = records[0]["payload"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+        assert [m["name"] for m in metrics] == ["opencode.token.usage"]
+        attrs = {
+            a["key"]
+            for a in records[1]["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+                "attributes"
+            ]
+        }
+        assert "total_cost_usd" not in attrs
+
+    def test_no_steps_returns_empty(self):
+        assert opencode_usage_records("m", []) == []
+
+    def test_missing_duration_is_omitted(self):
+        steps = [{"input": 10, "output": 5, "reasoning": 0, "cache_read": 0, "cache_write": 0}]
+        records = opencode_usage_records("m", steps, duration_ms=None)
+        attrs = {
+            a["key"]
+            for a in records[1]["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+                "attributes"
+            ]
+        }
+        assert "duration_ms" not in attrs
+
+
+class TestAppendOpenCodeUsage:
+    def test_round_trip_through_parse_metrics(self, tmp_path):
+        log = tmp_path / "opencode-otel.jsonl"
+        appended = append_opencode_usage(
+            str(log),
+            "openai/gpt-5",
+            _opencode_steps(),
+            num_turns=3,
+            duration_ms=9500,
+            is_error=False,
+        )
+        assert appended == 2
+
+        records = _read_log(log)
+        token_totals, cost_totals, api_requests, _ = parse_metrics(records)
+        assert token_totals[("openai/gpt-5", "input")] == 800
+        assert token_totals[("openai/gpt-5", "output")] == 150
+        assert token_totals[("openai/gpt-5", "reasoning")] == 384
+        assert token_totals[("openai/gpt-5", "cacheRead")] == 150
+        assert token_totals[("openai/gpt-5", "cacheCreation")] == 400
+        assert cost_totals["openai/gpt-5"] == pytest.approx(0.0173)
+        assert len(api_requests) == 1
+        assert api_requests[0]["model"] == "openai/gpt-5"
+        assert api_requests[0]["num_turns"] == 3
+        assert api_requests[0]["duration_ms"] == 9500
+        assert api_requests[0]["is_error"] is False
+        assert api_requests[0]["total_cost_usd"] == pytest.approx(0.0173)
+
+    def test_no_steps_appends_nothing(self, tmp_path):
+        log = tmp_path / "opencode-otel.jsonl"
+        assert append_opencode_usage(str(log), "m", []) == 0
+        assert not log.exists()
+
+
+class TestOpenCodeFixture:
+    """Tests against a real OTEL JSONL captured from OpenCode v2.0.26.
+
+    The capture documents two findings: OpenCode exports real OTLP spans
+    (CLI internals, LLM transport, tool execution), and none of them carry
+    token or cost usage -- which is why the local backend persists usage
+    parsed from step_finish stream events instead.
+    """
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "opencode" / "opencode-otel.jsonl"
+
+    def _records(self):
+        return _read_log(self.FIXTURE)
+
+    def test_fixture_has_real_spans(self):
+        records = self._records()
+        assert _has_any_traces(records)
+        spans = list(_iter_spans(records))
+        assert len(spans) > 100
+        names = {sp.get("name") for sp in spans}
+        assert "SessionModelTransport.send" in names
+        assert "http.client POST" in names
+
+    def test_fixture_spans_carry_no_usage(self):
+        token_totals, cost_totals, _, _ = parse_metrics(self._records())
+        assert not token_totals
+        assert not cost_totals
+
+    def test_root_span_injection_keeps_working(self, tmp_path):
+        log = tmp_path / "opencode-otel.jsonl"
+        shutil.copy(self.FIXTURE, log)
+        span_count = len(list(_iter_spans(self._records())))
+        # The capture's traces all carry real roots, so no synthetic root
+        # is needed; the run's six traces are still stitched into one.
+        injected = inject_root_spans(log, 1, 2, 0)
+        assert injected == 0
+        records = _read_log(log)
+        spans = list(_iter_spans(records))
+        assert len(spans) == span_count
+        traces = {sp["traceId"] for sp in spans}
+        assert len(traces) == 1
+        rooted = {sp["traceId"] for sp in spans if not sp.get("parentSpanId")}
+        assert traces == rooted
+
+    def test_root_span_injection_on_orphaned_capture(self, tmp_path):
+        """A trace whose root was dropped (crash, lost export) gets a root."""
+        records = self._records()
+        # Find the trace with the most spans and drop its root span.
+        traces: dict[str, list] = {}
+        for span in _iter_spans(records):
+            traces.setdefault(span["traceId"], []).append(span)
+        big_trace_id = max(traces, key=lambda tid: len(traces[tid]))
+        root = next(sp for sp in traces[big_trace_id] if not sp.get("parentSpanId"))
+        for record in records:
+            for rs in (record.get("payload") or {}).get("resourceSpans", []):
+                for ss in rs.get("scopeSpans", []):
+                    ss["spans"] = [sp for sp in ss.get("spans", []) if sp is not root]
+
+        log = tmp_path / "opencode-otel.jsonl"
+        with open(log, "w") as f:
+            for record in records:
+                f.write(json.dumps(record) + "\n")
+
+        injected = inject_root_spans(log, 1, 2, 0)
+        assert injected == 1
+        spans = list(_iter_spans(_read_log(log)))
+        assert any(
+            sp.get("name") == "agentic-ci-run"
+            and any(a["key"] == "agentic_ci.synthetic_root" for a in sp.get("attributes", []))
+            for sp in spans
+        )
+        traces_after = {sp["traceId"] for sp in spans}
+        rooted = {sp["traceId"] for sp in spans if not sp.get("parentSpanId")}
+        assert traces_after == rooted

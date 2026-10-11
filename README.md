@@ -601,7 +601,9 @@ Behavior:
 - The decision is made once per call; retries inside `run_skill()` reuse it.
 - `force_tier="high"` skips the classifier and pins a tier.
 - A `skill.routed` event (tier, model, effort, source) is appended to the
-  run's `_run/claude-otel.jsonl`. OTEL cost totals include the classifier.
+  run's OTEL JSONL artifact (`_run/claude-otel.jsonl`, or
+  `_run/opencode-otel.jsonl` for the OpenCode harness). OTEL cost totals
+  include the classifier.
 - `config.container_runner` must be unset; custom runners have no model surface.
 - A tier with `effort=None` runs at the harness default effort (`--effort`, the effort env var, or the registry `default_effort`, which is `high`), the same as an unrouted run.
 - OpenCode variant names depend on the model: Claude 4.6 ids accept `low`, `medium`, `high`, `max`; `claude-sonnet-4-5` accepts only `high` and `max`.
