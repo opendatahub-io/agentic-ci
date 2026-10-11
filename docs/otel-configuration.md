@@ -43,12 +43,15 @@ flow through `build_otel_exec_env()` / `build_env_script_lines()`.
 | `OTEL_BSP_SCHEDULE_DELAY` | `0` | Flush spans immediately. Required because OpenCode calls `process.exit()` which kills the Node.js process before the OTel batch span processor can drain its queue. Without this, spans are lost. |
 | `TRACEPARENT` | `00-{trace_id}-{span_id}-01` | W3C Trace Context. Same as Claude Code. |
 
-**Telemetry enablement is caller-owned.** agentic-ci never writes OpenCode
-config. OpenCode v2.0.26 exports OTLP as soon as the endpoint env vars are
-set (its `experimental.openTelemetry` config key is reported as an "omitted
-unsupported legacy setting"); older versions additionally require
-`experimental.openTelemetry: true` in the caller-owned config
-(`OPENCODE_CONFIG_DIR`). Note that `opencode run` delegates to a background
+**Telemetry enablement is caller-owned on the local backend.** For a local
+run agentic-ci never writes OpenCode config: OpenCode v2.0.26 exports OTLP
+as soon as the endpoint env vars are set (its `experimental.openTelemetry`
+config key is reported as an "omitted unsupported legacy setting"); older
+versions additionally require `experimental.openTelemetry: true` in the
+caller-owned config (`OPENCODE_CONFIG_DIR`). The container backends
+still seed that key for those older versions by writing `opencode.json`
+via `write_sandbox_config()` (see [Sandbox config](#sandbox-config)).
+Note that `opencode run` delegates to a background
 service when one is already running — a service started without the OTEL
 env vars exports nothing for its LLM work, so spans are complete only when
 the run starts its own service (a fresh machine or container, or
@@ -57,12 +60,14 @@ the run starts its own service (a fresh machine or container, or
 **Token/cost metrics do not come from OTEL.** Verified against a live
 OpenCode v2.0.26 run: the exported spans (CLI lifecycle, session runner,
 LLM transport, tool execution) and log records carry no token or cost
-usage — only HTTP rate-limit headers mention tokens. agentic-ci therefore
-persists the usage that `OpenCodeStreamProcessor` parses from the
-`step_finish` NDJSON events into the run's OTEL JSONL artifact
-(`opencode_usage_records()` in `agentic_ci/otel.py`), as OTLP records
-shaped like Claude Code's metrics, so `parse_metrics`, the token/cost
-summary and the run-result consumers work uniformly across harnesses.
+usage — only HTTP rate-limit headers mention tokens. On the local backend
+agentic-ci therefore persists the usage that `OpenCodeStreamProcessor`
+parses from the `step_finish` NDJSON events into the run's OTEL JSONL
+artifact (`opencode_usage_records()` in `agentic_ci/otel.py`), as OTLP
+records shaped like Claude Code's metrics, so `parse_metrics`, the
+token/cost summary and the run-result consumers work uniformly across
+harnesses. The container backends do not persist stream usage yet: their
+OpenCode runs carry spans but no token/cost rows.
 Two caveats, both inherent to the OpenCode stream:
 
 - OpenCode emits `step_finish` only for steps that end in tool calls, so

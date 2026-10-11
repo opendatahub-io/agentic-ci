@@ -146,16 +146,25 @@ def _update_token_rate(payload):
     os.replace(tmp, rate_file)
 
 
-def start_collector(run_dir, bind_addr="127.0.0.1", log_name=None):
+def start_collector(run_dir, bind_addr="127.0.0.1", log_name: str | None = None):
     """Start the OTEL collector as a subprocess. Returns (proc, port, log, rate).
 
     *log_name* is the JSONL artifact basename (see :func:`otel_log_filename`);
     the rate file is derived from it. The default keeps the historical
-    ``claude-otel.jsonl`` name.
+    ``claude-otel.jsonl`` name. *log_name* must be a plain ``<stem>.jsonl``
+    file name: absolute paths and paths containing separators or ``..``
+    are rejected so the collector cannot be pointed outside *run_dir*.
     """
-    log_name = log_name or "claude-otel.jsonl"
+    log_name = log_name if log_name is not None else "claude-otel.jsonl"
+    if (
+        not log_name.endswith(".jsonl")
+        or not log_name.removesuffix(".jsonl")
+        or log_name in (".", "..")
+        or os.path.basename(log_name) != log_name
+    ):
+        raise ValueError("log_name must be a plain '<stem>.jsonl' file name")
     otel_log = os.path.join(run_dir, log_name)
-    otel_rate = os.path.join(run_dir, log_name[: -len(".jsonl")] + "-rate.json")
+    otel_rate = os.path.join(run_dir, log_name.removesuffix(".jsonl") + "-rate.json")
     port_file = os.path.join(run_dir, "otel-port")
 
     for f in [otel_log, port_file]:
@@ -405,8 +414,9 @@ def opencode_usage_records(
     *steps* is a list of per-step dicts with ``input``, ``output``,
     ``reasoning``, ``cache_read``, ``cache_write`` and optional ``cost``
     keys (see ``OpenCodeStreamProcessor.usage_steps``). Cost is included
-    only when OpenCode reported it; nothing is estimated. Returns the
-    list of records (empty without steps).
+    only when OpenCode reported it as a finite number; absent, null or
+    non-numeric values are treated as unreported and nothing is
+    estimated. Returns the list of records (empty without steps).
     """
     if not steps:
         return []
@@ -426,9 +436,10 @@ def opencode_usage_records(
         totals["reasoning"] += _safe_int(step.get("reasoning"))
         totals["cacheRead"] += _safe_int(step.get("cache_read"))
         totals["cacheCreation"] += _safe_int(step.get("cache_write"))
-        if step.get("cost") is not None:
+        step_cost = _safe_float(step.get("cost"))
+        if step_cost is not None:
             has_cost = True
-            cost += float(step["cost"])
+            cost += step_cost
 
     metrics = [
         {
@@ -592,6 +603,20 @@ def _safe_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _safe_float(value):
+    """Parse a finite float from a usage field, returning None on failure.
+
+    Unlike :func:`_safe_int` there is no default: ``None`` means the cost
+    was absent or unparseable, so callers treat it as unreported instead
+    of recording a confident zero.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _find_orphan_traces(records):

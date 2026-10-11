@@ -366,6 +366,20 @@ class ClaudeCodeStreamProcessor:
         return False
 
 
+def _cost_display(value):
+    """Format a step_finish cost for the token line, tolerating bad values.
+
+    OpenCode reports cost as a number, but version drift can send a string
+    or omit the key entirely; the live stream must never crash on display.
+    Unparseable values show as ``$0.0000`` and stay recorded as unreported.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 0.0
+    return f"{parsed:.4f}"
+
+
 class OpenCodeStreamProcessor:
     """Processes OpenCode JSON output and prints human-readable CI logs."""
 
@@ -574,7 +588,9 @@ class OpenCodeStreamProcessor:
             self._end_text()
             reason = part.get("reason", "")
             tokens = part.get("tokens", {})
-            cost = part.get("cost", 0)
+            # A missing cost key stays None (unreported), matching an
+            # explicit JSON null; the record builder treats both alike.
+            cost = part.get("cost")
             cache = tokens.get("cache", {})
             self._usage_steps.append(
                 {
@@ -583,7 +599,7 @@ class OpenCodeStreamProcessor:
                     "reasoning": tokens.get("reasoning", 0),
                     "cache_read": cache.get("read", 0),
                     "cache_write": cache.get("write", 0),
-                    "cost": cost if cost is not None else None,
+                    "cost": cost,
                 }
             )
             total = tokens.get("total", 0)
@@ -596,7 +612,7 @@ class OpenCodeStreamProcessor:
                 f"out={out} "
                 f"cache_r={cache_r} "
                 f"cache_w={cache_w} "
-                f"total={total} cost=${(cost or 0):.4f}{self.RESET}",
+                f"total={total} cost=${_cost_display(cost)}{self.RESET}",
                 flush=True,
             )
             if reason == "stop":

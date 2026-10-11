@@ -925,6 +925,21 @@ class TestCollectorLogName:
         finally:
             stop_collector(proc)
 
+    @pytest.mark.parametrize(
+        "log_name",
+        [
+            "/tmp/escaped-absolute.jsonl",
+            "../escaped-relative.jsonl",
+            "subdir/otel.jsonl",
+            "..",
+            "otel.log",
+            ".jsonl",
+        ],
+    )
+    def test_start_collector_rejects_unsafe_log_names(self, tmp_path, log_name):
+        with pytest.raises(ValueError, match="file name"):
+            start_collector(str(tmp_path), log_name=log_name)
+
 
 def _opencode_steps():
     """Two step_finish usage dicts shaped like the OpenCode stream."""
@@ -1004,6 +1019,63 @@ class TestOpenCodeUsageRecords:
             ]
         }
         assert "total_cost_usd" not in attrs
+
+    def test_non_numeric_cost_is_omitted(self):
+        """Version drift may send cost as a string; it must not crash the run."""
+        steps = [
+            {
+                "input": 10,
+                "output": 5,
+                "reasoning": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "cost": "unavailable",
+            }
+        ]
+        records = opencode_usage_records("m", steps)
+        metrics = records[0]["payload"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+        assert [m["name"] for m in metrics] == ["opencode.token.usage"]
+        attrs = {
+            a["key"]
+            for a in records[1]["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+                "attributes"
+            ]
+        }
+        assert "total_cost_usd" not in attrs
+
+    def test_mixed_costs_count_only_reported_values(self):
+        steps = [
+            {
+                "input": 10,
+                "output": 5,
+                "reasoning": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "cost": 0.01,
+            },
+            {
+                "input": 10,
+                "output": 5,
+                "reasoning": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "cost": "unavailable",
+            },
+            {
+                "input": 10,
+                "output": 5,
+                "reasoning": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "cost": None,
+            },
+        ]
+        records = opencode_usage_records("m", steps)
+        metrics = records[0]["payload"]["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]
+        by_name = {m["name"]: m for m in metrics}
+        assert by_name["opencode.cost.usage"]["sum"]["dataPoints"][0]["asDouble"] == (
+            pytest.approx(0.01)
+        )
 
     def test_no_steps_returns_empty(self):
         assert opencode_usage_records("m", []) == []

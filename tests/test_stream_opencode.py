@@ -349,6 +349,40 @@ class TestUsageTracking:
         captured = capsys.readouterr()
         assert "cost=$0.0000" in captured.out
 
+    def test_missing_cost_key_is_unreported(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(
+            _make_event(
+                "step_finish",
+                part={
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {"input": 10, "output": 5, "cache": {}},
+                },
+            )
+        )
+        assert proc.usage_steps[0]["cost"] is None
+        captured = capsys.readouterr()
+        assert "cost=$0.0000" in captured.out
+
+    def test_non_numeric_cost_does_not_crash_the_stream(self, capsys):
+        """Version drift may send cost as a string; display must tolerate it."""
+        proc = OpenCodeStreamProcessor(color=False)
+        proc.process_line(
+            _make_event(
+                "step_finish",
+                part={
+                    "type": "step-finish",
+                    "reason": "tool-calls",
+                    "tokens": {"input": 10, "output": 5, "cache": {}},
+                    "cost": "unavailable",
+                },
+            )
+        )
+        assert proc.usage_steps[0]["cost"] == "unavailable"
+        captured = capsys.readouterr()
+        assert "cost=$0.0000" in captured.out
+
     def test_real_capture_from_v2_0_26(self, capsys):
         """Feed a real OpenCode v2.0.26 run stream through the processor.
 

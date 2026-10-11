@@ -804,13 +804,15 @@ class OpenCodeHarness(Harness):
                     "OTEL_BSP_SCHEDULE_DELAY": "0",
                 }
             )
-            # Telemetry enablement is caller-owned: agentic-ci never writes
-            # OpenCode config. OpenCode v2.0.26+ exports OTLP when the
-            # endpoint env vars are set (its experimental.openTelemetry
-            # config key is reported as an omitted legacy setting); older
-            # versions additionally require
-            # ``experimental.openTelemetry: true`` in the caller-owned
-            # config (OPENCODE_CONFIG_DIR).
+            # Telemetry enablement is caller-owned on the local backend:
+            # agentic-ci never writes OpenCode config for a local run.
+            # OpenCode v2.0.26+ exports OTLP when the endpoint env vars
+            # are set (its experimental.openTelemetry config key is
+            # reported as an omitted legacy setting); older versions
+            # additionally require ``experimental.openTelemetry: true``
+            # in the caller-owned config (OPENCODE_CONFIG_DIR). The
+            # container backends still seed that key via
+            # write_sandbox_config() for those older versions.
             log.debug(
                 "OpenCode OTEL export wired to http://127.0.0.1:%s; "
                 "older OpenCode versions also need "

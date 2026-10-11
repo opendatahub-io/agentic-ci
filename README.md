@@ -267,7 +267,7 @@ backend. When an API key is present, agentic-ci uses Codex's non-interactive
 
 On the OpenShell backend, Codex runs with
 `--dangerously-bypass-approvals-and-sandbox`, the same trust level as Claude
-Code (`bypassPermissions`) and OpenCode (`--dangerously-skip-permissions`): the
+Code (`bypassPermissions`) and OpenCode (`--auto`): the
 OpenShell sandbox and its network policy already isolate the agent, and Codex's
 own approval prompts and workspace-write sandbox would only block skills from
 reaching allowed hosts. On the podman and local backends (the plain runner

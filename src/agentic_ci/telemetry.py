@@ -302,12 +302,27 @@ def _resolve_log_root(log_root: str | Path) -> Path:
     return resolved
 
 
+def _validated_log_filename(filename: str | None) -> str:
+    """Resolve *filename* to a plain basename that stays beneath log_root.
+
+    ``os.open`` with ``dir_fd`` resolves absolute paths and ``..``
+    components outside the trusted log root, and ``O_NOFOLLOW`` only
+    guards the final path component, so anything but a plain file name
+    is rejected here.
+    """
+    name = filename if filename is not None else _LOG_FILENAME
+    if not name or name in (".", "..") or os.path.basename(name) != name:
+        raise TelemetryEventError("log_filename must be a plain file name beneath log_root")
+    return name
+
+
 def _open_log(root: Path, flags: int, mode: str, filename: str | None = None):
+    name = _validated_log_filename(filename)
     directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         try:
             file_fd = os.open(
-                filename or _LOG_FILENAME,
+                name,
                 flags | os.O_NOFOLLOW,
                 0o600,
                 dir_fd=directory_fd,
@@ -358,6 +373,8 @@ def append_event(
 
     ``log_filename`` overrides the default ``claude-otel.jsonl`` basename
     (for harness-specific artifact names such as ``opencode-otel.jsonl``).
+    It must be a plain file name: absolute paths and paths containing
+    separators or ``..`` are rejected so writes stay beneath ``log_root``.
     """
     root = _resolve_log_root(log_root)
     record = build_event_record(event, correlation=correlation, parent_span_id=parent_span_id)
@@ -432,7 +449,8 @@ def emit_event(
     At least one destination is required. This function does not catch write
     or export errors, allowing callers to preserve their workflow's result
     while deciding how to report transport failure. ``log_filename``
-    overrides the default JSONL basename (see :func:`append_event`).
+    overrides the default JSONL basename and must be a plain file name
+    (see :func:`append_event`).
     """
     if log_root is None and endpoint is None:
         raise TelemetryEventError("log_root or endpoint is required")

@@ -353,6 +353,79 @@ def test_local_claude_run_writes_no_usage_records(monkeypatch, tmp_path, capsys)
     assert not otel_log.exists()
 
 
+def test_local_opencode_non_numeric_cost_does_not_fail_run(monkeypatch, tmp_path, capsys):
+    """A malformed cost in the stream must not fail an already-successful run.
+
+    Version drift may report cost as a string (or omit it); persistence is
+    best effort, so the run keeps its exit code and the cost is treated as
+    unreported while the token usage is still persisted.
+    """
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
+    events = [
+        {
+            "type": "step_start",
+            "timestamp": 1000,
+            "part": {"type": "step-start"},
+        },
+        {
+            "type": "step_finish",
+            "timestamp": 2000,
+            "part": {
+                "type": "step-finish",
+                "reason": "stop",
+                "tokens": {"input": 10, "output": 5, "reasoning": 0, "cache": {}},
+                "cost": "unavailable",
+            },
+        },
+    ]
+    stream = ("\n".join(json.dumps(event) for event in events) + "\n").encode("utf-8")
+
+    proc = mock.Mock(pid=123)
+    proc.stdout = io.BytesIO(stream)
+    proc.stderr = None
+    proc.returncode = 0
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=OpenCodeHarness())
+    otel_log = tmp_path / "opencode-otel.jsonl"
+
+    with mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc):
+        rc = backend.run("prompt", "openai/gpt-5", otel_log_file=str(otel_log))
+
+    assert rc == 0
+    records = [json.loads(line) for line in otel_log.read_text().splitlines() if line.strip()]
+    token_totals, cost_totals, _, _ = parse_metrics(records)
+    assert token_totals[("openai/gpt-5", "input")] == 10
+    assert cost_totals == {}
+
+
+def test_local_opencode_usage_persistence_failure_does_not_fail_run(monkeypatch, tmp_path, capsys):
+    """A persistence failure after a successful run keeps the run's exit code."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
+    fixture = Path(__file__).parent / "fixtures" / "opencode" / "run.ndjson"
+
+    proc = mock.Mock(pid=123)
+    proc.stdout = io.BytesIO(fixture.read_bytes())
+    proc.stderr = None
+    proc.returncode = 0
+
+    backend = LocalBackend(workdir=str(tmp_path), harness=OpenCodeHarness())
+    otel_log = tmp_path / "opencode-otel.jsonl"
+
+    with (
+        mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc),
+        mock.patch(
+            "agentic_ci.backends.local.otel.append_opencode_usage",
+            side_effect=OSError("disk full"),
+        ),
+    ):
+        rc = backend.run("prompt", "openai/gpt-5", otel_log_file=str(otel_log))
+
+    assert rc == 0
+    assert not otel_log.exists()
+
+
 def test_openshell_run_passes_effort_to_env_script(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     backend = OpenShellBackend(workdir=str(tmp_path), harness=ClaudeCodeHarness())

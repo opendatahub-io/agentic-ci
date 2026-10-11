@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import logging
 import os
 import subprocess
 from typing import TYPE_CHECKING
@@ -15,6 +16,11 @@ from agentic_ci.plugins import find_skill_dir, is_skill_name
 
 if TYPE_CHECKING:
     from agentic_ci.harness import Harness
+
+# Warnings go through the stdlib logger (like skill.py / git.py); the
+# module-level `log` is the agentic_ci.log print helper, which has no
+# `warning`.
+_LOGGER = logging.getLogger(__name__)
 
 
 class LocalBackend(Backend):
@@ -106,7 +112,8 @@ class LocalBackend(Backend):
         ``step_finish`` NDJSON events is appended to the run's OTEL JSONL
         artifact as OTLP records instead. Only the OpenCode processor
         reports usage steps; other harnesses export usage via OTEL itself.
-        Best effort: a failure to write never fails the run.
+        Best effort: a write failure or malformed stream value never
+        fails the run.
         """
         if not otel_log_file or processor is None:
             return
@@ -122,8 +129,8 @@ class LocalBackend(Backend):
                 duration_ms=processor.duration_ms,
                 is_error=(rc != 0) or processor.saw_error,
             )
-        except OSError as exc:
-            log.warning("Could not persist OpenCode usage metrics: %s", exc)
+        except (OSError, TypeError, ValueError) as exc:
+            _LOGGER.warning("Could not persist OpenCode usage metrics: %s", exc)
             return
         if appended:
             log.detail("OpenCode usage records", str(appended))
