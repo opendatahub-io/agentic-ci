@@ -651,7 +651,9 @@ class OpenCodeHarness(Harness):
             "run",
             "--format",
             "json",
-            "--dangerously-skip-permissions",
+            # OpenCode v2 removed --dangerously-skip-permissions; --auto is
+            # the equivalent auto-approve flag.
+            "--auto",
             "-m",
             model,
             prompt,

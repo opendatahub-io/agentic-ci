@@ -409,7 +409,8 @@ class TestOpenCodeHarness:
         assert "run" in args
         assert "--format" in args
         assert "json" in args
-        assert "--dangerously-skip-permissions" in args
+        assert "--auto" in args
+        assert "--dangerously-skip-permissions" not in args
         assert "-m" in args
         assert "google-vertex/claude-haiku-4-5@20251001" in args
         assert "do something" in args
