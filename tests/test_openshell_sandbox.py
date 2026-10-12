@@ -2311,14 +2311,56 @@ class TestProviderAttachment:
         [(sandbox.detach_provider, "detach"), (sandbox.attach_provider, "attach")],
     )
     def test_failure_raises_without_stderr(self, func, action, capsys):
-        failed = _completed(1, stderr="sandbox was modified by another operation")
+        failed = _completed(1, stderr="provider ci-x not found")
         with (
-            mock.patch.object(sandbox, "_run", return_value=failed),
+            mock.patch.object(sandbox, "_run", return_value=failed) as run,
+            mock.patch.object(sandbox.time, "sleep") as sleep,
             pytest.raises(RuntimeError, match=f"Could not {action}.*status 1") as exc,
         ):
             func("validate")
+        assert "not found" not in str(exc.value)
+        assert "not found" in capsys.readouterr().out
+        assert run.call_count == 1
+        sleep.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("func", "action"),
+        [(sandbox.detach_provider, "detach"), (sandbox.attach_provider, "attach")],
+    )
+    def test_a_concurrent_update_conflict_is_retried(self, func, action, capsys):
+        conflict = _completed(
+            1,
+            stderr="Error: Failed to attach provider: sandbox was modified by another "
+            "operation.\nPlease retry the command.",
+        )
+        with (
+            mock.patch.object(
+                sandbox, "_run", side_effect=[conflict, conflict, _completed()]
+            ) as run,
+            mock.patch.object(sandbox.time, "sleep") as sleep,
+        ):
+            func("agent")
+        assert run.call_count == 3
+        assert [c.args[0] for c in sleep.call_args_list] == list(
+            sandbox._PROVIDER_CONFLICT_DELAYS[:2]
+        )
+        assert "retrying in 1s" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        ("func", "action"),
+        [(sandbox.detach_provider, "detach"), (sandbox.attach_provider, "attach")],
+    )
+    def test_a_conflict_that_persists_fails_after_the_retries(self, func, action):
+        conflict = _completed(1, stderr="sandbox was modified by another operation")
+        with (
+            mock.patch.object(sandbox, "_run", return_value=conflict) as run,
+            mock.patch.object(sandbox.time, "sleep") as sleep,
+            pytest.raises(RuntimeError, match=f"Could not {action}.*status 1") as exc,
+        ):
+            func("setup")
+        assert run.call_count == len(sandbox._PROVIDER_CONFLICT_DELAYS) + 1
+        assert sleep.call_count == len(sandbox._PROVIDER_CONFLICT_DELAYS)
         assert "modified" not in str(exc.value)
-        assert "modified" in capsys.readouterr().out
 
     @pytest.mark.parametrize(
         ("func", "action"),
