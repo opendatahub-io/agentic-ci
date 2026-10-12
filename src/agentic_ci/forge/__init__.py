@@ -346,6 +346,17 @@ def filter_trusted_comments(
     return [c for c in comments if is_trusted_comment(c, authors)]
 
 
+# Thread-level fields that describe the thread starter's account; taken from
+# the first trusted comment when a thread is filtered.
+_THREAD_AUTHOR_KEYS = ("author", "author_username", "author_access_level", "author_association")
+
+# Thread-level fields a filtered thread keeps from the input: the thread's
+# identity and diff position, which the forge sets, not the comment authors.
+# Any other key (a field a producer adds later) is dropped, so the filter
+# fails closed instead of passing an untrusted starter's data through.
+_THREAD_POSITION_KEYS = ("thread_id", "file", "line")
+
+
 def filter_trusted_threads(threads: list[dict], trusted_authors: Iterable[str] = ()) -> list[dict]:
     """Return review threads reduced to their trusted comments.
 
@@ -353,10 +364,14 @@ def filter_trusted_threads(threads: list[dict], trusted_authors: Iterable[str] =
     ``comments`` keeps only trusted comments and ``body`` is rebuilt from
     them, so an untrusted reply inside a trusted author's thread is
     dropped. A thread with no trusted comment left, or without a
-    ``comments`` list, is dropped. The thread's position, ``author`` and
-    trust fields still describe the thread starter. *trusted_authors* are
-    extra trusted account names (see :func:`is_trusted_comment`). Input
-    dicts are not modified.
+    ``comments`` list, is dropped. The thread's author fields (``author``,
+    ``author_username``, ``author_access_level``, ``author_association``)
+    are taken from the first trusted comment, so a thread an outsider
+    started carries none of the outsider's account data (a GitLab display
+    name is free text). Of the other thread fields only ``thread_id``,
+    ``file`` and ``line`` are kept; any other key is dropped.
+    *trusted_authors* are extra trusted account names (see
+    :func:`is_trusted_comment`). Input dicts are not modified.
     """
     authors = _normalized_authors(trusted_authors)
     result: list[dict] = []
@@ -365,7 +380,9 @@ def filter_trusted_threads(threads: list[dict], trusted_authors: Iterable[str] =
         if not trusted:
             continue
         body = "\n".join(f"{c.get('author', 'Unknown')}: {c.get('body', '')}" for c in trusted)
-        result.append({**thread, "comments": trusted, "body": body})
+        position = {k: thread[k] for k in _THREAD_POSITION_KEYS if k in thread}
+        author = {k: trusted[0][k] for k in _THREAD_AUTHOR_KEYS if k in trusted[0]}
+        result.append({**position, **author, "comments": trusted, "body": body})
     return result
 
 
