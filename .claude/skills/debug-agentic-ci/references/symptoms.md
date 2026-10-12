@@ -160,7 +160,12 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 ### Gate error or verdict failure says only "(SomeError); see the CI job log"
 - **Symptom**: A tracker comment or `gate_errors` entry reads like `gitleaks pre-check failed: git rev-list error (CalledProcessError); see the CI job log` or `Verdict could not be loaded (ValueError); see the CI job log`, with no detail.
 - **Likely cause**: By design (RHAI-2736). Gate error strings and the `gate_errors` that `run_skill()` passes to `label_applier` after a verdict load failure name only the exception class, because consumers post them to Jira and exception or stderr text can carry secrets. The full exception message and subprocess stderr are logged at ERROR level by `agentic_ci.gates` or `agentic_ci.skill` in the same job. `loader returned no verdict` means the retried `verdict_loader` returned `None` instead of raising.
-- **Where to look**: the job log line `git rev-list failed: ...; stderr: ...`, `Could not ...: ...` or `[KEY] Failed to load verdict: <class>: <message>`; `gates.py:gitleaks_scan()` and the CLI gate runners, `skill.py:_verdict_error_text()`
+- **Where to look**: the job log line `git rev-list failed: ...; stderr: ...` (or `git rev-parse failed`), `Could not ...: ...` or `[KEY] Failed to load verdict: <class>: <message>`; `gates.py:gitleaks_scan()` and the CLI gate runners, `skill.py:_verdict_error_text()`
+
+### gitleaks finds a secret that the target repo's `.gitleaks.toml`, `.gitleaksignore` or a `gitleaks:allow` comment allowlists
+- **Symptom**: The gitleaks post-gate fails although the repo's own gitleaks config or ignore file allowlists the finding, or the committed line ends with `gitleaks:allow`.
+- **Likely cause**: By design (RHAI-3022). The agent writes the working tree and the lines it commits, so `gitleaks_scan()` uses none of them: it scans a host-owned bare repository that borrows the repo's objects, with gitleaks' built-in rules, an empty ignore directory and `--ignore-gitleaks-allow`, and drops `GITLEAKS_CONFIG` and `GITLEAKS_CONFIG_TOML` from its environment. Only the commits in `compare_ref..HEAD` are scanned. A pre-check error now names the git step that failed (`rev-parse`, `rev-list` or `init`).
+- **Where to look**: `gates.py:gitleaks_scan()`, `_GITLEAKS_CONFIG`, the gitleaks output in the job log
 
 ### Comments or label authors with no email dropped
 - **Symptom**: A comment from a Jira app or deleted user is missing from the agent context, or a label added by one fails the label-author check.
