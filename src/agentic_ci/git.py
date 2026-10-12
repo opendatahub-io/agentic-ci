@@ -6,7 +6,6 @@ All operations use subprocess calls to git.
 
 from __future__ import annotations
 
-import codecs
 import enum
 import fnmatch
 import logging
@@ -1105,20 +1104,50 @@ def get_changed_files(
     return [os.fsdecode(name) for name in result.stdout.split(b"\0") if name]
 
 
+# Git's C-quoting escapes (quote.c): these single characters, and three
+# octal digits for any other byte.
+_GIT_QUOTE_ESCAPES = {
+    "a": 0x07,
+    "b": 0x08,
+    "t": 0x09,
+    "n": 0x0A,
+    "v": 0x0B,
+    "f": 0x0C,
+    "r": 0x0D,
+    '"': 0x22,
+    "\\": 0x5C,
+}
+
+
 def unquote_git_path(path: str) -> str:
     """Undo git's C-quoting of a path (``"caf\\303\\251"`` becomes ``café``).
 
     Git quotes names with unusual characters in its default (non ``-z``)
-    output.  A path without the surrounding double quotes is returned as is,
-    and so is one whose escapes do not decode.
+    output.  Only git's own escapes are decoded.  A path without the
+    surrounding double quotes is returned as is, and so is one with an
+    escape git never writes.
     """
     if len(path) < 2 or not (path.startswith('"') and path.endswith('"')):
         return path
-    try:
-        raw = codecs.escape_decode(path[1:-1].encode("ascii"))[0]
-    except (UnicodeEncodeError, ValueError):
-        return path
-    return os.fsdecode(raw)
+    body = path[1:-1]
+    raw = bytearray()
+    i = 0
+    while i < len(body):
+        char = body[i]
+        if char != "\\":
+            raw += os.fsencode(char)
+            i += 1
+            continue
+        octal = body[i + 1 : i + 4]
+        if len(octal) == 3 and all(c in "01234567" for c in octal) and octal[0] in "0123":
+            raw.append(int(octal, 8))
+            i += 4
+        elif body[i + 1 : i + 2] in _GIT_QUOTE_ESCAPES:
+            raw.append(_GIT_QUOTE_ESCAPES[body[i + 1]])
+            i += 2
+        else:
+            return path
+    return os.fsdecode(bytes(raw))
 
 
 def strip_committed_files(

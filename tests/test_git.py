@@ -354,6 +354,26 @@ class TestUnquoteGitPath:
     def test_plain_path_unchanged(self):
         assert unquote_git_path("src/main.py") == "src/main.py"
 
+    def test_matches_git_quoting(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        names = ["café.txt", 'quo"te.txt', "new\nline.txt", "tab\tback\\slash.txt", "bell\a.txt"]
+        for name in names:
+            (repo / name).write_text("x\n")
+        _git(repo, "add", *names)
+        _git(repo, "commit", "-m", "names")
+        quoted = subprocess.run(
+            ["git", "diff", "--name-only", "origin/HEAD", "HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        assert sorted(unquote_git_path(q) for q in quoted) == sorted(names)
+
+    def test_python_only_escapes_are_not_decoded(self):
+        assert unquote_git_path('"a\\x2fb"') == '"a\\x2fb"'
+        assert unquote_git_path('"a\\N{SOLIDUS}b"') == '"a\\N{SOLIDUS}b"'
+
 
 class TestStripCommittedFiles:
     def test_removes_matching_files_from_commit(self, tmp_path: Path):
