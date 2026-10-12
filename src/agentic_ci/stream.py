@@ -519,8 +519,12 @@ class OpenCodeStreamProcessor:
                 flush=True,
             )
 
-    def process_line(self, line):
-        """Process a single JSONL line from OpenCode. Returns True when run is complete."""
+    def process_line(self, line, *, display=True):
+        """Process OpenCode JSONL, optionally collecting usage without printing.
+
+        Returns True when the run is complete. Raw-output callers can ignore
+        this result to keep forwarding the entire stream.
+        """
         line = line.strip()
         if not line:
             return False
@@ -540,11 +544,32 @@ class OpenCodeStreamProcessor:
             self._last_ts = timestamp
 
         if msg_type == "error":
-            self._end_text()
+            if display:
+                self._end_text()
             error = msg.get("error", {})
             error_msg = error.get("data", {}).get("message", str(error))
             self._errors.append(error_msg)
             return False
+
+        if msg_type == "step_start":
+            self._num_turns += 1
+        elif msg_type == "step_finish":
+            tokens = part.get("tokens", {})
+            cache = tokens.get("cache", {})
+            self._usage_steps.append(
+                {
+                    "input": tokens.get("input", 0),
+                    "output": tokens.get("output", 0),
+                    "reasoning": tokens.get("reasoning", 0),
+                    "cache_read": cache.get("read", 0),
+                    "cache_write": cache.get("write", 0),
+                    # Missing and null costs both mean unreported.
+                    "cost": part.get("cost"),
+                }
+            )
+
+        if not display:
+            return msg_type == "step_finish" and part.get("reason") == "stop"
 
         if msg_type == "text":
             text = part.get("text", "")
@@ -582,26 +607,13 @@ class OpenCodeStreamProcessor:
 
         elif msg_type == "step_start":
             self._end_text()
-            self._num_turns += 1
 
         elif msg_type == "step_finish":
             self._end_text()
             reason = part.get("reason", "")
             tokens = part.get("tokens", {})
-            # A missing cost key stays None (unreported), matching an
-            # explicit JSON null; the record builder treats both alike.
             cost = part.get("cost")
             cache = tokens.get("cache", {})
-            self._usage_steps.append(
-                {
-                    "input": tokens.get("input", 0),
-                    "output": tokens.get("output", 0),
-                    "reasoning": tokens.get("reasoning", 0),
-                    "cache_read": cache.get("read", 0),
-                    "cache_write": cache.get("write", 0),
-                    "cost": cost,
-                }
-            )
             total = tokens.get("total", 0)
             inp = tokens.get("input", 0)
             out = tokens.get("output", 0)

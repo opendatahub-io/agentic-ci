@@ -144,14 +144,16 @@ class Backend(ABC):
         Container backends currently ignore it.
         """
 
-    def _process_stream(self, proc, streaming, processor=None):
+    def _process_stream(self, proc, streaming, processor=None, line_observer=None):
         """Read output from proc.stdout through the harness stream processor.
 
         Returns ``(rc, stream_complete)`` so callers can insert
         backend-specific steps (e.g. downloading the workdir) before
         the verdict check in :meth:`_resolve_exit_code`. *processor*,
         when given, replaces the harness-default stream processor so the
-        caller can keep reading what it parsed.
+        caller can keep reading what it parsed. *line_observer* receives
+        decoded lines in raw-output mode, for telemetry collection without
+        changing output presentation or completion detection.
         """
         stderr_buf = bytearray()
 
@@ -188,11 +190,14 @@ class Backend(ABC):
                         break
             else:
                 for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace")
                     if out_fh is not None:
-                        out_fh.write(line.decode("utf-8", errors="replace"))
+                        out_fh.write(text)
                         out_fh.flush()
                     sys.stdout.buffer.write(line)
                     sys.stdout.buffer.flush()
+                    if line_observer is not None:
+                        line_observer(text)
         finally:
             if out_fh is not None:
                 out_fh.close()

@@ -8,7 +8,7 @@ artifacts routing is expected to leave behind:
 - ``verdict.json`` written by the main run and loaded by the skill engine
 - ``_run/route.json`` written by the classifier (unless fallback expected)
 - ``_run/classifier-output.txt`` and ``agent-output.txt`` stream tees
-- a ``skill.routed`` span in ``_run/claude-otel.jsonl`` parented under the
+- a ``skill.routed`` span in the harness-specific OTEL JSONL artifact parented under the
   run root, and a synthetic root span whose ``agent.model`` is the routed
   model (harnesses with OTEL support only)
 
@@ -30,6 +30,7 @@ import json
 import sys
 from pathlib import Path
 
+from agentic_ci.otel import otel_log_filename
 from agentic_ci.routing import ModelTier, route_path
 from agentic_ci.skill import SkillConfig, run_routed_skill
 
@@ -40,8 +41,8 @@ SKILL_PROMPT = (
 NOOP_CLASSIFIER_PROMPT = "Reply with only the word pong. Do not read or write any files."
 
 
-def _otel_spans(run_dir: Path) -> list[dict]:
-    log_file = run_dir / "claude-otel.jsonl"
+def _otel_spans(run_dir: Path, harness_name: str) -> list[dict]:
+    log_file = run_dir / otel_log_filename(harness_name)
     if not log_file.exists():
         return []
     spans: list[dict] = []
@@ -146,7 +147,7 @@ def main() -> int:
     elif args.expect_source == "forced":
         checks["classifier_output_absent"] = not (run_dir / "classifier-output.txt").exists()
 
-    spans = _otel_spans(run_dir)
+    spans = _otel_spans(run_dir, args.harness)
     routed = [s for s in spans if s.get("name") == "skill.routed"]
     roots = [s for s in spans if not s.get("parentSpanId")]
     root_ids = {s.get("spanId") for s in roots}

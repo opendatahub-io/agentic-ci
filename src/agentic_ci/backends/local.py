@@ -7,6 +7,7 @@ import io
 import logging
 import os
 import subprocess
+from functools import partial
 from typing import TYPE_CHECKING
 
 from agentic_ci import log, otel
@@ -97,8 +98,23 @@ class LocalBackend(Backend):
 
         # The processor is created here, not in _process_stream, so the
         # usage it parses from the stream can be persisted below.
-        processor = self.harness.create_stream_processor(pid=proc.pid) if streaming else None
-        rc, stream_complete = self._process_stream(proc, streaming, processor=processor)
+        collect_usage = self.harness.registry_key == "opencode" and otel_log_file is not None
+        processor = (
+            self.harness.create_stream_processor(pid=proc.pid)
+            if streaming or collect_usage
+            else None
+        )
+        line_observer = (
+            partial(processor.process_line, display=False)
+            if collect_usage and not streaming
+            else None
+        )
+        rc, stream_complete = self._process_stream(
+            proc,
+            streaming,
+            processor=processor if streaming else None,
+            line_observer=line_observer,
+        )
         rc = self._resolve_exit_code(rc, stream_complete)
         self._persist_stream_usage(processor, model, rc, otel_log_file)
         self._wait_for_otel_flush(otel_port)

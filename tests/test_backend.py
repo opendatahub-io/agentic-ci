@@ -296,7 +296,8 @@ def test_local_claude_code_leaves_skill_dir_alone(monkeypatch, tmp_path):
     find.assert_not_called()
 
 
-def test_local_opencode_persists_usage_to_otel_log(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("streaming", [True, False])
+def test_local_opencode_persists_usage_to_otel_log(monkeypatch, tmp_path, capfd, streaming):
     """A local OpenCode run appends stream-parsed usage to the OTEL artifact.
 
     Feeds a real OpenCode v2.0.26 run stream (fixtures/opencode/run.ndjson)
@@ -314,25 +315,67 @@ def test_local_opencode_persists_usage_to_otel_log(monkeypatch, tmp_path, capsys
     proc.returncode = 0
 
     backend = LocalBackend(workdir=str(tmp_path), harness=OpenCodeHarness())
+    backend.output_file = tmp_path / "agent-output.ndjson"
     otel_log = tmp_path / "opencode-otel.jsonl"
 
     with mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc):
         rc = backend.run(
             "prompt",
             "openai/gpt-5",
+            streaming=streaming,
             otel_log_file=str(otel_log),
         )
 
     assert rc == 0
+    assert backend.output_file.read_bytes() == stream
+    if not streaming:
+        output = capfd.readouterr().out
+        assert stream.decode("utf-8") in output
+        assert "📊 TOKENS" not in output
+        assert "💬 Agent" not in output
     records = [json.loads(line) for line in otel_log.read_text().splitlines() if line.strip()]
     token_totals, cost_totals, api_requests, _ = parse_metrics(records)
-    assert token_totals[("openai/gpt-5", "input")] > 0
-    assert token_totals[("openai/gpt-5", "output")] > 0
-    assert cost_totals["openai/gpt-5"] > 0
+    assert token_totals[("openai/gpt-5", "input")] == 5986
+    assert token_totals[("openai/gpt-5", "output")] == 38
+    assert token_totals[("openai/gpt-5", "reasoning")] == 320
+    assert token_totals[("openai/gpt-5", "cacheRead")] == 6272
+    assert cost_totals["openai/gpt-5"] == pytest.approx(0.0118465)
     assert len(api_requests) == 1
     assert api_requests[0]["model"] == "openai/gpt-5"
     assert api_requests[0]["num_turns"] == 3
     assert api_requests[0]["is_error"] is False
+
+
+@pytest.mark.parametrize("returncode", [0, 7])
+def test_local_opencode_raw_output_keeps_completion_and_errors(
+    monkeypatch, tmp_path, capfd, returncode
+):
+    """Usage observation must not truncate raw output or override its exit code."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
+    events = [
+        {"type": "step_finish", "part": {"reason": "stop", "tokens": {"input": 10}}},
+        {"type": "error", "error": {"data": {"message": "late error"}}},
+        {"type": "text", "part": {"text": "trailing output"}},
+    ]
+    stream = ("\n".join(json.dumps(event) for event in events) + "\n").encode()
+    proc = mock.Mock(pid=123, returncode=returncode)
+    proc.stdout = io.BytesIO(stream)
+    proc.stderr = None
+    backend = LocalBackend(workdir=str(tmp_path), harness=OpenCodeHarness())
+    backend.output_file = tmp_path / "agent-output.ndjson"
+    otel_log = tmp_path / "opencode-otel.jsonl"
+    with mock.patch("agentic_ci.backends.local.subprocess.Popen", return_value=proc):
+        rc = backend.run("prompt", "model", streaming=False, otel_log_file=str(otel_log))
+
+    assert rc == returncode
+    assert backend.output_file.read_bytes() == stream
+    output = capfd.readouterr().out
+    assert stream.decode() in output
+    assert "❌ Error" not in output
+    records = [json.loads(line) for line in otel_log.read_text().splitlines()]
+    tokens, _, requests, _ = parse_metrics(records)
+    assert tokens[("model", "input")] == 10
+    assert requests[0]["is_error"] is True
 
 
 def test_local_claude_run_writes_no_usage_records(monkeypatch, tmp_path, capsys):

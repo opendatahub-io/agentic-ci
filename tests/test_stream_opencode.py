@@ -16,6 +16,29 @@ def _make_event(event_type, **kwargs):
 
 
 class TestProcessLine:
+    def test_collect_usage_without_display(self, capsys):
+        visible = OpenCodeStreamProcessor(color=False)
+        silent = OpenCodeStreamProcessor(color=False)
+        lines = _RUN_FIXTURE.read_text().splitlines()
+        lines.append(_make_event("error", error={"data": {"message": "failed"}}))
+        for line in lines:
+            visible.process_line(line)
+        capsys.readouterr()
+        for line in lines:
+            silent.process_line(line, display=False)
+        assert capsys.readouterr().out == ""
+        assert silent.usage_steps == visible.usage_steps
+        assert silent.num_turns == visible.num_turns
+        assert silent.duration_ms == visible.duration_ms
+        assert silent.saw_error is True
+
+    def test_collect_usage_without_display_reports_completion(self, capsys):
+        proc = OpenCodeStreamProcessor(color=False)
+        line = _make_event("step_finish", part={"reason": "stop", "tokens": {"input": 10}})
+        assert proc.process_line(line, display=False) is True
+        assert proc.usage_steps[0]["input"] == 10
+        assert capsys.readouterr().out == ""
+
     def test_empty_line(self):
         proc = OpenCodeStreamProcessor(color=False)
         assert proc.process_line("") is False
