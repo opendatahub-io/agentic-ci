@@ -6,6 +6,7 @@ All operations use subprocess calls to git.
 
 from __future__ import annotations
 
+import codecs
 import enum
 import fnmatch
 import logging
@@ -1066,30 +1067,58 @@ class GitDiffError(Exception):
     """Raised when git diff fails (missing ref, not a repo, etc.)."""
 
 
-def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
+def get_changed_files(
+    repo_dir: Path, base_ref: str = "HEAD~1", *, include_deleted: bool = True
+) -> list[str]:
     """Return files changed between *base_ref* and HEAD (committed state only).
 
-    Uses the two-ref form ``git diff --name-only <base_ref> HEAD`` so that
-    files still in HEAD after a failed ``git commit --amend`` are detected
-    even when ``git rm --cached`` already removed them from the index.
+    Uses the two-ref form ``git diff <base_ref> HEAD`` so that files still in
+    HEAD after a failed ``git commit --amend`` are detected even when
+    ``git rm --cached`` already removed them from the index.
+
+    Rename detection is off, so a moved file is listed by both its old and
+    its new path: a check on protected paths sees a file moved out of them.
+    Names are read NUL-separated and decoded with ``os.fsdecode``, so they
+    are never C-quoted and a name that is not UTF-8 cannot raise.  ``git
+    replace`` refs, which the agent can write, are ignored.  With
+    *include_deleted* False, paths that no longer exist in HEAD (deleted
+    files and the old side of a move) are left out.
 
     Raises GitDiffError if the git command fails.
     """
     if not _validate_ref(base_ref):
         raise GitDiffError(f"Invalid ref name: {base_ref}")
+    cmd = ["git", "diff", "--no-renames", "--name-only", "-z"]
+    if not include_deleted:
+        cmd.append("--diff-filter=d")
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base_ref, "HEAD"],
+            [*cmd, base_ref, "HEAD"],
             cwd=str(repo_dir),
             capture_output=True,
-            text=True,
             check=True,
+            env={**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"},
         )
-        return [f for f in result.stdout.strip().split("\n") if f]
     except subprocess.CalledProcessError as exc:
-        raise GitDiffError(
-            f"git diff failed for base_ref={base_ref}: {exc.stderr.strip()}"
-        ) from exc
+        stderr = (exc.stderr or b"").decode(errors="replace").strip()
+        raise GitDiffError(f"git diff failed for base_ref={base_ref}: {stderr}") from exc
+    return [os.fsdecode(name) for name in result.stdout.split(b"\0") if name]
+
+
+def unquote_git_path(path: str) -> str:
+    """Undo git's C-quoting of a path (``"caf\\303\\251"`` becomes ``café``).
+
+    Git quotes names with unusual characters in its default (non ``-z``)
+    output.  A path without the surrounding double quotes is returned as is,
+    and so is one whose escapes do not decode.
+    """
+    if len(path) < 2 or not (path.startswith('"') and path.endswith('"')):
+        return path
+    try:
+        raw = codecs.escape_decode(path[1:-1].encode("ascii"))[0]
+    except (UnicodeEncodeError, ValueError):
+        return path
+    return os.fsdecode(raw)
 
 
 def strip_committed_files(
@@ -1108,7 +1137,7 @@ def strip_committed_files(
     or all removals failed).
     """
     try:
-        changed = get_changed_files(repo_dir, base_ref=base_ref)
+        changed = get_changed_files(repo_dir, base_ref=base_ref, include_deleted=False)
     except GitDiffError:
         return []
 

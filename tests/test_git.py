@@ -9,6 +9,7 @@ import pytest
 from agentic_ci.git import (
     _GITHUB_URL_RE,
     _GITLAB_URL_RE,
+    GitDiffError,
     RemoteLease,
     _collect_candidates,
     _dedup_gitlab_prefixes,
@@ -23,6 +24,7 @@ from agentic_ci.git import (
     push_branch,
     rebase_branch,
     strip_committed_files,
+    unquote_git_path,
 )
 
 
@@ -282,6 +284,77 @@ def _init_repo(path: Path) -> Path:
     return path
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+class TestGetChangedFiles:
+    def test_move_lists_both_paths(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        (repo / ".agentic-ci").mkdir()
+        (repo / ".agentic-ci" / "config.yml").write_text("sandbox: {}\n")
+        _git(repo, "add", ".agentic-ci/config.yml")
+        _git(repo, "commit", "-m", "config")
+        base = _git(repo, "rev-parse", "HEAD")
+        (repo / "other").mkdir()
+        _git(repo, "mv", ".agentic-ci/config.yml", "other/x")
+        _git(repo, "commit", "-m", "move")
+
+        assert sorted(get_changed_files(repo, base_ref=base)) == [
+            ".agentic-ci/config.yml",
+            "other/x",
+        ]
+        assert get_changed_files(repo, base_ref=base, include_deleted=False) == ["other/x"]
+
+    def test_include_deleted_false_skips_deleted_files(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        _git(repo, "rm", "-q", "README.md")
+        (repo / "new.py").write_text("x = 1\n")
+        _git(repo, "add", "new.py")
+        _git(repo, "commit", "-m", "swap")
+
+        assert sorted(get_changed_files(repo, base_ref="origin/HEAD")) == ["README.md", "new.py"]
+        assert get_changed_files(repo, base_ref="origin/HEAD", include_deleted=False) == ["new.py"]
+
+    def test_unusual_names_are_not_quoted(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        names = ["café.txt", 'quo"te.txt', "new\nline.txt"]
+        for name in names:
+            (repo / name).write_text("x\n")
+        _git(repo, "add", *names)
+        _git(repo, "commit", "-m", "names")
+
+        assert sorted(get_changed_files(repo, base_ref="origin/HEAD")) == sorted(names)
+
+    def test_replace_refs_do_not_hide_changes(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        base = _git(repo, "rev-parse", "HEAD")
+        (repo / "fix.py").write_text("x = 1\n")
+        _git(repo, "add", "fix.py")
+        _git(repo, "commit", "-m", "fix")
+        _git(repo, "replace", "HEAD", base)
+
+        assert get_changed_files(repo, base_ref=base) == ["fix.py"]
+
+    def test_git_failure_raises(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        with pytest.raises(GitDiffError, match="base_ref=nope"):
+            get_changed_files(repo, base_ref="nope")
+
+
+class TestUnquoteGitPath:
+    def test_unquotes_octal_escapes(self):
+        assert unquote_git_path('"caf\\303\\251.txt"') == "café.txt"
+
+    def test_unquotes_escaped_quote(self):
+        assert unquote_git_path('"quo\\"te.txt"') == 'quo"te.txt'
+
+    def test_plain_path_unchanged(self):
+        assert unquote_git_path("src/main.py") == "src/main.py"
+
+
 class TestStripCommittedFiles:
     def test_removes_matching_files_from_commit(self, tmp_path: Path):
         repo = _init_repo(tmp_path / "repo")
@@ -367,6 +440,20 @@ class TestStripCommittedFiles:
         changed = get_changed_files(repo, base_ref="origin/HEAD")
         assert "fix.py" in changed
         assert "autofix-output/verdict.json" not in changed
+
+    def test_move_out_of_stripped_dir_is_not_stripped(self, tmp_path: Path, caplog):
+        """The old side of a move is not in HEAD, so nothing is removed for it."""
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "output").mkdir()
+        (repo / "output" / "keep.txt").write_text("keep\n")
+        _git(repo, "add", "output/keep.txt")
+        _git(repo, "commit", "-m", "tracked output")
+        base = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "mv", "output/keep.txt", "keep.txt")
+        _git(repo, "commit", "-m", "move")
+
+        assert strip_committed_files(repo, ["output/*"], base_ref=base) == []
+        assert "git rm --cached failed" not in caplog.text
 
     def test_logs_git_rm_failure(self, tmp_path: Path, caplog):
         """When git rm --cached fails, log the error with stderr details."""

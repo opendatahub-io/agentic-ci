@@ -47,6 +47,24 @@ class TestCheckSensitiveFiles:
         result = check_sensitive_files(["config/secret.yaml"])
         assert result == ["config/secret.yaml"]
 
+    def test_directory_pattern_matches_full_path(self):
+        files = [".agentic-ci/config.yml", ".agentic-ci/sub/policy.yml", "src/.agentic-ci-x"]
+        assert check_sensitive_files(files, [".agentic-ci/*"]) == [
+            ".agentic-ci/config.yml",
+            ".agentic-ci/sub/policy.yml",
+        ]
+
+    def test_directory_pattern_is_anchored_at_repo_root(self):
+        assert check_sensitive_files(["src/.agentic-ci/config.yml"], [".agentic-ci/*"]) == []
+
+    def test_quoted_path_is_unquoted_and_returned_as_given(self):
+        quoted = '".agentic-ci/caf\\303\\251.yml"'
+        assert check_sensitive_files([quoted], [".agentic-ci/*"]) == [quoted]
+        assert check_sensitive_files(['"certs/caf\\303\\251.pem"']) == ['"certs/caf\\303\\251.pem"']
+
+    def test_matching_is_case_sensitive(self):
+        assert check_sensitive_files(["certs/server.PEM"]) == []
+
 
 class TestCheckCommitAuthor:
     def test_match(self):
