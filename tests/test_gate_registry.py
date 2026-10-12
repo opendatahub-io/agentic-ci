@@ -157,8 +157,9 @@ def _git(repo, *args):
     ).stdout.strip()
 
 
-# A GitHub token shape that gitleaks' built-in github-pat rule detects.
-LEAKED_TOKEN = "ghp_R2a9xQ7mK4pL8vN3bT6wY1zC5dF0hJ2sU9eA"
+# A GitHub token shape that gitleaks' built-in github-pat rule detects, built
+# at runtime so this file itself does not trip secret scanners.
+LEAKED_TOKEN = "ghp" + "_R2a9xQ7mK4pL8vN3bT6wY1zC5dF0hJ2sU9eA"
 
 
 @pytest.fixture
