@@ -865,6 +865,12 @@ _PROVIDER_PROBE_MIN_TIMEOUT_SECONDS = 5
 # take before it counts as a gateway that does not answer.
 _PROVIDER_COMMAND_WAIT_SECONDS = _PROVIDER_WAIT_SECONDS
 _PROVIDER_COMMAND_TIMEOUT_SECONDS = _PROVIDER_COMMAND_WAIT_SECONDS + 15
+# A provider attach or detach right after another sandbox update (the phase's
+# `policy set --wait`) can lose the gateway's optimistic concurrency check:
+# "sandbox was modified by another operation. Please retry the command."
+# Only that conflict is retried, after these delays (seconds).
+_PROVIDER_CONFLICT_MARKER = "modified by another operation"
+_PROVIDER_CONFLICT_DELAYS = (1.0, 3.0, 5.0)
 
 # Prefix of the placeholder OpenShell puts in a provider credential's
 # variable. Only the prefix is ever compared; the value is not printed.
@@ -881,33 +887,43 @@ _PROVIDER_ENV_SCRIPT = (
 
 def _provider_command(action: str, phase: str) -> None:
     what = f"Could not {action} the credential provider for the {phase} phase"
-    try:
-        result = _run(
-            [
-                "openshell",
-                "sandbox",
-                "provider",
-                action,
-                "--wait",
-                "--timeout",
-                str(_PROVIDER_COMMAND_WAIT_SECONDS),
-                SANDBOX_NAME,
-                PROVIDER_NAME,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=_PROVIDER_COMMAND_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"{what}: openshell sandbox provider {action} timed out ({type(exc).__name__})"
-        ) from exc
-    if result.returncode != 0:
+    delays = iter(_PROVIDER_CONFLICT_DELAYS)
+    while True:
+        try:
+            result = _run(
+                [
+                    "openshell",
+                    "sandbox",
+                    "provider",
+                    action,
+                    "--wait",
+                    "--timeout",
+                    str(_PROVIDER_COMMAND_WAIT_SECONDS),
+                    SANDBOX_NAME,
+                    PROVIDER_NAME,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=_PROVIDER_COMMAND_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"{what}: openshell sandbox provider {action} timed out ({type(exc).__name__})"
+            ) from exc
+        if result.returncode == 0:
+            return
         _log_stderr(result)
-        raise RuntimeError(
-            f"{what}: openshell sandbox provider {action} exited with status "
-            f"{result.returncode}; see the job log"
+        delay = next(delays, None)
+        if delay is None or _PROVIDER_CONFLICT_MARKER not in (result.stderr or ""):
+            raise RuntimeError(
+                f"{what}: openshell sandbox provider {action} exited with status "
+                f"{result.returncode}; see the job log"
+            )
+        log.detail(
+            f"openshell sandbox provider {action}",
+            f"conflicted with another sandbox update; retrying in {delay:g}s",
         )
+        time.sleep(delay)
 
 
 def detach_provider(phase: str) -> None:
