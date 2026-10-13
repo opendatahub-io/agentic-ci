@@ -190,7 +190,7 @@ changes. Gates read their configuration from environment variables.
 | `sensitive-files` | — | Block commits touching `.env`, `*.pem`, `*.key`, etc. |
 | `commit-author` | `BOT_EMAIL` | Verify commit author matches expected bot email |
 | `commit-message-key` | `TICKET_KEY` | Verify ticket key appears in commit message |
-| `gitleaks` | — | Scan new commits for secrets using gitleaks |
+| `gitleaks` | — | Scan new commits for secrets with gitleaks' built-in rules; config, ignore files and `gitleaks:allow` comments in the repo are ignored |
 
 Pre-agent gates are supported via `--pre-gates` with custom
 implementations (e.g. filtering by comment domain or author).
