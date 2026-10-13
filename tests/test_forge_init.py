@@ -1,5 +1,7 @@
 """Tests for the forge package public API."""
 
+import json
+
 import pytest
 
 from agentic_ci.forge import (
@@ -215,7 +217,9 @@ class TestFilterTrustedThreads:
         result = filter_trusted_threads([thread])
         assert len(result) == 1
         assert result[0]["body"] == "collab: no"
-        assert result[0]["author"] == "outsider"
+        assert result[0]["author"] == "collab"
+        assert result[0]["author_association"] == "COLLABORATOR"
+        assert "outsider" not in json.dumps(result)
 
     def test_drops_thread_with_only_untrusted_comments(self):
         thread = self._thread(
