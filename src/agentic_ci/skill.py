@@ -41,6 +41,7 @@ from agentic_ci.harness import create_harness
 from agentic_ci.otel import (
     generate_trace_context,
     inject_root_spans,
+    otel_log_filename,
     parse_metrics,
     root_span_attributes,
     start_collector,
@@ -157,9 +158,9 @@ class RoutedSkillResult:
     route: RouteDecision | None
 
 
-def _load_otel_cost(work_dir: Path) -> dict | None:
+def _load_otel_cost(work_dir: Path, harness_name: str = "claude-code") -> dict | None:
     """Load OTEL cost data from the run directory, if available."""
-    otel_log = work_dir / "_run" / "claude-otel.jsonl"
+    otel_log = work_dir / "_run" / otel_log_filename(harness_name)
     try:
         otel_log.resolve().relative_to(work_dir.resolve())
     except ValueError:
@@ -240,6 +241,10 @@ class _AgentSession:
         self._otel_proc = None
         self.otel_port = None
         self._otel_log = None
+        # Harness-appropriate JSONL artifact name (claude-otel.jsonl for
+        # claude-code/codex, opencode-otel.jsonl for opencode); telemetry
+        # events join the collector's artifact.
+        self.otel_log_name = otel_log_filename(harness_name)
         self.traceparent = None
         self.trace_id = None
         self.span_id = None
@@ -254,7 +259,9 @@ class _AgentSession:
         if self.harness.supports_otel:
             try:
                 self._otel_proc, self.otel_port, self._otel_log, _ = start_collector(
-                    str(self.run_dir), bind_addr=self.backend.collector_bind_address
+                    str(self.run_dir),
+                    bind_addr=self.backend.collector_bind_address,
+                    log_name=self.otel_log_name,
                 )
                 self.trace_id, self.span_id, self.traceparent = generate_trace_context()
             except Exception:
@@ -331,6 +338,7 @@ class _AgentSession:
             model=model,
             effort=main_effort,
             otel_port=self.otel_port,
+            otel_log_file=self._otel_log,
             traceparent=self.traceparent,
             extra_args=args or None,
         )
@@ -555,7 +563,7 @@ def run_skill(
         )
         return rc
 
-    cost_data = _load_otel_cost(work_dir)
+    cost_data = _load_otel_cost(work_dir, config.harness_name)
 
     gate_errors: list[str] = []
     verdict = None
@@ -675,6 +683,7 @@ def _emit_route_event(session, config, ticket_key, decision):
             log_root=session.run_dir,
             correlation={"trace_id": session.trace_id} if session.trace_id else None,
             parent_span_id=session.span_id,
+            log_filename=session.otel_log_name,
         )
     except Exception as exc:
         log.warning("skill.routed event not recorded: %s", exc)
@@ -716,7 +725,9 @@ def run_routed_skill(
 
     The decision is made once per call and reused by every retry that
     :func:`run_skill` performs, so all attempts use the same model. A
-    ``skill.routed`` event is appended to the run's ``_run/claude-otel.jsonl``.
+    ``skill.routed`` event is appended to the run's OTEL JSONL artifact
+    (``_run/claude-otel.jsonl``, or ``_run/opencode-otel.jsonl`` for the
+    OpenCode harness).
 
     Args:
         classifier_max_turns: turn cap for the classifier where the CLI

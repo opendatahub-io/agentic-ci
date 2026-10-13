@@ -302,12 +302,27 @@ def _resolve_log_root(log_root: str | Path) -> Path:
     return resolved
 
 
-def _open_log(root: Path, flags: int, mode: str):
+def _validated_log_filename(filename: str | None) -> str:
+    """Resolve *filename* to a plain basename that stays beneath log_root.
+
+    ``os.open`` with ``dir_fd`` resolves absolute paths and ``..``
+    components outside the trusted log root, and ``O_NOFOLLOW`` only
+    guards the final path component, so anything but a plain file name
+    is rejected here.
+    """
+    name = filename if filename is not None else _LOG_FILENAME
+    if not name or name in (".", "..") or os.path.basename(name) != name:
+        raise TelemetryEventError("log_filename must be a plain file name beneath log_root")
+    return name
+
+
+def _open_log(root: Path, flags: int, mode: str, filename: str | None = None):
+    name = _validated_log_filename(filename)
     directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
         try:
             file_fd = os.open(
-                _LOG_FILENAME,
+                name,
                 flags | os.O_NOFOLLOW,
                 0o600,
                 dir_fd=directory_fd,
@@ -324,9 +339,9 @@ def _open_log(root: Path, flags: int, mode: str):
     return os.fdopen(file_fd, mode, encoding="utf-8")
 
 
-def _find_parent_span_id(log_root: Path, trace_id: str) -> str | None:
+def _find_parent_span_id(log_root: Path, trace_id: str, filename: str | None = None) -> str | None:
     try:
-        with _open_log(log_root, os.O_RDONLY, "r") as stream:
+        with _open_log(log_root, os.O_RDONLY, "r", filename) as stream:
             for line in stream:
                 try:
                     record = json.loads(line)
@@ -352,16 +367,23 @@ def append_event(
     *,
     correlation: Correlation | None = None,
     parent_span_id: str | None = None,
+    log_filename: str | None = None,
 ) -> dict[str, Any]:
-    """Append an event to the fixed OTLP JSONL file beneath trusted ``log_root``."""
+    """Append an event to the fixed OTLP JSONL file beneath trusted ``log_root``.
+
+    ``log_filename`` overrides the default ``claude-otel.jsonl`` basename
+    (for harness-specific artifact names such as ``opencode-otel.jsonl``).
+    It must be a plain file name: absolute paths and paths containing
+    separators or ``..`` are rejected so writes stay beneath ``log_root``.
+    """
     root = _resolve_log_root(log_root)
     record = build_event_record(event, correlation=correlation, parent_span_id=parent_span_id)
     span = record["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
     if "parentSpanId" not in span:
-        parent = _find_parent_span_id(root, span["traceId"])
+        parent = _find_parent_span_id(root, span["traceId"], log_filename)
         if parent:
             span["parentSpanId"] = parent
-    with _open_log(root, os.O_WRONLY | os.O_CREAT | os.O_APPEND, "a") as stream:
+    with _open_log(root, os.O_WRONLY | os.O_CREAT | os.O_APPEND, "a", log_filename) as stream:
         stream.write(json.dumps(record) + "\n")
     return record
 
@@ -420,12 +442,15 @@ def emit_event(
     parent_span_id: str | None = None,
     headers: Mapping[str, str] | None = None,
     timeout: float = 30,
+    log_filename: str | None = None,
 ) -> dict[str, Any]:
     """Emit one event to JSONL, OTLP HTTP, or both.
 
     At least one destination is required. This function does not catch write
     or export errors, allowing callers to preserve their workflow's result
-    while deciding how to report transport failure.
+    while deciding how to report transport failure. ``log_filename``
+    overrides the default JSONL basename and must be a plain file name
+    (see :func:`append_event`).
     """
     if log_root is None and endpoint is None:
         raise TelemetryEventError("log_root or endpoint is required")
@@ -437,6 +462,7 @@ def emit_event(
             event,
             correlation=correlation,
             parent_span_id=parent_span_id,
+            log_filename=log_filename,
         )
         if endpoint is not None:
             _post_record(

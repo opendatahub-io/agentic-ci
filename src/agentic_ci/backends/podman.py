@@ -149,6 +149,7 @@ class PodmanBackend(Backend):
         extra_args=None,
         traceparent=None,
         effort=None,
+        otel_log_file=None,
     ):
         if self._parked:
             self._unpark()
