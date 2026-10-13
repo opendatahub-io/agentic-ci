@@ -23,10 +23,10 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from agentic_ci.git import GitDiffError, get_changed_files, get_commit_info
+from agentic_ci.git import GitDiffError, get_changed_files, get_commit_info, unquote_git_path
 from agentic_ci.jira.client import JiraClient
 
 log = logging.getLogger(__name__)
@@ -140,17 +140,27 @@ def check_sensitive_files(
 ) -> list[str]:
     """Check if any changed files match a sensitive-file blocklist.
 
-    Returns a list of blocked file paths (empty means all clear).
+    A pattern without a ``/`` is matched against the file's basename, so
+    ``*secret*`` blocks ``config/secret.yaml`` but not a ``secrets/``
+    directory.  A pattern with a ``/`` is matched against the full
+    repo-relative path (``.agentic-ci/*``); fnmatch's ``*`` crosses ``/``,
+    so it covers nested files too.  Git C-quoted paths are unquoted first.
+    Matching is case-sensitive.
+
+    Returns a list of blocked file paths, as given (empty means all clear).
     """
     if blocklist is None:
         blocklist = DEFAULT_SENSITIVE_BLOCKLIST
+    path_patterns = [p for p in blocklist if "/" in p]
+    name_patterns = [p for p in blocklist if "/" not in p]
     blocked = []
     for filepath in changed_files:
-        name = Path(filepath).name
-        for pattern in blocklist:
-            if fnmatch.fnmatch(name, pattern):
-                blocked.append(filepath)
-                break
+        path = unquote_git_path(filepath)
+        name = PurePosixPath(path).name
+        if any(fnmatch.fnmatchcase(name, p) for p in name_patterns) or any(
+            fnmatch.fnmatchcase(path, p) for p in path_patterns
+        ):
+            blocked.append(filepath)
     return blocked
 
 
