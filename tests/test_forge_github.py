@@ -85,7 +85,14 @@ class TestCreateMergeRequest:
 
     def test_returns_existing_open_pr(self, forge, mock_session):
         mock_session.get.return_value = _make_response(
-            200, [{"html_url": "https://github.com/owner/repo/pull/99"}]
+            200,
+            [
+                {
+                    "html_url": "https://github.com/owner/repo/pull/99",
+                    "head": {"repo": {"full_name": "owner/repo"}},
+                    "base": {"repo": {"full_name": "Owner/Repo"}},
+                }
+            ],
         )
         result = forge.create_merge_request(
             "https://github.com/owner/repo",
@@ -99,6 +106,37 @@ class TestCreateMergeRequest:
         assert error is None
         assert result.created is False
         mock_session.post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("head_repo", "html_url"),
+        [
+            ({"full_name": "owner/repo-fork"}, "https://github.com/owner/repo/pull/7"),
+            (None, "https://github.com/owner/repo/pull/7"),
+            ({"full_name": "owner/repo"}, None),
+        ],
+        ids=["fork-in-same-owner", "deleted-fork", "own-pr-without-url"],
+    )
+    def test_pr_is_not_reused(self, forge, mock_session, head_repo, html_url):
+        mock_session.get.return_value = _make_response(
+            200,
+            [
+                {
+                    "html_url": html_url,
+                    "head": {"repo": head_repo},
+                    "base": {"repo": {"full_name": "owner/repo"}},
+                }
+            ],
+        )
+        mock_session.post.return_value = _make_response(
+            201, {"html_url": "https://github.com/owner/repo/pull/8"}
+        )
+
+        result = forge.create_merge_request(
+            "https://github.com/owner/repo", "autofix/rhai-1", "main", "Fix", "Desc"
+        )
+
+        assert result == ("https://github.com/owner/repo/pull/8", None)
+        assert result.created is True
 
     def test_draft_includes_draft_field(self, forge, mock_session):
         mock_session.get.return_value = _make_response(200, [])
@@ -274,6 +312,38 @@ class TestMrStatus:
         assert result["state"] == "open"
         assert result["source_branch"] == "feature"
         assert result["pipeline_status"] == "success"
+        # No repo objects in the response: the head repo is unknown.
+        assert result["source_repo"] == ""
+        assert result["target_repo"] == result["target_repo_path"] == "owner/repo"
+
+    @pytest.mark.parametrize(
+        ("head_repo", "source_repo"),
+        [
+            ({"full_name": "new-owner/repo"}, "new-owner/repo"),
+            ({"full_name": "outsider/repo"}, "outsider/repo"),
+            (None, ""),
+        ],
+        ids=["same-repo", "fork", "deleted-fork"],
+    )
+    def test_reports_source_and_target_repositories(
+        self, forge, mock_session, head_repo, source_repo
+    ):
+        pr_resp = _make_response(
+            200,
+            {
+                "state": "open",
+                "merged": False,
+                "head": {"sha": "", "ref": "autofix/rhai-1", "repo": head_repo},
+                "base": {"repo": {"full_name": "new-owner/repo"}},
+            },
+        )
+        mock_session.get.side_effect = [pr_resp]
+
+        result = forge.mr_status("https://github.com/owner/repo/pull/10")
+
+        assert result["source_repo"] == source_repo
+        # GitHub's base repo follows renames and transfers.
+        assert result["target_repo"] == result["target_repo_path"] == "new-owner/repo"
 
     def test_merged_pr(self, forge, mock_session):
         pr_resp = _make_response(

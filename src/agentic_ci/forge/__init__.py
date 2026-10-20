@@ -136,14 +136,33 @@ class Forge(ABC):
         is true only when this call created the MR/PR; it is false when an
         existing open MR/PR was reused or the operation failed.  The result
         continues to support ``url, error =`` unpacking for existing callers.
+        Only an open MR/PR whose source branch lives in the target repository
+        itself is reused, never one opened from a fork that happens to use
+        the same branch name.
         """
 
     @abstractmethod
     def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
-        """Get MR/PR state, source branch, and pipeline status.
+        """Get MR/PR state, source branch, repositories, and pipeline status.
 
-        Returns ``{"state": str, "source_branch": str, "pipeline_status": str}``.
-        State is normalized to ``"open"``, ``"merged"``, or ``"closed"``.
+        Returns a dict with:
+
+        - ``state``: ``"open"``, ``"merged"`` or ``"closed"``. GitLab's
+          transient ``"locked"`` (an MR in the middle of being merged) is
+          passed through, not reported as open.
+        - ``source_branch``: the source branch name.
+        - ``pipeline_status``: the overall CI status.
+        - ``source_repo`` / ``target_repo``: opaque identities of the
+          repository the source branch lives in and the repository the
+          MR/PR targets (GitLab project IDs as strings, GitHub
+          ``owner/name``). They are equal, compared case-insensitively,
+          exactly when the MR/PR is not from a fork; ``source_repo`` is
+          ``""`` when unknown (a deleted fork).
+        - ``target_repo_path``: the target repository's current path
+          (``group/sub/repo`` or ``owner/name``), which follows renames and
+          transfers. It has the forge's canonical casing; compare it with a
+          configured repository case-insensitively, as both forges treat
+          paths.
 
         When *ignored_checks* is provided, check runs whose ``name`` (or
         commit statuses whose ``context``) is in the set are excluded

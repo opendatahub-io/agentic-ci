@@ -26,6 +26,15 @@ log = logging.getLogger(__name__)
 
 _MAX_ERROR_TEXT_LEN = 200
 
+# Pages of open MRs create_merge_request() reads looking for the project's own
+# MR before it creates one (100 MRs per page).
+_MR_REUSE_MAX_PAGES = 10
+
+
+def _int_or_none(value: object) -> int | None:
+    """Return *value* when it is an int (not a bool), else ``None``."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
 
 def _sanitize_resp_text(text: str) -> str:
     """Strip control characters and truncate response text for error messages."""
@@ -182,20 +191,10 @@ class GitLabForge(Forge):
         project_path = repo_path_from_url(repo_url)
         pid = self.project_id(project_path)
 
-        existing = self._session.get(
-            f"https://gitlab.com/api/v4/projects/{pid}/merge_requests",
-            params={
-                "source_branch": source_branch,
-                "target_branch": target_branch,
-                "state": "opened",
-            },
-        )
-        if existing.status_code == 200:
-            mrs = existing.json()
-            if mrs:
-                existing_url = mrs[0].get("web_url")
-                log.info("Found existing open MR: %s", existing_url)
-                return MergeRequestResult(existing_url, None, created=False)
+        existing_url = self._own_open_mr_url(pid, source_branch, target_branch)
+        if existing_url:
+            log.info("Found existing open MR: %s", existing_url)
+            return MergeRequestResult(existing_url, None, created=False)
 
         payload: dict[str, str | bool] = {
             "source_branch": source_branch,
@@ -220,6 +219,53 @@ class GitLabForge(Forge):
             log.error(error)
             return MergeRequestResult(None, error)
         return MergeRequestResult(mr_url, None, created=True)
+
+    def _own_open_mr_url(self, pid: int, source_branch: str, target_branch: str) -> str | None:
+        """Return the web URL of the project's own open MR for a branch pair, if any.
+
+        The list also holds MRs from forks that use the same branch name, and
+        reusing one would hand an outsider's MR to the caller, so only an MR
+        whose source project is the target project counts. GitLab filters on
+        ``source_project_id``; the same check runs here too, and pages are
+        followed (up to ``_MR_REUSE_MAX_PAGES``) so fork MRs cannot push ours
+        off the first one if the filter is ever ignored. When the lookup gives
+        up, GitLab refuses the duplicate the caller then creates, and the
+        caller gets an error, never a fork MR.
+        """
+        page = "1"
+        for _ in range(_MR_REUSE_MAX_PAGES):
+            resp = self._session.get(
+                f"https://gitlab.com/api/v4/projects/{pid}/merge_requests",
+                params={
+                    "source_branch": source_branch,
+                    "target_branch": target_branch,
+                    "state": "opened",
+                    "source_project_id": str(pid),
+                    "per_page": "100",
+                    "page": page,
+                },
+            )
+            if resp.status_code != 200:
+                log.warning(
+                    "Could not list open MRs for %s to reuse (HTTP %d); creating one",
+                    source_branch,
+                    resp.status_code,
+                )
+                return None
+            mrs = resp.json()
+            for mr in mrs if isinstance(mrs, list) else []:
+                if isinstance(mr, dict) and mr.get("source_project_id") == pid:
+                    url = mr.get("web_url")
+                    return url if isinstance(url, str) and url else None
+            page = str(resp.headers.get("x-next-page") or "")
+            if not page.isdigit():
+                return None
+        log.warning(
+            "No own open MR for %s in %d pages of open MRs; creating one",
+            source_branch,
+            _MR_REUSE_MAX_PAGES,
+        )
+        return None
 
     def mr_status(self, mr_url: str, *, ignored_checks: frozenset[str] | None = None) -> dict:
         project_path, mr_iid = parse_gitlab_mr_url(mr_url)
@@ -255,10 +301,25 @@ class GitLabForge(Forge):
                         pipeline_status = pipelines[0].get("status", "unknown")
                 else:
                     pipeline_status = pipelines[0].get("status", "unknown")
+        source_pid = _int_or_none(mr.get("source_project_id"))
+        # The MR was read from projects/{pid}, so pid is its target; an unknown
+        # source then never equals the target.
+        target_pid = _int_or_none(mr.get("target_project_id"))
+        if target_pid is None:
+            target_pid = pid
+        # The MR's own web_url follows renames and transfers.
+        web_url = mr.get("web_url")
+        try:
+            target_path = parse_gitlab_mr_url(web_url)[0] if isinstance(web_url, str) else ""
+        except ForgeError:
+            target_path = ""
         return {
             "state": state,
             "source_branch": mr.get("source_branch", ""),
             "pipeline_status": pipeline_status,
+            "source_repo": "" if source_pid is None else str(source_pid),
+            "target_repo": str(target_pid),
+            "target_repo_path": target_path or project_path,
         }
 
     def update_description(

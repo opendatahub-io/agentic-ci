@@ -27,11 +27,12 @@ def forge(mock_session):
     return GitLabForge()
 
 
-def _make_response(status_code, json_data=None, text=""):
+def _make_response(status_code, json_data=None, text="", headers=None):
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_data if json_data is not None else {}
     resp.text = text
+    resp.headers = headers or {}
     return resp
 
 
@@ -115,7 +116,13 @@ class TestCreateMergeRequest:
     def test_returns_existing_open_mr(self, forge, mock_session):
         project_resp = _make_response(200, {"id": 1})
         existing_mr = _make_response(
-            200, [{"web_url": "https://gitlab.com/org/repo/-/merge_requests/50"}]
+            200,
+            [
+                {
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/50",
+                    "source_project_id": 1,
+                }
+            ],
         )
         mock_session.get.side_effect = [project_resp, existing_mr]
         result = forge.create_merge_request(
@@ -128,6 +135,85 @@ class TestCreateMergeRequest:
         url, error = result
         assert url == "https://gitlab.com/org/repo/-/merge_requests/50"
         assert error is None
+        assert result.created is False
+        mock_session.post.assert_not_called()
+
+    def test_fork_mr_with_the_same_branch_is_not_reused(self, forge, mock_session):
+        """An outsider's fork MR from a same-named branch must not become ours."""
+        project_resp = _make_response(200, {"id": 1})
+        existing = _make_response(
+            200,
+            [
+                {
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/7",
+                    "source_project_id": 99,
+                },
+                {"web_url": "https://gitlab.com/org/repo/-/merge_requests/8"},
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, existing]
+        mock_session.post.return_value = _make_response(
+            201, {"web_url": "https://gitlab.com/org/repo/-/merge_requests/9"}
+        )
+
+        result = forge.create_merge_request(
+            "https://gitlab.com/org/repo", "autofix/rhai-1", "main", "Fix", "Desc"
+        )
+
+        assert result == ("https://gitlab.com/org/repo/-/merge_requests/9", None)
+        assert result.created is True
+        params = mock_session.get.call_args_list[1][1]["params"]
+        assert (params["source_project_id"], params["per_page"]) == ("1", "100")
+
+    def test_own_mr_is_found_past_a_page_of_fork_mrs(self, forge, mock_session):
+        """Fork MRs filling the first page cannot hide ours."""
+        project_resp = _make_response(200, {"id": 1})
+        forks = [
+            {
+                "web_url": f"https://gitlab.com/org/repo/-/merge_requests/{n}",
+                "source_project_id": 99,
+            }
+            for n in range(100, 200)
+        ]
+        page1 = _make_response(200, forks, headers={"x-next-page": "2"})
+        page2 = _make_response(
+            200,
+            [{"web_url": "https://gitlab.com/org/repo/-/merge_requests/5", "source_project_id": 1}],
+            headers={"x-next-page": ""},
+        )
+        mock_session.get.side_effect = [project_resp, page1, page2]
+
+        result = forge.create_merge_request(
+            "https://gitlab.com/org/repo", "autofix/rhai-1", "main", "Fix", "Desc"
+        )
+
+        assert result == ("https://gitlab.com/org/repo/-/merge_requests/5", None)
+        assert result.created is False
+        assert mock_session.get.call_args_list[2][1]["params"]["page"] == "2"
+        mock_session.post.assert_not_called()
+
+    def test_own_mr_is_reused_after_fork_mrs(self, forge, mock_session):
+        project_resp = _make_response(200, {"id": 1})
+        existing = _make_response(
+            200,
+            [
+                {
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/7",
+                    "source_project_id": 99,
+                },
+                {
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/5",
+                    "source_project_id": 1,
+                },
+            ],
+        )
+        mock_session.get.side_effect = [project_resp, existing]
+
+        result = forge.create_merge_request(
+            "https://gitlab.com/org/repo", "autofix/rhai-1", "main", "Fix", "Desc"
+        )
+
+        assert result == ("https://gitlab.com/org/repo/-/merge_requests/5", None)
         assert result.created is False
         mock_session.post.assert_not_called()
 
@@ -332,6 +418,37 @@ class TestMrStatus:
         assert result["state"] == "open"
         assert result["source_branch"] == "fix/bug"
         assert result["pipeline_status"] == "success"
+
+    def test_reports_source_and_target_repositories(self, forge, mock_session):
+        mr_resp = _make_response(
+            200,
+            {
+                "state": "opened",
+                "source_branch": "autofix/rhai-1",
+                "source_project_id": 99,
+                "target_project_id": 1,
+                "web_url": "https://gitlab.com/new-group/repo/-/merge_requests/10",
+            },
+        )
+        project_resp = _make_response(200, {"id": 1})
+        mock_session.get.side_effect = [project_resp, mr_resp, _make_response(200, [])]
+
+        result = forge.mr_status("https://gitlab.com/org/repo/-/merge_requests/10")
+
+        assert (result["source_repo"], result["target_repo"]) == ("99", "1")
+        # The MR's own web_url follows a transfer; the requested path may be stale.
+        assert result["target_repo_path"] == "new-group/repo"
+
+    def test_missing_project_ids(self, forge, mock_session):
+        """An unknown source never equals the target, which is the project read from."""
+        mr_resp = _make_response(200, {"state": "opened", "source_branch": "b"})
+        project_resp = _make_response(200, {"id": 1})
+        mock_session.get.side_effect = [project_resp, mr_resp, _make_response(200, [])]
+
+        result = forge.mr_status("https://gitlab.com/org/sub/repo/-/merge_requests/3")
+
+        assert (result["source_repo"], result["target_repo"]) == ("", "1")
+        assert result["target_repo_path"] == "org/sub/repo"
 
     def test_merged_state_preserved(self, forge, mock_session):
         mr_resp = _make_response(200, {"state": "merged", "source_branch": "feat"})

@@ -61,9 +61,17 @@ class GitHubForge(Forge):
             },
         )
         if existing.status_code == 200:
-            prs = existing.json()
-            if prs:
-                existing_url = prs[0].get("html_url")
+            # head=<owner>:<branch> already leaves out forks owned by others;
+            # also require the head repository to be the base repository.
+            own = [
+                pr
+                for pr in existing.json()
+                if isinstance(pr, dict)
+                and (head := _pr_repo(pr, "head"))
+                and head.lower() == _pr_repo(pr, "base").lower()
+            ]
+            existing_url = own[0].get("html_url") if own else None
+            if isinstance(existing_url, str) and existing_url:
                 log.info("Found existing open PR: %s", existing_url)
                 return MergeRequestResult(existing_url, None, created=False)
 
@@ -112,10 +120,14 @@ class GitHubForge(Forge):
                 commit_statuses=statuses,
                 ignored_checks=ignored_checks,
             )
+        target_repo = _pr_repo(pr, "base") or repo_path
         return {
             "state": state,
             "source_branch": pr.get("head", {}).get("ref", ""),
             "pipeline_status": pipeline_status,
+            "source_repo": _pr_repo(pr, "head"),
+            "target_repo": target_repo,
+            "target_repo_path": target_repo,
         }
 
     def update_description(
@@ -494,6 +506,16 @@ class GitHubForge(Forge):
             if ctx not in seen:
                 seen[ctx] = s
         return [s for s in seen.values() if not _is_merge_management_status(s.get("context", ""))]
+
+
+def _pr_repo(pr: dict, side: str) -> str:
+    """Return ``owner/name`` of a pull request's ``head`` or ``base`` repo.
+
+    ``""`` when GitHub reports none, as for a PR whose fork was deleted.
+    """
+    repo = (pr.get(side) or {}).get("repo") or {}
+    name = repo.get("full_name")
+    return name if isinstance(name, str) else ""
 
 
 def _login(node: dict) -> str:
