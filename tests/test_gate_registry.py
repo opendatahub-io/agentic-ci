@@ -257,6 +257,31 @@ class TestGitleaksScan:
         assert seen["env"] == {"GITLEAKS_CONFIG": None, "GITLEAKS_CONFIG_TOML": None}
         assert not source.exists()
 
+    def test_replace_ref_does_not_skip_the_scan(self, leaky_repo, tmp_path, monkeypatch):
+        """A replace ref giving the base HEAD as a parent makes the range look empty."""
+        repo, base = leaky_repo
+        _git(repo, "replace", "--graft", base, "HEAD")
+        assert _git(repo, "rev-list", "--count", f"{base}..HEAD") == "0"
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "gitleaks"
+        fake.write_text(FAKE_GITLEAKS)
+        fake.chmod(0o755)
+        out = tmp_path / "gitleaks.json"
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.setenv("FAKE_GITLEAKS_OUT", str(out))
+
+        assert gitleaks_scan(repo, compare_ref=base) == []
+
+        assert json.loads(out.read_text())["log"] == "add creds\n"
+
+    @pytest.mark.skipif(not shutil.which("gitleaks"), reason="gitleaks not installed")
+    def test_replace_ref_does_not_hide_a_secret(self, leaky_repo):
+        repo, base = leaky_repo
+        _git(repo, "replace", "--graft", base, "HEAD")
+        errors = gitleaks_scan(repo, compare_ref=base)
+        assert errors and "detected potential secrets" in errors[0]
+
     @pytest.mark.skipif(not shutil.which("gitleaks"), reason="gitleaks not installed")
     def test_planted_allowlists_do_not_hide_a_secret(self, leaky_repo, monkeypatch):
         repo, base = leaky_repo
