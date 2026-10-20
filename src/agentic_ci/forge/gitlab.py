@@ -345,7 +345,11 @@ class GitLabForge(Forge):
         for disc in all_discussions:
             if disc.get("individual_note", True):
                 continue
-            notes = disc.get("notes", [])
+            # GitLab adds system notes to a diff discussion, such as "changed
+            # this line in version N of the diff" when a push touches the
+            # line. They are authored by the pusher and are not feedback, so a
+            # trusted pusher's note must not keep an outsider's thread alive.
+            notes = [n for n in disc.get("notes", []) if not n.get("system", False)]
             if not notes:
                 continue
             first_note = notes[0]

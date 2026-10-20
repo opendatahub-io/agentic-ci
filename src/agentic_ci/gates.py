@@ -203,12 +203,15 @@ GITLEAKS_TIMEOUT = int(os.environ.get("GITLEAKS_TIMEOUT", "120"))
 # and the lines it commits, so the scan trusts none of them: it runs on a
 # bare repository that borrows the agent repo's objects, with this config
 # (the built-in rules) and an empty ignore directory, both written by the host.
+# The commit range is resolved with replace objects off and counted in that
+# bare repository, so a replace ref or graft the agent adds cannot empty the
+# range and skip the scan.
 _GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 _GITLEAKS_ENV_OVERRIDES = ("GITLEAKS_CONFIG", "GITLEAKS_CONFIG_TOML")
 
 
 def _gitleaks_git(args: list[str], what: str) -> tuple[str, list[str]]:
-    """Run a git pre-check command; return (stdout, errors)."""
+    """Run a git pre-check command with replace objects off; return (stdout, errors)."""
     try:
         result = subprocess.run(
             ["git", *args],
@@ -216,6 +219,7 @@ def _gitleaks_git(args: list[str], what: str) -> tuple[str, list[str]]:
             text=True,
             check=True,
             timeout=30,
+            env={**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"},
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         log.error("git %s failed: %s; stderr: %s", what, exc, _stderr_text(exc))
@@ -262,21 +266,6 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
     git_dir, base, head = lines
     scan_range = f"{base}..{head}"
 
-    out, errors = _gitleaks_git(
-        ["-C", str(repo_dir), "rev-list", "--count", scan_range], "rev-list"
-    )
-    if errors:
-        return errors
-    try:
-        commit_count = int(out.strip())
-    except ValueError:
-        log.error("git rev-list returned non-integer: %r", out.strip())
-        return ["gitleaks pre-check failed: could not parse commit count"]
-
-    if commit_count == 0:
-        log.info("gitleaks scan skipped: no commits in range %s..HEAD", compare_ref)
-        return []
-
     with tempfile.TemporaryDirectory(prefix="agentic-ci-gitleaks-") as tmp:
         scratch = Path(tmp)
         scan_repo = scratch / "scan.git"
@@ -286,11 +275,28 @@ def gitleaks_scan(repo_dir: Path, compare_ref: str = "origin/HEAD") -> list[str]
         (scan_repo / "objects" / "info" / "alternates").write_text(
             str(Path(git_dir) / "objects") + "\n"
         )
+
+        out, errors = _gitleaks_git(
+            ["--git-dir", str(scan_repo), "rev-list", "--count", scan_range], "rev-list"
+        )
+        if errors:
+            return errors
+        try:
+            commit_count = int(out.strip())
+        except ValueError:
+            log.error("git rev-list returned non-integer: %r", out.strip())
+            return ["gitleaks pre-check failed: could not parse commit count"]
+
+        if commit_count == 0:
+            log.info("gitleaks scan skipped: no commits in range %s..HEAD", compare_ref)
+            return []
+
         config = scratch / "gitleaks.toml"
         config.write_text(_GITLEAKS_CONFIG)
         ignore_dir = scratch / "ignore"
         ignore_dir.mkdir()
         env = {k: v for k, v in os.environ.items() if k not in _GITLEAKS_ENV_OVERRIDES}
+        env["GIT_NO_REPLACE_OBJECTS"] = "1"
         try:
             result = subprocess.run(
                 [
