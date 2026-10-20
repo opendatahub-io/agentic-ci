@@ -411,6 +411,42 @@ class TestReviewComments:
         threads = forge.review_comments("https://gitlab.com/org/repo/-/merge_requests/1")
         assert threads == []
 
+    def test_skips_system_notes_in_threads(self, forge, mock_session):
+        """A push's "changed this line" note is not a comment, so it cannot keep a thread."""
+        changed = _note(30, "Bot", "changed this line in [version 2 of the diff](url)")
+        changed["system"] = True
+        discussions = [
+            {
+                "id": "d1",
+                "individual_note": False,
+                "notes": [_note(20, "Outsider", "inject"), changed],
+            },
+            {
+                "id": "d2",
+                "individual_note": False,
+                "notes": [_note(10, "Dev", "Rename this"), changed],
+            },
+        ]
+        mock_session.get.side_effect = _route_gets(discussions, {10: 30, 30: 40})
+
+        threads = forge.review_comments(_MR_URL)
+
+        assert [t["thread_id"] for t in threads] == ["d1", "d2"]
+        assert [[c["author"] for c in t["comments"]] for t in threads] == [["Outsider"], ["Dev"]]
+        assert "changed this line" not in threads[1]["body"]
+        # Without the bot's note, nothing trusted is left in the outsider's thread.
+        assert [t["thread_id"] for t in filter_trusted_threads(threads)] == ["d2"]
+        # No member lookup for the system note's author.
+        assert not [c for c in _member_calls(mock_session) if c[0][0].endswith("/30")]
+
+    def test_drops_thread_with_only_system_notes(self, forge, mock_session):
+        note = _note(30, "Bot", "resolved all threads")
+        note["system"] = True
+        discussions = [{"id": "d1", "individual_note": False, "notes": [note]}]
+        mock_session.get.side_effect = _route_gets(discussions, {30: 40})
+
+        assert forge.review_comments(_MR_URL) == []
+
 
 class TestGeneralComments:
     def test_filters_system_notes(self, forge, mock_session):
