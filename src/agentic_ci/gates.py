@@ -24,10 +24,16 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from agentic_ci.git import GitDiffError, get_changed_files, get_commit_info
+from agentic_ci.git import (
+    GitDiffError,
+    display_path,
+    get_changed_files,
+    get_commit_info,
+    unquote_git_path,
+)
 from agentic_ci.jira.client import JiraClient
 
 log = logging.getLogger(__name__)
@@ -141,15 +147,27 @@ def check_sensitive_files(
 ) -> list[str]:
     """Check if any changed files match a sensitive-file blocklist.
 
-    Returns a list of blocked file paths (empty means all clear).
+    A pattern without a ``/`` is matched against the file's basename, so
+    ``*secret*`` blocks ``config/secret.yaml`` but not a ``secrets/``
+    directory.  A pattern with a ``/`` is matched against the full
+    repo-relative path (``.agentic-ci/*``); fnmatch's ``*`` crosses ``/``,
+    so it covers nested files too.  A path is blocked when it matches as
+    given or after ``unquote_git_path()`` (for git's C-quoted output), so
+    unquoting can only add a match.  Matching is case-sensitive.
+
+    Returns a list of blocked file paths, as given (empty means all clear).
     """
     if blocklist is None:
         blocklist = DEFAULT_SENSITIVE_BLOCKLIST
+    path_patterns = [p for p in blocklist if "/" in p]
+    name_patterns = [p for p in blocklist if "/" not in p]
     blocked = []
     for filepath in changed_files:
-        name = Path(filepath).name
-        for pattern in blocklist:
-            if fnmatch.fnmatch(name, pattern):
+        for path in (filepath, unquote_git_path(filepath)):
+            name = PurePosixPath(path).name
+            if any(fnmatch.fnmatchcase(name, p) for p in name_patterns) or any(
+                fnmatch.fnmatchcase(path, p) for p in path_patterns
+            ):
                 blocked.append(filepath)
                 break
     return blocked
@@ -171,7 +189,7 @@ def log_changed_files(changed_files: list[str], ticket_key: str) -> None:
             "[%s] Agent changed %d files: %s",
             ticket_key,
             len(changed_files),
-            ", ".join(changed_files),
+            ", ".join(display_path(f) for f in changed_files),
         )
     else:
         log.info("[%s] No files changed by agent", ticket_key)
@@ -419,7 +437,7 @@ def _run_sensitive_files(workdir: str, **_kw: object) -> list[str]:
 
     blocked = check_sensitive_files(changed)
     if blocked:
-        return [f"Sensitive files modified: {', '.join(blocked)}"]
+        return [f"Sensitive files modified: {', '.join(display_path(f) for f in blocked)}"]
     return []
 
 

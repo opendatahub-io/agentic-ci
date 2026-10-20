@@ -9,6 +9,7 @@ import pytest
 from agentic_ci.git import (
     _GITHUB_URL_RE,
     _GITLAB_URL_RE,
+    GitDiffError,
     RemoteLease,
     _collect_candidates,
     _dedup_gitlab_prefixes,
@@ -16,6 +17,7 @@ from agentic_ci.git import (
     _safe_float,
     _safe_int,
     checkout_branch,
+    display_path,
     extract_all_repo_urls,
     get_changed_files,
     get_default_branch,
@@ -23,6 +25,7 @@ from agentic_ci.git import (
     push_branch,
     rebase_branch,
     strip_committed_files,
+    unquote_git_path,
 )
 
 
@@ -260,6 +263,18 @@ def _default_branch(repo: Path) -> str:
     return result.stdout.strip()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_git(monkeypatch, tmp_path):
+    """Keep the developer's global and system git config out of the tests."""
+    gitconfig = tmp_path / "global-gitconfig"
+    gitconfig.write_text(
+        "[user]\n\tname = Test\n\temail = test@example.com\n"
+        "[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 def _init_repo(path: Path) -> Path:
     """Create a minimal git repo with one commit and an origin/HEAD ref."""
     subprocess.run(["git", "init", str(path)], capture_output=True, check=True)
@@ -280,6 +295,112 @@ def _init_repo(path: Path) -> Path:
         check=True,
     )
     return path
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=str(repo), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+class TestGetChangedFiles:
+    def test_move_lists_both_paths(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        (repo / ".agentic-ci").mkdir()
+        (repo / ".agentic-ci" / "config.yml").write_text("sandbox: {}\n")
+        _git(repo, "add", ".agentic-ci/config.yml")
+        _git(repo, "commit", "-m", "config")
+        base = _git(repo, "rev-parse", "HEAD")
+        (repo / "other").mkdir()
+        _git(repo, "mv", ".agentic-ci/config.yml", "other/x")
+        _git(repo, "commit", "-m", "move")
+
+        assert sorted(get_changed_files(repo, base_ref=base)) == [
+            ".agentic-ci/config.yml",
+            "other/x",
+        ]
+        assert get_changed_files(repo, base_ref=base, include_deleted=False) == ["other/x"]
+
+    def test_include_deleted_false_skips_deleted_files(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        _git(repo, "rm", "-q", "README.md")
+        (repo / "new.py").write_text("x = 1\n")
+        _git(repo, "add", "new.py")
+        _git(repo, "commit", "-m", "swap")
+
+        assert sorted(get_changed_files(repo, base_ref="origin/HEAD")) == ["README.md", "new.py"]
+        assert get_changed_files(repo, base_ref="origin/HEAD", include_deleted=False) == ["new.py"]
+
+    def test_unusual_names_are_not_quoted(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        names = ["café.txt", 'quo"te.txt', "new\nline.txt"]
+        for name in names:
+            (repo / name).write_text("x\n")
+        _git(repo, "add", *names)
+        _git(repo, "commit", "-m", "names")
+
+        assert sorted(get_changed_files(repo, base_ref="origin/HEAD")) == sorted(names)
+
+    def test_replace_refs_do_not_hide_changes(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        base = _git(repo, "rev-parse", "HEAD")
+        (repo / "fix.py").write_text("x = 1\n")
+        _git(repo, "add", "fix.py")
+        _git(repo, "commit", "-m", "fix")
+        _git(repo, "replace", "HEAD", base)
+
+        assert get_changed_files(repo, base_ref=base) == ["fix.py"]
+
+    def test_git_failure_raises(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        with pytest.raises(GitDiffError, match="base_ref=nope"):
+            get_changed_files(repo, base_ref="nope")
+
+
+class TestUnquoteGitPath:
+    def test_unquotes_octal_escapes(self):
+        assert unquote_git_path('"caf\\303\\251.txt"') == "café.txt"
+
+    def test_unquotes_escaped_quote(self):
+        assert unquote_git_path('"quo\\"te.txt"') == 'quo"te.txt'
+
+    def test_plain_path_unchanged(self):
+        assert unquote_git_path("src/main.py") == "src/main.py"
+
+    def test_matches_git_quoting(self, tmp_path: Path):
+        repo = _init_repo(tmp_path / "repo")
+        names = ["café.txt", 'quo"te.txt', "new\nline.txt", "tab\tback\\slash.txt", "bell\a.txt"]
+        for name in names:
+            (repo / name).write_text("x\n")
+        _git(repo, "add", *names)
+        _git(repo, "commit", "-m", "names")
+        quoted = subprocess.run(
+            ["git", "diff", "--name-only", "origin/HEAD", "HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        assert sorted(unquote_git_path(q) for q in quoted) == sorted(names)
+
+    def test_python_only_escapes_are_not_decoded(self):
+        assert unquote_git_path('"a\\x2fb"') == '"a\\x2fb"'
+        assert unquote_git_path('"a\\N{SOLIDUS}b"') == '"a\\N{SOLIDUS}b"'
+
+    def test_octal_for_printable_ascii_is_not_decoded(self):
+        """git writes octal only for control characters, DEL and non-ASCII bytes."""
+        assert unquote_git_path('"d/secret\\057x"') == '"d/secret\\057x"'
+        assert unquote_git_path('"\\101.pem"') == '"\\101.pem"'
+        assert unquote_git_path('"a\\001\\177b"') == "a\x01\x7fb"
+
+
+class TestDisplayPath:
+    def test_printable_name_is_unchanged(self):
+        assert display_path("src/café.py") == "src/café.py"
+
+    def test_control_and_undecodable_characters_are_escaped(self):
+        assert display_path("a\nb") == "a\\nb"
+        assert display_path("x\udcff.py") == "x\\udcff.py"
 
 
 class TestStripCommittedFiles:
@@ -367,6 +488,37 @@ class TestStripCommittedFiles:
         changed = get_changed_files(repo, base_ref="origin/HEAD")
         assert "fix.py" in changed
         assert "autofix-output/verdict.json" not in changed
+
+    def test_move_out_of_stripped_dir_is_not_stripped(self, tmp_path: Path, caplog):
+        """The old side of a move is not in HEAD, so nothing is removed for it."""
+        repo = _init_repo(tmp_path / "repo")
+        (repo / "output").mkdir()
+        (repo / "output" / "keep.txt").write_text("keep\n")
+        _git(repo, "add", "output/keep.txt")
+        _git(repo, "commit", "-m", "tracked output")
+        base = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "mv", "output/keep.txt", "keep.txt")
+        _git(repo, "commit", "-m", "move")
+
+        assert strip_committed_files(repo, ["output/*"], base_ref=base) == []
+        assert "git rm --cached failed" not in caplog.text
+
+    def test_unusual_names_are_stripped_literally_and_logged_escaped(self, tmp_path: Path, caplog):
+        repo = _init_repo(tmp_path / "repo")
+        names = ["-x.log", "out*.log", "outA.log", "evil\n.log"]
+        for name in names:
+            (repo / name).write_text("x\n")
+        _git(repo, "add", "-f", "--", *names)
+        _git(repo, "commit", "-m", "logs")
+
+        with caplog.at_level("WARNING", logger="agentic_ci.git"):
+            stripped = strip_committed_files(repo, ["-x.log", "out[*].log", "evil?.log"])
+
+        assert sorted(stripped) == ["-x.log", "evil\n.log", "out*.log"]
+        assert get_changed_files(repo, base_ref="origin/HEAD") == ["outA.log"]
+        (record,) = [r for r in caplog.records if "Stripping" in r.getMessage()]
+        assert "\n" not in record.getMessage()
+        assert "evil\\n.log" in record.getMessage()
 
     def test_logs_git_rm_failure(self, tmp_path: Path, caplog):
         """When git rm --cached fails, log the error with stderr details."""

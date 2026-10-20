@@ -154,8 +154,13 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 ## Gates
 
 ### Sensitive-files gate blocks files in directories named `secrets/`
-- **Likely cause**: `check_sensitive_files` was matching patterns against both the filename and the full path. Python's `fnmatch` treats `*` as matching path separators, so the `*secret*` blocklist pattern matched directory components like `secrets/`. Fixed by restricting matching to the filename only (`os.path.basename`).
+- **Likely cause**: `check_sensitive_files` was matching patterns against both the filename and the full path. Python's `fnmatch` treats `*` as matching path separators, so the `*secret*` blocklist pattern matched directory components like `secrets/`. Fixed by matching patterns without a `/` against the filename only (`PurePosixPath(path).name`).
 - **Where to look**: `gates.py:check_sensitive_files()`, fnmatch pattern matching
+
+### A directory pattern such as `.agentic-ci/*` does not block, or blocks a file moved out of it
+- **Symptom**: Before RHAI-3009 a blocklist pattern with a `/` never matched; before RHAI-3008 a commit that moved a protected file elsewhere passed the gate. Now both block.
+- **Likely cause**: By design. `check_sensitive_files()` matches a pattern that contains a `/` against the full repo-relative path (anchored at the repo root, `*` crosses `/`, case-sensitive); patterns without a `/` still match the basename. A path blocks when it matches as given or after `unquote_git_path()`, which decodes only escapes git writes (an octal escape for a printable character such as `\057` is left as is), so unquoting can only add a match. `get_changed_files()` runs `git diff --no-renames --name-only -z` with `GIT_NO_REPLACE_OBJECTS=1`, so a move lists both the old and the new path, names are never C-quoted, and `git replace` refs cannot hide a change. A moved file therefore counts twice in a changed-file count. `strip_committed_files()` asks for `include_deleted=False`, so it never tries to `git rm` a path that is no longer in HEAD. Names reach logs and gate messages through `display_path()`, which escapes control characters, so an agent-chosen name cannot forge a log line; `strip_committed_files()` passes names to `git rm` after `--` with literal pathspecs.
+- **Where to look**: `gates.py:check_sensitive_files()`, `git.py:get_changed_files()`, `git.py:unquote_git_path()`, `git.py:display_path()`
 
 ### Gate error or verdict failure says only "(SomeError); see the CI job log"
 - **Symptom**: A tracker comment or `gate_errors` entry reads like `gitleaks pre-check failed: git rev-list error (CalledProcessError); see the CI job log` or `Verdict could not be loaded (ValueError); see the CI job log`, with no detail.
