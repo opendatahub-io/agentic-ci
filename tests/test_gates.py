@@ -1,7 +1,9 @@
 """Tests for pre/post agent gates."""
 
+import logging
 import re
 
+from agentic_ci import gates
 from agentic_ci.gates import (
     check_commit_identity,
     check_description_editors,
@@ -46,6 +48,36 @@ class TestCheckSensitiveFiles:
     def test_secret_in_filename_still_blocked(self):
         result = check_sensitive_files(["config/secret.yaml"])
         assert result == ["config/secret.yaml"]
+
+    def test_directory_pattern_matches_full_path(self):
+        files = [".agentic-ci/config.yml", ".agentic-ci/sub/policy.yml", "src/.agentic-ci-x"]
+        assert check_sensitive_files(files, [".agentic-ci/*"]) == [
+            ".agentic-ci/config.yml",
+            ".agentic-ci/sub/policy.yml",
+        ]
+
+    def test_directory_pattern_is_anchored_at_repo_root(self):
+        assert check_sensitive_files(["src/.agentic-ci/config.yml"], [".agentic-ci/*"]) == []
+
+    def test_quoted_path_is_unquoted_and_returned_as_given(self):
+        quoted = '".agentic-ci/caf\\303\\251.yml"'
+        assert check_sensitive_files([quoted], [".agentic-ci/*"]) == [quoted]
+        assert check_sensitive_files(['"certs/caf\\303\\251.pem"']) == ['"certs/caf\\303\\251.pem"']
+
+    def test_matching_is_case_sensitive(self):
+        assert check_sensitive_files(["certs/server.PEM"]) == []
+
+    def test_escape_cannot_hide_a_sensitive_name(self):
+        """git never writes \\057 for "/", so the name is also matched as given."""
+        name = '"d/secret\\057x"'
+        assert check_sensitive_files([name], ["*secret*"]) == [name]
+
+    def test_gate_message_escapes_control_characters(self, monkeypatch):
+        monkeypatch.setattr(gates, "get_changed_files", lambda *a, **kw: ["certs/a\nb.pem"])
+
+        (message,) = gates._run_sensitive_files("/repo")
+
+        assert message == "Sensitive files modified: certs/a\\nb.pem"
 
 
 class TestCheckCommitAuthor:
@@ -177,6 +209,13 @@ class TestLogChangedFiles:
         with caplog.at_level(logging.INFO):
             log_changed_files([], "TEST-1")
         assert "No files changed" in caplog.text
+
+    def test_names_cannot_forge_log_lines(self, caplog):
+        with caplog.at_level(logging.INFO):
+            log_changed_files(["a.py\n[TEST-1] Agent changed 0 files"], "TEST-1")
+        (record,) = caplog.records
+        assert "\n" not in record.getMessage()
+        assert "a.py\\n[TEST-1]" in record.getMessage()
 
 
 class TestCheckLabelAuthorEmail:

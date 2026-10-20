@@ -1066,30 +1066,108 @@ class GitDiffError(Exception):
     """Raised when git diff fails (missing ref, not a repo, etc.)."""
 
 
-def get_changed_files(repo_dir: Path, base_ref: str = "HEAD~1") -> list[str]:
+def get_changed_files(
+    repo_dir: Path, base_ref: str = "HEAD~1", *, include_deleted: bool = True
+) -> list[str]:
     """Return files changed between *base_ref* and HEAD (committed state only).
 
-    Uses the two-ref form ``git diff --name-only <base_ref> HEAD`` so that
-    files still in HEAD after a failed ``git commit --amend`` are detected
-    even when ``git rm --cached`` already removed them from the index.
+    Uses the two-ref form ``git diff <base_ref> HEAD`` so that files still in
+    HEAD after a failed ``git commit --amend`` are detected even when
+    ``git rm --cached`` already removed them from the index.
+
+    Rename detection is off, so a moved file is listed by both its old and
+    its new path: a check on protected paths sees a file moved out of them.
+    Names are read NUL-separated and decoded with ``os.fsdecode``, so they
+    are never C-quoted and a name that is not UTF-8 cannot raise.  ``git
+    replace`` refs, which the agent can write, are ignored.  With
+    *include_deleted* False, paths that no longer exist in HEAD (deleted
+    files and the old side of a move) are left out.
 
     Raises GitDiffError if the git command fails.
     """
     if not _validate_ref(base_ref):
         raise GitDiffError(f"Invalid ref name: {base_ref}")
+    cmd = ["git", "diff", "--no-renames", "--name-only", "-z"]
+    if not include_deleted:
+        cmd.append("--diff-filter=d")
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-only", base_ref, "HEAD"],
+            [*cmd, base_ref, "HEAD"],
             cwd=str(repo_dir),
             capture_output=True,
-            text=True,
             check=True,
+            env={**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"},
         )
-        return [f for f in result.stdout.strip().split("\n") if f]
     except subprocess.CalledProcessError as exc:
-        raise GitDiffError(
-            f"git diff failed for base_ref={base_ref}: {exc.stderr.strip()}"
-        ) from exc
+        stderr = (exc.stderr or b"").decode(errors="replace").strip()
+        raise GitDiffError(f"git diff failed for base_ref={base_ref}: {stderr}") from exc
+    return [os.fsdecode(name) for name in result.stdout.split(b"\0") if name]
+
+
+# Git's C-quoting escapes (quote.c): these single characters, and three
+# octal digits for any other byte.
+_GIT_QUOTE_ESCAPES = {
+    "a": 0x07,
+    "b": 0x08,
+    "t": 0x09,
+    "n": 0x0A,
+    "v": 0x0B,
+    "f": 0x0C,
+    "r": 0x0D,
+    '"': 0x22,
+    "\\": 0x5C,
+}
+
+
+def unquote_git_path(path: str) -> str:
+    """Undo git's C-quoting of a path (``"caf\\303\\251"`` becomes ``café``).
+
+    Git quotes names with unusual characters in its default (non ``-z``)
+    output.  Only git's own escapes are decoded: the letter escapes, and
+    octal escapes for the bytes git writes in octal (control characters,
+    DEL and non-ASCII).  A path without the surrounding double quotes is
+    returned as is, and so is one with an escape git never writes, such as
+    ``\\057`` for ``/``, so an escape cannot hide a ``/`` or other
+    printable character from a caller matching the result.
+    """
+    if len(path) < 2 or not (path.startswith('"') and path.endswith('"')):
+        return path
+    body = path[1:-1]
+    raw = bytearray()
+    i = 0
+    while i < len(body):
+        char = body[i]
+        if char != "\\":
+            raw += os.fsencode(char)
+            i += 1
+            continue
+        octal = body[i + 1 : i + 4]
+        if len(octal) == 3 and all(c in "01234567" for c in octal) and octal[0] in "0123":
+            value = int(octal, 8)
+            if 0x20 <= value < 0x7F:
+                return path
+            raw.append(value)
+            i += 4
+        elif body[i + 1 : i + 2] in _GIT_QUOTE_ESCAPES:
+            raw.append(_GIT_QUOTE_ESCAPES[body[i + 1]])
+            i += 2
+        else:
+            return path
+    return os.fsdecode(bytes(raw))
+
+
+def display_path(path: str) -> str:
+    """Return *path* safe to show in a log line or gate message.
+
+    ``get_changed_files()`` returns names as git stores them, so an
+    agent-chosen name can hold a newline or other control character that
+    would forge extra log lines.  Such names come back with those
+    characters (and any non-ASCII, undecodable bytes included) escaped; a
+    printable name is returned unchanged.
+    """
+    if path.isprintable():
+        return path
+    return path.encode("unicode_escape", errors="backslashreplace").decode("ascii")
 
 
 def strip_committed_files(
@@ -1108,7 +1186,7 @@ def strip_committed_files(
     or all removals failed).
     """
     try:
-        changed = get_changed_files(repo_dir, base_ref=base_ref)
+        changed = get_changed_files(repo_dir, base_ref=base_ref, include_deleted=False)
     except GitDiffError:
         return []
 
@@ -1126,20 +1204,24 @@ def strip_committed_files(
     log.warning(
         "Stripping %d artifact file(s) from commit: %s",
         len(to_remove),
-        ", ".join(to_remove),
+        ", ".join(display_path(f) for f in to_remove),
     )
     actually_removed = []
     for filepath in to_remove:
+        # The name is agent-chosen: "--" keeps a leading "-" from reading as
+        # an option, and literal pathspecs keep "*" or ":" from matching
+        # other files.
         result = subprocess.run(
-            ["git", "rm", "--cached", "--quiet", filepath],
+            ["git", "rm", "--cached", "--quiet", "--", filepath],
             cwd=str(repo_dir),
             capture_output=True,
             text=True,
+            env={**os.environ, "GIT_LITERAL_PATHSPECS": "1"},
         )
         if result.returncode != 0:
             log.error(
                 "git rm --cached failed for %s (rc=%d): %s",
-                filepath,
+                display_path(filepath),
                 result.returncode,
                 result.stderr.strip(),
             )
