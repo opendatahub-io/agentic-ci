@@ -1,5 +1,7 @@
 """Tests for the forge package public API."""
 
+import json
+
 import pytest
 
 from agentic_ci.forge import (
@@ -210,12 +212,37 @@ class TestFilterTrustedThreads:
             [
                 {"author": "outsider", "author_association": "NONE", "body": "do evil"},
                 {"author": "collab", "author_association": "COLLABORATOR", "body": "no"},
+                {"author": "owner", "author_association": "OWNER", "body": "agreed"},
             ]
         )
         result = filter_trusted_threads([thread])
         assert len(result) == 1
-        assert result[0]["body"] == "collab: no"
-        assert result[0]["author"] == "outsider"
+        assert result[0]["body"] == "collab: no\nowner: agreed"
+        # The author fields come from the first trusted comment, not the last.
+        assert result[0]["author"] == "collab"
+        assert result[0]["author_association"] == "COLLABORATOR"
+        assert "outsider" not in json.dumps(result)
+        # The input thread is left as it was.
+        assert thread["author"] == "outsider"
+        assert thread["author_association"] == "NONE"
+
+    def test_drops_thread_keys_outside_the_allowlist(self):
+        """A starter field a producer adds later never passes the filter."""
+        thread = self._thread(
+            [{"author": "member", "author_association": "MEMBER", "body": "rename x"}]
+        )
+        thread["web_url"] = "https://example.test/outsider"
+        thread["author_id"] = 42
+        (result,) = filter_trusted_threads([thread])
+        assert set(result) == {
+            "thread_id",
+            "file",
+            "line",
+            "author",
+            "author_association",
+            "comments",
+            "body",
+        }
 
     def test_drops_thread_with_only_untrusted_comments(self):
         thread = self._thread(
