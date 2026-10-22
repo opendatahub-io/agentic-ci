@@ -130,6 +130,7 @@ class Backend(ABC):
         extra_args=None,
         traceparent=None,
         effort=None,
+        otel_log_file=None,
     ) -> int:
         """Execute the agent with the given prompt. Returns the exit code.
 
@@ -137,14 +138,22 @@ class Backend(ABC):
         flag is passed). It is exported to the agent as
         ``AGENT_REASONING_EFFORT`` next to ``AGENT_MODEL``; the matching CLI
         flags come from the caller through *extra_args*.
+
+        *otel_log_file* is the run's OTEL JSONL artifact path; the local
+        backend uses it to persist stream-derived usage metrics (OpenCode).
+        Container backends currently ignore it.
         """
 
-    def _process_stream(self, proc, streaming):
+    def _process_stream(self, proc, streaming, processor=None, line_observer=None):
         """Read output from proc.stdout through the harness stream processor.
 
         Returns ``(rc, stream_complete)`` so callers can insert
         backend-specific steps (e.g. downloading the workdir) before
-        the verdict check in :meth:`_resolve_exit_code`.
+        the verdict check in :meth:`_resolve_exit_code`. *processor*,
+        when given, replaces the harness-default stream processor so the
+        caller can keep reading what it parsed. *line_observer* receives
+        decoded lines in raw-output mode, for telemetry collection without
+        changing output presentation or completion detection.
         """
         stderr_buf = bytearray()
 
@@ -168,9 +177,9 @@ class Backend(ABC):
             out_fh = open(self.output_file, "w", encoding="utf-8")
 
         try:
-            processor = None
             if streaming:
-                processor = self.harness.create_stream_processor(pid=proc.pid)
+                if processor is None:
+                    processor = self.harness.create_stream_processor(pid=proc.pid)
                 for line in proc.stdout:
                     text = line.decode("utf-8", errors="replace")
                     if out_fh is not None:
@@ -181,11 +190,14 @@ class Backend(ABC):
                         break
             else:
                 for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace")
                     if out_fh is not None:
-                        out_fh.write(line.decode("utf-8", errors="replace"))
+                        out_fh.write(text)
                         out_fh.flush()
                     sys.stdout.buffer.write(line)
                     sys.stdout.buffer.flush()
+                    if line_observer is not None:
+                        line_observer(text)
         finally:
             if out_fh is not None:
                 out_fh.close()

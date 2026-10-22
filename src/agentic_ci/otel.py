@@ -24,6 +24,24 @@ _WINDOW_SECS = 60
 
 MAX_BODY_SIZE = 1_048_576
 
+_OTEL_LOG_NAMES = {
+    "claude-code": "claude-otel.jsonl",
+    "opencode": "opencode-otel.jsonl",
+    # Codex predates the per-harness names and keeps the historical
+    # filename so its existing consumers keep finding the artifact.
+    "codex": "claude-otel.jsonl",
+}
+
+
+def otel_log_filename(harness_name: str) -> str:
+    """Return the OTEL JSONL artifact name for *harness_name*.
+
+    Claude Code keeps its historical ``claude-otel.jsonl``; OpenCode runs
+    write ``opencode-otel.jsonl``. Unknown harnesses fall back to the
+    Claude name.
+    """
+    return _OTEL_LOG_NAMES.get(harness_name, "claude-otel.jsonl")
+
 
 class OTLPHandler(BaseHTTPRequestHandler):
     def _read_chunked(self):
@@ -103,7 +121,7 @@ def _update_token_rate(payload):
     for rm in payload.get("resourceMetrics", []):
         for sm in rm.get("scopeMetrics", []):
             for metric in sm.get("metrics", []):
-                if metric.get("name") == "claude_code.token.usage":
+                if metric.get("name") in ("claude_code.token.usage", "opencode.token.usage"):
                     data = metric.get("sum", metric.get("gauge", {}))
                     for dp in data.get("dataPoints", []):
                         total += dp.get("asDouble", dp.get("asInt", 0))
@@ -128,10 +146,25 @@ def _update_token_rate(payload):
     os.replace(tmp, rate_file)
 
 
-def start_collector(run_dir, bind_addr="127.0.0.1"):
-    """Start the OTEL collector as a subprocess. Returns (proc, port)."""
-    otel_log = os.path.join(run_dir, "claude-otel.jsonl")
-    otel_rate = os.path.join(run_dir, "claude-otel-rate.json")
+def start_collector(run_dir, bind_addr="127.0.0.1", log_name: str | None = None):
+    """Start the OTEL collector as a subprocess. Returns (proc, port, log, rate).
+
+    *log_name* is the JSONL artifact basename (see :func:`otel_log_filename`);
+    the rate file is derived from it. The default keeps the historical
+    ``claude-otel.jsonl`` name. *log_name* must be a plain ``<stem>.jsonl``
+    file name: absolute paths and paths containing separators or ``..``
+    are rejected so the collector cannot be pointed outside *run_dir*.
+    """
+    log_name = log_name if log_name is not None else "claude-otel.jsonl"
+    if (
+        not log_name.endswith(".jsonl")
+        or not log_name.removesuffix(".jsonl")
+        or log_name in (".", "..")
+        or os.path.basename(log_name) != log_name
+    ):
+        raise ValueError("log_name must be a plain '<stem>.jsonl' file name")
+    otel_log = os.path.join(run_dir, log_name)
+    otel_rate = os.path.join(run_dir, log_name.removesuffix(".jsonl") + "-rate.json")
     port_file = os.path.join(run_dir, "otel-port")
 
     for f in [otel_log, port_file]:
@@ -248,7 +281,17 @@ def parse_metrics(records):
                                 model = attrs.get("model", "unknown")
                                 token_type = attrs.get("type", "unknown")
                                 token_totals[(model, token_type)] += value
+                            elif name == "opencode.token.usage":
+                                # Written by agentic-ci from OpenCode's
+                                # step_finish stream events (OpenCode exports
+                                # no usage metrics itself).
+                                model = attrs.get("model", "unknown")
+                                token_type = attrs.get("type", "unknown")
+                                token_totals[(model, token_type)] += value
                             elif name == "claude_code.cost.usage":
+                                model = attrs.get("model", "unknown")
+                                cost_totals[model] += value
+                            elif name == "opencode.cost.usage":
                                 model = attrs.get("model", "unknown")
                                 cost_totals[model] += value
                             elif name == "claude_code.active_time.total":
@@ -270,6 +313,12 @@ def parse_metrics(records):
                             if key == "event.name":
                                 event_name = v
                         if event_name == "claude_code.api_request":
+                            api_requests.append(event_attrs)
+                        elif event_name == "opencode.run_summary":
+                            # Written by agentic-ci from OpenCode's
+                            # step_finish stream events; mirrors the claude
+                            # api_request row (model, tokens, duration_ms,
+                            # num_turns, is_error, total_cost_usd).
                             api_requests.append(event_attrs)
                         elif event_name == "codex.api_request":
                             api_requests.append(event_attrs)
@@ -337,6 +386,145 @@ def parse_metrics(records):
     return token_totals, cost_totals, api_requests, active_time
 
 
+def _int_attribute(key, value):
+    return {"key": key, "value": {"intValue": int(value)}}
+
+
+def _string_attribute(key, value):
+    return {"key": key, "value": {"stringValue": str(value)}}
+
+
+def opencode_usage_records(
+    model,
+    steps,
+    num_turns=0,
+    duration_ms=None,
+    is_error=False,
+):
+    """Build OTLP records for OpenCode usage parsed from ``step_finish`` events.
+
+    OpenCode v2 exports OTLP spans but attaches no token or cost usage to
+    any of them (verified against v2.0.26), so the local backend persists
+    the usage the stream processor parsed from OpenCode's NDJSON
+    ``step_finish`` events into the run's OTEL JSONL artifact instead.
+    The records use the same shape as Claude Code's metrics, so
+    :func:`parse_metrics`, :func:`print_summary` and the cost loaders work
+    uniformly across harnesses.
+
+    *steps* is a list of per-step dicts with ``input``, ``output``,
+    ``reasoning``, ``cache_read``, ``cache_write`` and optional ``cost``
+    keys (see ``OpenCodeStreamProcessor.usage_steps``). Cost is included
+    only when OpenCode reported it as a finite number; absent, null or
+    non-numeric values are treated as unreported and nothing is
+    estimated. Returns the list of records (empty without steps).
+    """
+    if not steps:
+        return []
+
+    totals = {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cacheRead": 0,
+        "cacheCreation": 0,
+    }
+    cost = 0.0
+    has_cost = False
+    for step in steps:
+        totals["input"] += _safe_int(step.get("input"))
+        totals["output"] += _safe_int(step.get("output"))
+        totals["reasoning"] += _safe_int(step.get("reasoning"))
+        totals["cacheRead"] += _safe_int(step.get("cache_read"))
+        totals["cacheCreation"] += _safe_int(step.get("cache_write"))
+        step_cost = _safe_float(step.get("cost"))
+        if step_cost is not None:
+            has_cost = True
+            cost += step_cost
+
+    metrics = [
+        {
+            "name": "opencode.token.usage",
+            "sum": {
+                "dataPoints": [
+                    {
+                        "asInt": value,
+                        "attributes": [
+                            _string_attribute("model", model),
+                            _string_attribute("type", token_type),
+                        ],
+                    }
+                    for token_type, value in totals.items()
+                    if value
+                ]
+            },
+        }
+    ]
+    if has_cost:
+        metrics.append(
+            {
+                "name": "opencode.cost.usage",
+                "sum": {
+                    "dataPoints": [
+                        {
+                            "asDouble": cost,
+                            "attributes": [_string_attribute("model", model)],
+                        }
+                    ]
+                },
+            }
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    records = [
+        {
+            "ts": now,
+            "path": "/v1/metrics",
+            "payload": {"resourceMetrics": [{"scopeMetrics": [{"metrics": metrics}]}]},
+        }
+    ]
+
+    summary_attrs = [
+        _string_attribute("event.name", "opencode.run_summary"),
+        _string_attribute("model", model),
+        _int_attribute("input_tokens", totals["input"]),
+        _int_attribute("output_tokens", totals["output"]),
+        _int_attribute("reasoning_tokens", totals["reasoning"]),
+        _int_attribute("cache_read_tokens", totals["cacheRead"]),
+        _int_attribute("cache_creation_tokens", totals["cacheCreation"]),
+        _int_attribute("num_turns", num_turns),
+        {"key": "is_error", "value": {"boolValue": bool(is_error)}},
+    ]
+    if duration_ms is not None:
+        summary_attrs.append(_int_attribute("duration_ms", duration_ms))
+    if has_cost:
+        summary_attrs.append({"key": "total_cost_usd", "value": {"doubleValue": cost}})
+    records.append(
+        {
+            "ts": now,
+            "path": "/v1/logs",
+            "payload": {
+                "resourceLogs": [{"scopeLogs": [{"logRecords": [{"attributes": summary_attrs}]}]}]
+            },
+        }
+    )
+    return records
+
+
+def append_opencode_usage(log_file, model, steps, num_turns=0, duration_ms=None, is_error=False):
+    """Append OpenCode usage records to the run's OTEL JSONL artifact.
+
+    Returns the number of records appended (0 when there are no steps).
+    """
+    records = opencode_usage_records(
+        model, steps, num_turns=num_turns, duration_ms=duration_ms, is_error=is_error
+    )
+    if records:
+        with open(log_file, "a") as f:
+            for record in records:
+                f.write(json.dumps(record) + "\n")
+    return len(records)
+
+
 def print_summary(log_file):
     """Print a human-readable token/cost summary from an OTEL JSONL log."""
     records = []
@@ -366,7 +554,7 @@ def print_summary(log_file):
             print(f"  {'Token Type':<20} {'Count':>12}")
             print(f"  {'-' * 20} {'-' * 12}")
             model_tokens = {t: c for (m, t), c in token_totals.items() if m == model}
-            for token_type in ["input", "cacheRead", "cacheCreation", "output"]:
+            for token_type in ["input", "cacheRead", "cacheCreation", "reasoning", "output"]:
                 if token_type in model_tokens:
                     print(f"  {token_type:<20} {model_tokens[token_type]:>12,.0f}")
             total = sum(model_tokens.values())
@@ -415,6 +603,20 @@ def _safe_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _safe_float(value):
+    """Parse a finite float from a usage field, returning None on failure.
+
+    Unlike :func:`_safe_int` there is no default: ``None`` means the cost
+    was absent or unparseable, so callers treat it as unreported instead
+    of recording a confident zero.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _find_orphan_traces(records):

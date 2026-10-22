@@ -182,6 +182,88 @@ def test_append_event_rejects_symlink_log_root(tmp_path):
         append_event(log_root, {"event_type": "workflow.completed"})
 
 
+def test_append_event_writes_to_custom_log_filename(tmp_path):
+    log_root = tmp_path / "run"
+    log_root.mkdir()
+
+    record = append_event(
+        log_root,
+        {"event_type": "workflow.completed"},
+        log_filename="opencode-otel.jsonl",
+    )
+
+    custom = log_root / "opencode-otel.jsonl"
+    assert custom.is_file()
+    assert not (log_root / "claude-otel.jsonl").exists()
+    lines = custom.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["path"] == "/v1/traces"
+    span = record["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    assert span["name"] == "workflow.completed"
+
+
+def test_append_event_joins_trace_root_in_custom_log_filename(tmp_path):
+    log_root = tmp_path / "run"
+    log_file = log_root / "opencode-otel.jsonl"
+    root = {
+        "path": "/v1/traces",
+        "payload": {
+            "resourceSpans": [
+                {"scopeSpans": [{"spans": [{"traceId": "b" * 32, "spanId": "c" * 16}]}]}
+            ]
+        },
+    }
+    log_root.mkdir()
+    log_file.write_text(json.dumps(root) + "\n", encoding="utf-8")
+
+    record = append_event(
+        log_root,
+        {"event_type": "workflow.completed", "event_id": "event-6"},
+        correlation={"trace_id": "b" * 32},
+        log_filename="opencode-otel.jsonl",
+    )
+    span = record["payload"]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+
+    assert span["parentSpanId"] == "c" * 16
+    assert not (log_root / "claude-otel.jsonl").exists()
+
+
+@pytest.mark.parametrize(
+    "log_filename",
+    [
+        "/tmp/escaped-absolute.jsonl",
+        "../escaped-relative.jsonl",
+        "subdir/otel.jsonl",
+        "..",
+        ".",
+        "",
+    ],
+)
+def test_append_event_rejects_unsafe_log_filenames(tmp_path, log_filename):
+    log_root = tmp_path / "run"
+    log_root.mkdir()
+
+    with pytest.raises(TelemetryEventError, match="plain file name"):
+        append_event(log_root, {"event_type": "workflow.completed"}, log_filename=log_filename)
+
+    assert list(log_root.iterdir()) == []
+
+
+def test_append_event_rejects_symlink_log_file_with_custom_name(tmp_path):
+    log_root = tmp_path / "run"
+    log_root.mkdir()
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("unchanged\n", encoding="utf-8")
+    (log_root / "opencode-otel.jsonl").symlink_to(outside)
+
+    with pytest.raises(TelemetryEventError, match="regular file"):
+        append_event(
+            log_root, {"event_type": "workflow.completed"}, log_filename="opencode-otel.jsonl"
+        )
+
+    assert outside.read_text(encoding="utf-8") == "unchanged\n"
+
+
 def test_export_event_posts_otlp_payload():
     response = mock.Mock()
     with mock.patch("agentic_ci.telemetry.requests.post", return_value=response) as post:

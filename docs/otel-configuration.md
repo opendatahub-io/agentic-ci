@@ -31,26 +31,74 @@ OTLP protocol.
 
 ## OpenCode
 
-OpenCode uses the Vercel AI SDK's OpenTelemetry integration. OTel must
-be enabled in `opencode.json` (`experimental.openTelemetry: true`) in
-addition to the env vars — the harness writes this config automatically
-via `write_sandbox_config()`.
+OpenCode exports OTLP spans via the Vercel AI SDK's OpenTelemetry
+integration. On the local backend the harness wires the collector endpoint
+through `build_local_env()`; on Podman and OpenShell the same variables
+flow through `build_otel_exec_env()` / `build_env_script_lines()`.
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://...:{port}` | Collector address |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/json` | OTLP wire format |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/json` | OTLP wire format (the collector parses JSON bodies) |
 | `OTEL_BSP_SCHEDULE_DELAY` | `0` | Flush spans immediately. Required because OpenCode calls `process.exit()` which kills the Node.js process before the OTel batch span processor can drain its queue. Without this, spans are lost. |
 | `TRACEPARENT` | `00-{trace_id}-{span_id}-01` | W3C Trace Context. Same as Claude Code. |
+
+**Telemetry enablement is caller-owned on the local backend.** For a local
+run agentic-ci never writes OpenCode config: OpenCode v2.0.26 exports OTLP
+as soon as the endpoint env vars are set (its `experimental.openTelemetry`
+config key is reported as an "omitted unsupported legacy setting"); older
+versions additionally require `experimental.openTelemetry: true` in the
+caller-owned config (`OPENCODE_CONFIG_DIR`). The container backends
+still seed that key for those older versions by writing `opencode.json`
+via `write_sandbox_config()` (see [Sandbox config](#sandbox-config)).
+Note that `opencode run` delegates to a background
+service when one is already running — a service started without the OTEL
+env vars exports nothing for its LLM work, so spans are complete only when
+the run starts its own service (a fresh machine or container, or
+`--standalone`).
+
+**Token/cost metrics do not come from OTEL.** Verified against a live
+OpenCode v2.0.26 run: the exported spans (CLI lifecycle, session runner,
+LLM transport, tool execution) and log records carry no token or cost
+usage — only HTTP rate-limit headers mention tokens. On the local backend
+agentic-ci therefore persists the usage that `OpenCodeStreamProcessor`
+parses from the `step_finish` NDJSON events into the run's OTEL JSONL
+artifact (`opencode_usage_records()` in `agentic_ci/otel.py`), as OTLP
+records shaped like Claude Code's metrics, so `parse_metrics`, the
+token/cost summary and the run-result consumers work uniformly across
+harnesses. The container backends do not persist stream usage yet: their
+OpenCode runs carry spans but no token/cost rows.
+Two caveats, both inherent to the OpenCode stream:
+
+- OpenCode emits `step_finish` only for steps that end in tool calls, so
+  the final text-only step of a run is not counted — the persisted usage
+  is a lower bound.
+- Cost is included only when OpenCode reports it (it does on v2.0.26);
+  nothing is estimated and no price table is embedded.
 
 **Not set:**
 
 - `CLAUDE_CODE_ENABLE_TELEMETRY` — Claude-specific, not used by OpenCode
-- `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` — OpenCode doesn't
-  export metrics or logs via OTel. Cost and token data come from JSON
-  stdout events (`step_finish` type), not from the OTel pipeline.
+- `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` — OpenCode exports spans
+  through its own integration; usage metrics are persisted by agentic-ci
+  from the stream instead (see above)
 - `OTEL_METRIC_EXPORT_INTERVAL` — no OTel metrics to export
 - `OTEL_LOG_USER_PROMPTS` / `OTEL_LOG_TOOL_*` — Claude-specific flags
+
+### Artifact naming
+
+The collector writes one JSONL artifact per run, named after the harness:
+
+| Harness | OTEL JSONL artifact |
+|---------|---------------------|
+| Claude Code | `claude-otel.jsonl` (unchanged, historical name) |
+| OpenCode | `opencode-otel.jsonl` |
+| Codex | `claude-otel.jsonl` (historical name kept for existing consumers) |
+
+The name comes from `otel_log_filename(harness)` in `agentic_ci/otel.py`;
+the rate file sits next to it (`opencode-otel-rate.json`, say). Telemetry
+events (`skill.routed`) join the same artifact via the `log_filename`
+parameter of `emit_event`.
 
 ## Codex
 
