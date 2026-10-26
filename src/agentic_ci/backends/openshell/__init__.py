@@ -1085,6 +1085,7 @@ class OpenShellBackend(Backend):
         extra_args=None,
         traceparent=None,
         effort=None,
+        otel_log_file=None,
     ):
         env = self._merged_env()
         auth_mode = self.harness.auth_mode_for_env(env)

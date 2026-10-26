@@ -102,6 +102,14 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: For OpenShell backend, OTEL host networking wasn't configured. Fixed to set up OTEL endpoint forwarding.
 - **Where to look**: `otel.py` collector setup, `backends/openshell/` network config
 
+### Local OpenCode usage disappears with `--no-streaming`
+- **Likely cause**: Usage collection was coupled to pretty-printing. The local backend now observes raw output with `OpenCodeStreamProcessor.process_line(display=False)` when an OTEL artifact is configured, preserving token/cost records without printing parsed output. Native OpenCode spans do not provide replacement usage metrics.
+- **Where to look**: `backends/local.py`, `backend.py:_process_stream()`, `stream.py:OpenCodeStreamProcessor`, `otel.py:append_opencode_usage()`
+
+### OpenCode routed E2E reports missing routing and root spans
+- **Likely cause**: An artifact reader still expects `claude-otel.jsonl`; OpenCode writes `opencode-otel.jsonl`. The routed E2E driver now resolves the artifact with `otel_log_filename(harness_name)`.
+- **Where to look**: `tests/e2e/routed_skill_driver.py`, `otel.py:otel_log_filename()`, `skill.py:_AgentSession`
+
 ### Generic event export fails after a workflow completes
 - **Likely cause**: Producer event was not JSON-compatible, violated privacy or size limits, the runner-owned log root was unsafe, or the OTLP collector was unavailable.
 - **Expected behavior**: `agentic_ci.telemetry` raises a transport error. The caller owns failure policy and must preserve its workflow result when export is best effort.

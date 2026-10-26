@@ -366,6 +366,20 @@ class ClaudeCodeStreamProcessor:
         return False
 
 
+def _cost_display(value):
+    """Format a step_finish cost for the token line, tolerating bad values.
+
+    OpenCode reports cost as a number, but version drift can send a string
+    or omit the key entirely; the live stream must never crash on display.
+    Unparseable values show as ``$0.0000`` and stay recorded as unreported.
+    """
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = 0.0
+    return f"{parsed:.4f}"
+
+
 class OpenCodeStreamProcessor:
     """Processes OpenCode JSON output and prints human-readable CI logs."""
 
@@ -387,6 +401,38 @@ class OpenCodeStreamProcessor:
         self._emitted_first_line = False
         self._line_buf = ""
         self._errors: list[str] = []
+        # Usage parsed from step_finish events, for persistence by the
+        # backend (OpenCode's OTEL export carries no token/cost data).
+        # Each step dict has input/output/reasoning/cache_read/cache_write
+        # and cost keys. OpenCode only emits step_finish for steps that
+        # end in tool calls, so the final text-only step of a run is not
+        # counted (a lower bound, documented in docs/otel-configuration.md).
+        self._usage_steps: list[dict] = []
+        self._num_turns = 0
+        self._first_ts: int | None = None
+        self._last_ts: int | None = None
+
+    @property
+    def usage_steps(self) -> list[dict]:
+        """Per-step usage parsed from ``step_finish`` events."""
+        return list(self._usage_steps)
+
+    @property
+    def num_turns(self) -> int:
+        """Number of steps OpenCode reported (``step_start`` events)."""
+        return self._num_turns
+
+    @property
+    def duration_ms(self) -> int | None:
+        """Wall-clock span of the reported events, or None without any."""
+        if self._first_ts is None or self._last_ts is None:
+            return None
+        return self._last_ts - self._first_ts
+
+    @property
+    def saw_error(self) -> bool:
+        """Whether any error event was seen on the stream."""
+        return bool(self._errors)
 
     _INDENT = "  "
 
@@ -473,8 +519,12 @@ class OpenCodeStreamProcessor:
                 flush=True,
             )
 
-    def process_line(self, line):
-        """Process a single JSONL line from OpenCode. Returns True when run is complete."""
+    def process_line(self, line, *, display=True):
+        """Process OpenCode JSONL, optionally collecting usage without printing.
+
+        Returns True when the run is complete. Raw-output callers can ignore
+        this result to keep forwarding the entire stream.
+        """
         line = line.strip()
         if not line:
             return False
@@ -487,12 +537,39 @@ class OpenCodeStreamProcessor:
         msg_type = msg.get("type")
         part = msg.get("part", {})
 
+        timestamp = msg.get("timestamp")
+        if isinstance(timestamp, int):
+            if self._first_ts is None:
+                self._first_ts = timestamp
+            self._last_ts = timestamp
+
         if msg_type == "error":
-            self._end_text()
+            if display:
+                self._end_text()
             error = msg.get("error", {})
             error_msg = error.get("data", {}).get("message", str(error))
             self._errors.append(error_msg)
             return False
+
+        if msg_type == "step_start":
+            self._num_turns += 1
+        elif msg_type == "step_finish":
+            tokens = part.get("tokens", {})
+            cache = tokens.get("cache", {})
+            self._usage_steps.append(
+                {
+                    "input": tokens.get("input", 0),
+                    "output": tokens.get("output", 0),
+                    "reasoning": tokens.get("reasoning", 0),
+                    "cache_read": cache.get("read", 0),
+                    "cache_write": cache.get("write", 0),
+                    # Missing and null costs both mean unreported.
+                    "cost": part.get("cost"),
+                }
+            )
+
+        if not display:
+            return msg_type == "step_finish" and part.get("reason") == "stop"
 
         if msg_type == "text":
             text = part.get("text", "")
@@ -535,11 +612,11 @@ class OpenCodeStreamProcessor:
             self._end_text()
             reason = part.get("reason", "")
             tokens = part.get("tokens", {})
-            cost = part.get("cost", 0)
+            cost = part.get("cost")
+            cache = tokens.get("cache", {})
             total = tokens.get("total", 0)
             inp = tokens.get("input", 0)
             out = tokens.get("output", 0)
-            cache = tokens.get("cache", {})
             cache_r = cache.get("read", 0)
             cache_w = cache.get("write", 0)
             print(
@@ -547,7 +624,7 @@ class OpenCodeStreamProcessor:
                 f"out={out} "
                 f"cache_r={cache_r} "
                 f"cache_w={cache_w} "
-                f"total={total} cost=${cost:.4f}{self.RESET}",
+                f"total={total} cost=${_cost_display(cost)}{self.RESET}",
                 flush=True,
             )
             if reason == "stop":

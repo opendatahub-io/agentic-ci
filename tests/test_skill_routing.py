@@ -43,6 +43,7 @@ class FakeSession:
         self.default_model = "default-model"
         self.trace_id = TRACE_ID
         self.span_id = SPAN_ID
+        self.otel_log_name = "claude-otel.jsonl"
         self.runs = []
         self.completion_files = []
         self.validates = []

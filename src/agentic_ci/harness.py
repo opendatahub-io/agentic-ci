@@ -6,6 +6,7 @@ it needs, where credentials are mounted, and how to parse its output.
 """
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -23,6 +24,8 @@ from agentic_ci.stream import (
 )
 
 _OPENSHELL_GATEWAY_HOST = "10.200.0.1"
+
+log = logging.getLogger(__name__)
 
 EFFORT_NONE = "none"
 """Effort override value meaning "pass no effort flag"."""
@@ -651,7 +654,9 @@ class OpenCodeHarness(Harness):
             "run",
             "--format",
             "json",
-            "--dangerously-skip-permissions",
+            # OpenCode v2 removed --dangerously-skip-permissions; --auto is
+            # the equivalent auto-approve flag.
+            "--auto",
             "-m",
             model,
             prompt,
@@ -787,6 +792,32 @@ class OpenCodeHarness(Harness):
             )
             env["VERTEX_LOCATION"] = credential_env.get(
                 "VERTEX_LOCATION", credential_env.get("CLOUD_ML_REGION", "global")
+            )
+        if otel_port:
+            env.update(
+                {
+                    "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{otel_port}",
+                    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/json",
+                    # Flush spans immediately -- OpenCode's process.exit()
+                    # kills the Node.js process before the batch processor
+                    # can drain its queue.
+                    "OTEL_BSP_SCHEDULE_DELAY": "0",
+                }
+            )
+            # Telemetry enablement is caller-owned on the local backend:
+            # agentic-ci never writes OpenCode config for a local run.
+            # OpenCode v2.0.26+ exports OTLP when the endpoint env vars
+            # are set (its experimental.openTelemetry config key is
+            # reported as an omitted legacy setting); older versions
+            # additionally require ``experimental.openTelemetry: true``
+            # in the caller-owned config (OPENCODE_CONFIG_DIR). The
+            # container backends still seed that key via
+            # write_sandbox_config() for those older versions.
+            log.debug(
+                "OpenCode OTEL export wired to http://127.0.0.1:%s; "
+                "older OpenCode versions also need "
+                "'experimental.openTelemetry: true' in the caller's config",
+                otel_port,
             )
         if traceparent:
             env["TRACEPARENT"] = traceparent

@@ -145,7 +145,9 @@ def cmd_run(args, backend, harness):
         if not args.no_otel and harness.supports_otel:
             log.section("Starting OTEL collector")
             otel_proc, otel_port, otel_log, otel_rate = otel.start_collector(
-                run_dir, bind_addr=backend.collector_bind_address
+                run_dir,
+                bind_addr=backend.collector_bind_address,
+                log_name=otel.otel_log_filename(args.harness),
             )
             os.environ["OTEL_RATE_FILE"] = otel_rate
             log.detail("pid", str(otel_proc.pid))
@@ -165,6 +167,7 @@ def cmd_run(args, backend, harness):
             model=model,
             otel_port=otel_port,
             otel_rate_file=otel_rate,
+            otel_log_file=otel_log,
             extra_args=extra_args,
             streaming=not args.no_streaming,
             traceparent=traceparent,
