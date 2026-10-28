@@ -451,6 +451,80 @@ class TestParseMetrics:
 
         assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.25)
 
+    def test_parses_protojson_int64_strings_and_skips_invalid_values(self):
+        records = [
+            {
+                "path": "/v1/metrics",
+                "payload": {
+                    "resourceMetrics": [
+                        {
+                            "scopeMetrics": [
+                                {
+                                    "metrics": [
+                                        {
+                                            "name": "codex.token.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asInt": "50",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "input"),
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asInt": "nope",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "output"),
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asDouble": "NaN",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "cacheRead"),
+                                                        ],
+                                                    },
+                                                ]
+                                            },
+                                        },
+                                        {
+                                            "name": "codex.cost.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asDouble": "1.25",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol")
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asInt": "bad",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-other")
+                                                        ],
+                                                    },
+                                                ]
+                                            },
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 50
+        assert ("gpt-6.1-sol", "output") not in token_totals
+        assert ("gpt-6.1-sol", "cacheRead") not in token_totals
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(1.25)
+        assert "gpt-other" not in cost_totals
+
 
 class TestAppendCodexUsage:
     def test_appends_priced_codex_usage_without_double_counting(self, tmp_path):
@@ -690,6 +764,79 @@ class TestPrintSummary:
         assert token_totals[("gpt-6.1-sol", "input")] == 50
         assert cost_totals["gpt-6.1-sol"] > 0
         assert "gpt-6.1-sol" in capsys.readouterr().out
+
+    def test_summary_accepts_protojson_numbers_and_skips_invalid(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [
+                {
+                    "path": "/v1/metrics",
+                    "payload": {
+                        "resourceMetrics": [
+                            {
+                                "scopeMetrics": [
+                                    {
+                                        "metrics": [
+                                            {
+                                                "name": "codex.token.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asInt": "50",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "input"),
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asInt": "nope",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "output"),
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            },
+                                            {
+                                                "name": "codex.cost.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asDouble": "1.5",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol")
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asDouble": "NaN",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-other")
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        _, token_totals, cost_totals = print_summary(log_path)
+        output = capsys.readouterr().out
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 50
+        assert ("gpt-6.1-sol", "output") not in token_totals
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(1.5)
+        assert "gpt-other" not in cost_totals
+        assert "50" in output
+        assert "1.5000" in output
 
 
 class TestFindOrphanTraces:

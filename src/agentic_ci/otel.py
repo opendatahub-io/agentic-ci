@@ -218,6 +218,28 @@ def _optional_numeric_attribute(attributes, *keys):
     return None
 
 
+def _finite_number(value):
+    """Return a finite float, or None when the value cannot be aggregated.
+
+    OTLP ProtoJSON encodes int64 fields such as ``asInt`` as strings.
+    Booleans are rejected because they are integers.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            return None
+    elif isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
 _CODEX_TOKEN_METRIC = "codex.token.usage"
 _CODEX_COST_METRIC = "codex.cost.usage"
 _CODEX_TOKEN_TYPES = ("input", "cacheRead", "cacheCreation", "output")
@@ -355,10 +377,14 @@ def parse_metrics(records):
     # events. Count them only for a model that has no such events.
     for model, token_type, value in deferred_codex_tokens:
         if model not in codex_event_models:
-            token_totals[(model, token_type)] += value
+            number = _finite_number(value)
+            if number is not None:
+                token_totals[(model, token_type)] += number
     for model, value in deferred_codex_costs:
         if model not in codex_event_models:
-            cost_totals[model] += value
+            number = _finite_number(value)
+            if number is not None:
+                cost_totals[model] += number
 
     return token_totals, cost_totals, api_requests, active_time
 
@@ -407,25 +433,37 @@ def print_summary(log_file):
     if token_totals:
         models = sorted(set(m for m, _ in token_totals.keys()))
         for model in models:
+            model_tokens = {}
+            for (m, token_type), count in token_totals.items():
+                if m != model:
+                    continue
+                number = _finite_number(count)
+                if number is not None:
+                    model_tokens[token_type] = number
+            if not model_tokens:
+                continue
             print(f"\n  Model: {model}")
             print(f"  {'Token Type':<20} {'Count':>12}")
             print(f"  {'-' * 20} {'-' * 12}")
-            model_tokens = {t: c for (m, t), c in token_totals.items() if m == model}
             for token_type in ["input", "cacheRead", "cacheCreation", "output"]:
                 if token_type in model_tokens:
                     print(f"  {token_type:<20} {model_tokens[token_type]:>12,.0f}")
             total = sum(model_tokens.values())
             print(f"  {'TOTAL':<20} {total:>12,.0f}")
 
-    if cost_totals:
+    priced = []
+    for model in sorted(cost_totals):
+        cost = _finite_number(cost_totals[model])
+        if cost is not None:
+            priced.append((model, cost))
+    if priced:
         print(f"\n  {'Model':<30} {'Cost (USD)':>12}")
         print(f"  {'-' * 30} {'-' * 12}")
         grand_total = 0.0
-        for model in sorted(cost_totals.keys()):
-            cost = cost_totals[model]
+        for model, cost in priced:
             grand_total += cost
             print(f"  {model:<30} ${cost:>11.4f}")
-        if len(cost_totals) > 1:
+        if len(priced) > 1:
             print(f"  {'TOTAL':<30} ${grand_total:>11.4f}")
 
     if active_time:
