@@ -66,6 +66,29 @@ def test_estimate_gpt_6_standard_cost(model, expected):
     assert cost == pytest.approx(expected)
 
 
+def test_gpt_6_1_sol_is_priced():
+    snapshot = json.loads(
+        files("agentic_ci").joinpath("data/litellm_openai_cost_map.json").read_text()
+    )
+    entry = snapshot["models"]["gpt-6.1-sol"]
+    for key in (
+        "input_cost_per_token",
+        "output_cost_per_token",
+        "cache_read_input_token_cost",
+        "cache_creation_input_token_cost",
+    ):
+        assert entry[key] > 0
+
+    cost = estimate_cost(
+        "gpt-6.1-sol",
+        input_tokens=1_000,
+        output_tokens=1_000,
+        cached_input_tokens=1_000,
+        cache_creation_input_tokens=1_000,
+    )
+    assert cost is not None and cost > 0
+
+
 def test_estimate_cost_uses_custom_litellm_map(tmp_path, monkeypatch):
     cost_map = tmp_path / "model-prices.json"
     cost_map.write_text(
