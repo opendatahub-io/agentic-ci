@@ -1,7 +1,6 @@
 """Tests for the OTLP HTTP/JSON collector."""
 
 import json
-import math
 import urllib.request
 
 import pytest
@@ -525,6 +524,64 @@ class TestParseMetrics:
         assert cost_totals["gpt-6.1-sol"] == pytest.approx(1.25)
         assert "gpt-other" not in cost_totals
 
+    def test_ignores_negative_and_non_finite_token_counts(self):
+        record = _codex_completed_log("gpt-6.1-sol", 100, 20, cached=10, cache_write=5)
+        attributes = record["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+            "attributes"
+        ]
+        for attribute in attributes:
+            if attribute["key"] == "output_token_count":
+                attribute["value"] = {"stringValue": "-4"}
+            elif attribute["key"] == "cached_token_count":
+                attribute["value"] = {"stringValue": "NaN"}
+            elif attribute["key"] == "cache_write_token_count":
+                attribute["value"] = {"stringValue": "1e10000"}
+        metric = {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "codex.token.usage",
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "asInt": "-8",
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna"),
+                                                        _otel_attr("type", "output"),
+                                                    ],
+                                                },
+                                                {
+                                                    "asInt": "6",
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna"),
+                                                        _otel_attr("type", "input"),
+                                                    ],
+                                                },
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+
+        token_totals, _, _, _ = parse_metrics([record, metric])
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 100
+        assert token_totals[("gpt-6.1-sol", "output")] == 0
+        assert token_totals[("gpt-6.1-sol", "cacheRead")] == 0
+        assert token_totals[("gpt-6.1-sol", "cacheCreation")] == 0
+        assert token_totals[("gpt-5.6-luna", "input")] == 6
+        assert ("gpt-5.6-luna", "output") not in token_totals
+
 
 class TestAppendCodexUsage:
     def test_appends_priced_codex_usage_without_double_counting(self, tmp_path):
@@ -686,7 +743,7 @@ class TestAppendCodexUsage:
             if attribute["key"] == "output_token_count":
                 attribute["value"] = {"stringValue": "NaN"}
         token_totals, cost_totals, _, _ = parse_metrics(records)
-        assert math.isnan(token_totals[("gpt-6.1-sol", "output")])
+        assert token_totals[("gpt-6.1-sol", "output")] == 0
         token_totals[("gpt-6.1-sol", "cacheRead")] = -5
         token_totals[("gpt-6.1-sol", "cacheCreation")] = float("inf")
 
