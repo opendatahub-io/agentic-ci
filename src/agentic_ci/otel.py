@@ -226,14 +226,14 @@ def _finite_number(value):
     """
     if isinstance(value, bool) or value is None:
         return None
-    if isinstance(value, str):
-        try:
+    try:
+        if isinstance(value, str):
             number = float(value.strip())
-        except ValueError:
+        elif isinstance(value, (int, float)):
+            number = float(value)
+        else:
             return None
-    elif isinstance(value, (int, float)):
-        number = float(value)
-    else:
+    except (ValueError, OverflowError):
         return None
     if not math.isfinite(number):
         return None
