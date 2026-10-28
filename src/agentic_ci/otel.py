@@ -197,13 +197,6 @@ def _otel_attribute_value(value):
     return None
 
 
-def _numeric_attribute(attributes, key):
-    try:
-        return float(attributes.get(key, 0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _optional_numeric_attribute(attributes, *keys):
     """Return the first finite numeric attribute, or None if none exists."""
     for key in keys:
@@ -237,6 +230,22 @@ def _finite_number(value):
         return None
     if not math.isfinite(number):
         return None
+    return number
+
+
+def _non_negative_count(value):
+    """Return a finite token count of zero or more, or None."""
+    number = _finite_number(value)
+    if number is None or number < 0:
+        return None
+    return number
+
+
+def _token_attribute(attributes, key):
+    """Return a response token count, using zero when the attribute is unusable."""
+    number = _non_negative_count(attributes.get(key, 0))
+    if number is None:
+        return 0.0
     return number
 
 
@@ -319,11 +328,12 @@ def parse_metrics(records):
                             codex_response_requests.append(event_attrs)
                             model = str(event_attrs.get("model") or "unknown")
                             codex_event_models.add(model)
-                            input_tokens = _numeric_attribute(event_attrs, "input_token_count")
-                            cached_tokens = _numeric_attribute(event_attrs, "cached_token_count")
-                            cache_write_tokens = _numeric_attribute(
+                            input_tokens = _token_attribute(event_attrs, "input_token_count")
+                            cached_tokens = _token_attribute(event_attrs, "cached_token_count")
+                            cache_write_tokens = _token_attribute(
                                 event_attrs, "cache_write_token_count"
                             )
+                            output_tokens = _token_attribute(event_attrs, "output_token_count")
                             # Codex reports input_token_count inclusive of the
                             # cached and cache-write tokens, so subtract them to
                             # get the fresh prompt tokens. The max(..., 0) guards
@@ -337,9 +347,7 @@ def parse_metrics(records):
                             token_totals[(model, "input")] += fresh_input
                             token_totals[(model, "cacheRead")] += cached_tokens
                             token_totals[(model, "cacheCreation")] += cache_write_tokens
-                            token_totals[(model, "output")] += _numeric_attribute(
-                                event_attrs, "output_token_count"
-                            )
+                            token_totals[(model, "output")] += output_tokens
 
                             direct_cost = _optional_numeric_attribute(
                                 event_attrs,
@@ -357,9 +365,7 @@ def parse_metrics(records):
                                 estimated_cost = estimate_cost(
                                     model,
                                     input_tokens=fresh_input,
-                                    output_tokens=_numeric_attribute(
-                                        event_attrs, "output_token_count"
-                                    ),
+                                    output_tokens=output_tokens,
                                     cached_input_tokens=cached_tokens,
                                     cache_creation_input_tokens=cache_write_tokens,
                                     service_tier=service_tier,
@@ -377,7 +383,7 @@ def parse_metrics(records):
     # events. Count them only for a model that has no such events.
     for model, token_type, value in deferred_codex_tokens:
         if model not in codex_event_models:
-            number = _finite_number(value)
+            number = _non_negative_count(value)
             if number is not None:
                 token_totals[(model, token_type)] += number
     for model, value in deferred_codex_costs:
