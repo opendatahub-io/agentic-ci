@@ -299,7 +299,9 @@ Codex user configuration remains enabled so installed plugins and skills are
 available. During telemetry-enabled runs, agentic-ci supplies per-run Codex
 configuration overrides that export logs, metrics, and traces to its local
 OTLP collector. The completion summary estimates Codex cost from a generated
-snapshot of LiteLLM's OpenAI price map. Run `make update-cost-map` to resolve
+snapshot of LiteLLM's OpenAI price map and writes that result to the OTEL log
+as `codex.cost.usage` and `codex.token.usage`. A model with no price still gets
+token points and no cost point. Run `make update-cost-map` to resolve
 LiteLLM `main` to its current commit SHA and regenerate the bundled snapshot
 from that immutable revision. Set `AGENTIC_CI_LITELLM_COST_MAP` to a
 LiteLLM-format JSON price map to override the bundled data; unknown models still
