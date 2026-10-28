@@ -221,7 +221,16 @@ def cmd_run(args, backend, harness):
                     print(f"Root span injection failed (non-fatal): {exc}", file=sys.stderr)
 
             log.section("Token/Cost Summary (OpenTelemetry)")
-            otel.print_summary(otel_log)
+            summary = otel.print_summary(otel_log)
+            try:
+                records, token_totals, cost_totals = summary
+                if otel_log:
+                    otel.append_codex_usage(otel_log, records, token_totals, cost_totals)
+            except (OSError, TypeError, ValueError) as exc:
+                print(
+                    f"Codex usage metrics were not saved (non-fatal): {exc}",
+                    file=sys.stderr,
+                )
 
         artifact_dir = os.environ.get("GITHUB_WORKSPACE") or os.environ.get("CI_PROJECT_DIR")
         if artifact_dir and otel_log:

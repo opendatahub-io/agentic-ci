@@ -5,13 +5,17 @@ import urllib.request
 
 import pytest
 
+from agentic_ci.cost import estimate_cost
 from agentic_ci.otel import (
+    UsageSummary,
     _build_root_span_record,
     _find_orphan_traces,
     _has_any_traces,
+    append_codex_usage,
     generate_trace_context,
     inject_root_spans,
     parse_metrics,
+    print_summary,
     start_collector,
     stop_collector,
 )
@@ -46,6 +50,84 @@ def _read_log(log_path):
             if line.strip():
                 records.append(json.loads(line))
     return records
+
+
+def _write_jsonl(log_path, records):
+    with open(log_path, "w") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+
+
+def _otel_attr(key, value):
+    if isinstance(value, bool):
+        value_key = "boolValue"
+    elif isinstance(value, int):
+        value_key = "intValue"
+    elif isinstance(value, float):
+        value_key = "doubleValue"
+    else:
+        value_key = "stringValue"
+    return {"key": key, "value": {value_key: value}}
+
+
+def _codex_completed_log(model, input_tokens, output_tokens, cached=0, cache_write=0):
+    attributes = {
+        "event.name": "codex.sse_event",
+        "event.kind": "response.completed",
+        "model": model,
+        "input_token_count": input_tokens,
+        "cached_token_count": cached,
+        "cache_write_token_count": cache_write,
+        "output_token_count": output_tokens,
+    }
+    return {
+        "ts": "2024-01-01T00:00:00+00:00",
+        "path": "/v1/logs",
+        "payload": {
+            "resourceLogs": [
+                {
+                    "scopeLogs": [
+                        {
+                            "logRecords": [
+                                {
+                                    "attributes": [
+                                        _otel_attr(key, value) for key, value in attributes.items()
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+    }
+
+
+def _named_metric_points(records, name):
+    points = []
+    for rec in records:
+        if "/v1/metrics" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rm in payload.get("resourceMetrics", []):
+            for sm in rm.get("scopeMetrics", []):
+                for metric in sm.get("metrics", []):
+                    if metric.get("name") == name:
+                        data = metric.get("sum", {})
+                        points.extend(data.get("dataPoints", []))
+    return points
+
+
+def _point_value(point):
+    return point.get("asDouble", point.get("asInt"))
+
+
+def _point_attr(point, key):
+    for attribute in point.get("attributes", []):
+        if attribute.get("key") == key:
+            value = attribute.get("value", {})
+            return value.get("stringValue", value.get("intValue"))
+    return None
 
 
 class TestOTLPCollector:
@@ -367,6 +449,501 @@ class TestParseMetrics:
         _, cost_totals, _, _ = parse_metrics(records)
 
         assert cost_totals["gpt-5.6-sol"] == pytest.approx(0.25)
+
+    def test_parses_protojson_int64_strings_and_skips_invalid_values(self):
+        records = [
+            {
+                "path": "/v1/metrics",
+                "payload": {
+                    "resourceMetrics": [
+                        {
+                            "scopeMetrics": [
+                                {
+                                    "metrics": [
+                                        {
+                                            "name": "codex.token.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asInt": "50",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "input"),
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asInt": "nope",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "output"),
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asDouble": "NaN",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol"),
+                                                            _otel_attr("type", "cacheRead"),
+                                                        ],
+                                                    },
+                                                ]
+                                            },
+                                        },
+                                        {
+                                            "name": "codex.cost.usage",
+                                            "sum": {
+                                                "dataPoints": [
+                                                    {
+                                                        "asDouble": "1.25",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-6.1-sol")
+                                                        ],
+                                                    },
+                                                    {
+                                                        "asInt": "bad",
+                                                        "attributes": [
+                                                            _otel_attr("model", "gpt-other")
+                                                        ],
+                                                    },
+                                                ]
+                                            },
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+        ]
+
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 50
+        assert ("gpt-6.1-sol", "output") not in token_totals
+        assert ("gpt-6.1-sol", "cacheRead") not in token_totals
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(1.25)
+        assert "gpt-other" not in cost_totals
+
+    def test_ignores_negative_and_non_finite_token_counts(self):
+        record = _codex_completed_log("gpt-6.1-sol", 100, 20, cached=10, cache_write=5)
+        attributes = record["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+            "attributes"
+        ]
+        for attribute in attributes:
+            if attribute["key"] == "output_token_count":
+                attribute["value"] = {"stringValue": "-4"}
+            elif attribute["key"] == "cached_token_count":
+                attribute["value"] = {"stringValue": "NaN"}
+            elif attribute["key"] == "cache_write_token_count":
+                attribute["value"] = {"stringValue": "1e10000"}
+        metric = {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "codex.token.usage",
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "asInt": "-8",
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna"),
+                                                        _otel_attr("type", "output"),
+                                                    ],
+                                                },
+                                                {
+                                                    "asInt": "6",
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna"),
+                                                        _otel_attr("type", "input"),
+                                                    ],
+                                                },
+                                            ]
+                                        },
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+
+        token_totals, _, _, _ = parse_metrics([record, metric])
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 100
+        assert token_totals[("gpt-6.1-sol", "output")] == 0
+        assert token_totals[("gpt-6.1-sol", "cacheRead")] == 0
+        assert token_totals[("gpt-6.1-sol", "cacheCreation")] == 0
+        assert token_totals[("gpt-5.6-luna", "input")] == 6
+        assert ("gpt-5.6-luna", "output") not in token_totals
+
+
+class TestAppendCodexUsage:
+    def test_appends_priced_codex_usage_without_double_counting(self, tmp_path):
+        records = [
+            _codex_completed_log("gpt-6.1-sol", 100, 20, cached=40, cache_write=10),
+            _codex_completed_log("gpt-5.6-luna", 10, 5, cached=2, cache_write=1),
+        ]
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+        expected = estimate_cost(
+            "gpt-6.1-sol",
+            input_tokens=50,
+            output_tokens=20,
+            cached_input_tokens=40,
+            cache_creation_input_tokens=10,
+        )
+        luna_expected = estimate_cost(
+            "gpt-5.6-luna",
+            input_tokens=7,
+            output_tokens=5,
+            cached_input_tokens=2,
+            cache_creation_input_tokens=1,
+        )
+        assert expected is not None and expected > 0
+        assert luna_expected is not None and luna_expected > 0
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(expected)
+        assert cost_totals["gpt-5.6-luna"] == pytest.approx(luna_expected)
+
+        token_totals[("claude-opus-4-6", "input")] += 10
+        cost_totals["claude-opus-4-6"] += 1.25
+
+        log_path = tmp_path / "claude-otel.jsonl"
+        _write_jsonl(log_path, records)
+        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+
+        saved = _read_log(log_path)
+        assert len(saved) == 3
+        cost_points = _named_metric_points(saved, "codex.cost.usage")
+        token_points = _named_metric_points(saved, "codex.token.usage")
+        costs = {_point_attr(point, "model"): _point_value(point) for point in cost_points}
+        models = {_point_attr(point, "model") for point in cost_points + token_points}
+        assert costs["gpt-6.1-sol"] == pytest.approx(expected)
+        assert costs["gpt-5.6-luna"] == pytest.approx(luna_expected)
+        assert set(costs) == {"gpt-6.1-sol", "gpt-5.6-luna"}
+        assert "claude-opus-4-6" not in models
+
+        again_tokens, again_cost, _, _ = parse_metrics(saved)
+        assert again_cost["gpt-6.1-sol"] == pytest.approx(expected)
+        assert again_cost["gpt-5.6-luna"] == pytest.approx(luna_expected)
+        assert again_tokens[("gpt-6.1-sol", "input")] == 50
+        assert ("claude-opus-4-6", "input") not in again_tokens
+
+        only_tokens, only_cost, _, _ = parse_metrics([saved[-1]])
+        assert only_cost["gpt-6.1-sol"] == pytest.approx(expected)
+        assert only_tokens[("gpt-6.1-sol", "cacheRead")] == 40
+
+        inflated = json.loads(json.dumps(saved[-1]))
+        for point in _named_metric_points([inflated], "codex.cost.usage"):
+            if _point_attr(point, "model") == "gpt-6.1-sol":
+                point.pop("asInt", None)
+                point["asDouble"] = 50
+        mixed_tokens, mixed_cost, _, _ = parse_metrics([inflated, *records])
+        assert mixed_cost["gpt-6.1-sol"] == pytest.approx(expected)
+        assert mixed_cost["gpt-5.6-luna"] == pytest.approx(luna_expected)
+        assert mixed_tokens[("gpt-6.1-sol", "input")] == 50
+
+    def test_dedup_keeps_a_model_that_has_no_events(self):
+        records = [_codex_completed_log("gpt-6.1-sol", 100, 20, cached=40, cache_write=10)]
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+        metric = {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {
+                        "scopeMetrics": [
+                            {
+                                "metrics": [
+                                    {
+                                        "name": "codex.cost.usage",
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "asDouble": 50,
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-6.1-sol")
+                                                    ],
+                                                },
+                                                {
+                                                    "asDouble": 1.5,
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna")
+                                                    ],
+                                                },
+                                            ]
+                                        },
+                                    },
+                                    {
+                                        "name": "codex.token.usage",
+                                        "sum": {
+                                            "dataPoints": [
+                                                {
+                                                    "asInt": 9,
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna"),
+                                                        _otel_attr("type", "output"),
+                                                    ],
+                                                }
+                                            ]
+                                        },
+                                    },
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+        }
+
+        parsed_tokens, parsed_costs, _, _ = parse_metrics([metric, *records])
+
+        assert parsed_costs["gpt-6.1-sol"] == pytest.approx(cost_totals["gpt-6.1-sol"])
+        assert parsed_costs["gpt-5.6-luna"] == pytest.approx(1.5)
+        assert parsed_tokens[("gpt-5.6-luna", "output")] == 9
+        assert parsed_tokens[("gpt-6.1-sol", "input")] == token_totals[("gpt-6.1-sol", "input")]
+
+    def test_unknown_codex_model_appends_tokens_without_cost(self, tmp_path):
+        records = [_codex_completed_log("gpt-not-a-real-model", 30, 4, cached=5, cache_write=1)]
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+        assert token_totals[("gpt-not-a-real-model", "input")] == 24
+        assert "gpt-not-a-real-model" not in cost_totals
+
+        log_path = tmp_path / "claude-otel.jsonl"
+        _write_jsonl(log_path, records)
+        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+
+        saved = _read_log(log_path)
+        assert _named_metric_points(saved, "codex.cost.usage") == []
+        token_points = _named_metric_points(saved, "codex.token.usage")
+        counts = {
+            _point_attr(point, "type"): _point_value(point)
+            for point in token_points
+            if _point_attr(point, "model") == "gpt-not-a-real-model"
+        }
+        assert counts == {"input": 24, "cacheRead": 5, "cacheCreation": 1, "output": 4}
+
+        again_tokens, again_cost, _, _ = parse_metrics(saved)
+        assert again_tokens[("gpt-not-a-real-model", "input")] == 24
+        assert "gpt-not-a-real-model" not in again_cost
+
+        only_tokens, only_cost, _, _ = parse_metrics([saved[-1]])
+        assert only_tokens[("gpt-not-a-real-model", "output")] == 4
+        assert "gpt-not-a-real-model" not in only_cost
+
+    def test_skips_non_finite_and_negative_token_points(self, tmp_path):
+        records = [_codex_completed_log("gpt-6.1-sol", 100, 20)]
+        attributes = records[0]["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0][
+            "attributes"
+        ]
+        for attribute in attributes:
+            if attribute["key"] == "output_token_count":
+                attribute["value"] = {"stringValue": "NaN"}
+        token_totals, cost_totals, _, _ = parse_metrics(records)
+        assert token_totals[("gpt-6.1-sol", "output")] == 0
+        token_totals[("gpt-6.1-sol", "cacheRead")] = -5
+        token_totals[("gpt-6.1-sol", "cacheCreation")] = float("inf")
+
+        log_path = tmp_path / "claude-otel.jsonl"
+        _write_jsonl(log_path, records)
+        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+
+        appended = json.loads(log_path.read_text().splitlines()[-1])
+        types = {
+            _point_attr(point, "type")
+            for point in _named_metric_points([appended], "codex.token.usage")
+        }
+        assert types == {"input"}
+
+    def test_returns_false_when_every_point_is_unusable(self, tmp_path):
+        records = [_codex_completed_log("gpt-not-a-real-model", 0, 0)]
+        log_path = tmp_path / "claude-otel.jsonl"
+        wrote = append_codex_usage(
+            log_path,
+            records,
+            {("gpt-not-a-real-model", "output"): float("nan")},
+            {"gpt-not-a-real-model": float("nan")},
+        )
+        assert wrote is False
+        assert not log_path.exists()
+
+    def test_append_skips_logs_without_codex_responses(self, tmp_path):
+        records = [{"path": "/v1/metrics", "payload": {}}]
+        log_path = tmp_path / "claude-otel.jsonl"
+        wrote = append_codex_usage(
+            log_path,
+            records,
+            {("claude-opus-4-6", "input"): 10},
+            {"claude-opus-4-6": 1.25},
+        )
+        assert wrote is False
+        assert not log_path.exists()
+
+
+class TestPrintSummary:
+    def test_missing_log(self, tmp_path, capsys):
+        summary = print_summary(tmp_path / "missing.jsonl")
+
+        assert summary == UsageSummary([], {}, {})
+        assert "log file not found" in capsys.readouterr().out
+
+    def test_invalid_json(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        log_path.write_text("not-json\n")
+
+        summary = print_summary(log_path)
+
+        assert summary == UsageSummary([], {}, {})
+        assert "Error parsing OTEL log" in capsys.readouterr().out
+
+    def test_empty_log(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        log_path.write_text("\n")
+
+        summary = print_summary(log_path)
+
+        assert summary == UsageSummary([], {}, {})
+        assert "No OTEL data collected." in capsys.readouterr().out
+
+    def test_returns_parsed_totals(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [_codex_completed_log("gpt-6.1-sol", 100, 20, cached=40, cache_write=10)],
+        )
+
+        records, token_totals, cost_totals = print_summary(log_path)
+
+        assert len(records) == 1
+        assert token_totals[("gpt-6.1-sol", "input")] == 50
+        assert cost_totals["gpt-6.1-sol"] > 0
+        assert "gpt-6.1-sol" in capsys.readouterr().out
+
+    def test_summary_accepts_protojson_numbers_and_skips_invalid(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [
+                {
+                    "path": "/v1/metrics",
+                    "payload": {
+                        "resourceMetrics": [
+                            {
+                                "scopeMetrics": [
+                                    {
+                                        "metrics": [
+                                            {
+                                                "name": "codex.token.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asInt": "50",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "input"),
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asInt": "nope",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "output"),
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            },
+                                            {
+                                                "name": "codex.cost.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asDouble": "1.5",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol")
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asDouble": "NaN",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-other")
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        _, token_totals, cost_totals = print_summary(log_path)
+        output = capsys.readouterr().out
+
+        assert token_totals[("gpt-6.1-sol", "input")] == 50
+        assert ("gpt-6.1-sol", "output") not in token_totals
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(1.5)
+        assert "gpt-other" not in cost_totals
+        assert "50" in output
+        assert "1.5000" in output
+
+    def test_summary_omits_oversized_integers(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [
+                {
+                    "path": "/v1/metrics",
+                    "payload": {
+                        "resourceMetrics": [
+                            {
+                                "scopeMetrics": [
+                                    {
+                                        "metrics": [
+                                            {
+                                                "name": "codex.token.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asInt": 10**400,
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "input"),
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asInt": "40",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "output"),
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        _, token_totals, _ = print_summary(log_path)
+
+        assert ("gpt-6.1-sol", "input") not in token_totals
+        assert token_totals[("gpt-6.1-sol", "output")] == 40
+        assert "40" in capsys.readouterr().out
 
 
 class TestFindOrphanTraces:

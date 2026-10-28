@@ -15,6 +15,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import NamedTuple
 
 from agentic_ci.cost import estimate_cost
 
@@ -196,13 +197,6 @@ def _otel_attribute_value(value):
     return None
 
 
-def _numeric_attribute(attributes, key):
-    try:
-        return float(attributes.get(key, 0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _optional_numeric_attribute(attributes, *keys):
     """Return the first finite numeric attribute, or None if none exists."""
     for key in keys:
@@ -217,6 +211,49 @@ def _optional_numeric_attribute(attributes, *keys):
     return None
 
 
+def _finite_number(value):
+    """Return a finite float, or None when the value cannot be aggregated.
+
+    OTLP ProtoJSON encodes int64 fields such as ``asInt`` as strings.
+    Booleans are rejected because they are integers.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            number = float(value.strip())
+        elif isinstance(value, (int, float)):
+            number = float(value)
+        else:
+            return None
+    except (ValueError, OverflowError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _non_negative_count(value):
+    """Return a finite token count of zero or more, or None."""
+    number = _finite_number(value)
+    if number is None or number < 0:
+        return None
+    return number
+
+
+def _token_attribute(attributes, key):
+    """Return a response token count, using zero when the attribute is unusable."""
+    number = _non_negative_count(attributes.get(key, 0))
+    if number is None:
+        return 0.0
+    return number
+
+
+_CODEX_TOKEN_METRIC = "codex.token.usage"
+_CODEX_COST_METRIC = "codex.cost.usage"
+_CODEX_TOKEN_TYPES = ("input", "cacheRead", "cacheCreation", "output")
+
+
 def parse_metrics(records):
     """Parse OTLP JSONL records into structured token/cost data."""
     token_totals = defaultdict(float)
@@ -224,6 +261,9 @@ def parse_metrics(records):
     api_requests = []
     codex_api_requests = []
     codex_response_requests = []
+    codex_event_models = set()
+    deferred_codex_tokens = []
+    deferred_codex_costs = []
     active_time = defaultdict(float)
 
     for rec in records:
@@ -251,6 +291,13 @@ def parse_metrics(records):
                             elif name == "claude_code.cost.usage":
                                 model = attrs.get("model", "unknown")
                                 cost_totals[model] += value
+                            elif name == _CODEX_TOKEN_METRIC:
+                                model = str(attrs.get("model") or "unknown")
+                                token_type = str(attrs.get("type") or "unknown")
+                                deferred_codex_tokens.append((model, token_type, value))
+                            elif name == _CODEX_COST_METRIC:
+                                model = str(attrs.get("model") or "unknown")
+                                deferred_codex_costs.append((model, value))
                             elif name == "claude_code.active_time.total":
                                 time_type = attrs.get("type", "unknown")
                                 active_time[time_type] += value
@@ -280,11 +327,13 @@ def parse_metrics(records):
                         ):
                             codex_response_requests.append(event_attrs)
                             model = str(event_attrs.get("model") or "unknown")
-                            input_tokens = _numeric_attribute(event_attrs, "input_token_count")
-                            cached_tokens = _numeric_attribute(event_attrs, "cached_token_count")
-                            cache_write_tokens = _numeric_attribute(
+                            codex_event_models.add(model)
+                            input_tokens = _token_attribute(event_attrs, "input_token_count")
+                            cached_tokens = _token_attribute(event_attrs, "cached_token_count")
+                            cache_write_tokens = _token_attribute(
                                 event_attrs, "cache_write_token_count"
                             )
+                            output_tokens = _token_attribute(event_attrs, "output_token_count")
                             # Codex reports input_token_count inclusive of the
                             # cached and cache-write tokens, so subtract them to
                             # get the fresh prompt tokens. The max(..., 0) guards
@@ -298,9 +347,7 @@ def parse_metrics(records):
                             token_totals[(model, "input")] += fresh_input
                             token_totals[(model, "cacheRead")] += cached_tokens
                             token_totals[(model, "cacheCreation")] += cache_write_tokens
-                            token_totals[(model, "output")] += _numeric_attribute(
-                                event_attrs, "output_token_count"
-                            )
+                            token_totals[(model, "output")] += output_tokens
 
                             direct_cost = _optional_numeric_attribute(
                                 event_attrs,
@@ -318,9 +365,7 @@ def parse_metrics(records):
                                 estimated_cost = estimate_cost(
                                     model,
                                     input_tokens=fresh_input,
-                                    output_tokens=_numeric_attribute(
-                                        event_attrs, "output_token_count"
-                                    ),
+                                    output_tokens=output_tokens,
                                     cached_input_tokens=cached_tokens,
                                     cache_creation_input_tokens=cache_write_tokens,
                                     service_tier=service_tier,
@@ -334,11 +379,43 @@ def parse_metrics(records):
     if not codex_api_requests:
         api_requests.extend(codex_response_requests)
 
+    # codex.* metrics repeat totals already taken from response.completed
+    # events. Count them only for a model that has no such events.
+    for model, token_type, value in deferred_codex_tokens:
+        if model not in codex_event_models:
+            number = _non_negative_count(value)
+            if number is not None:
+                token_totals[(model, token_type)] += number
+    for model, value in deferred_codex_costs:
+        if model not in codex_event_models:
+            number = _finite_number(value)
+            if number is not None:
+                cost_totals[model] += number
+
     return token_totals, cost_totals, api_requests, active_time
 
 
+class UsageSummary(NamedTuple):
+    """Totals printed from one OTEL log.
+
+    ``records`` is the parsed JSONL. ``token_totals`` maps
+    ``(model, token_type)`` to a count and ``cost_totals`` maps a model to
+    USD. All three are empty when the log is missing, empty, or not valid
+    JSON.
+    """
+
+    records: list
+    token_totals: dict
+    cost_totals: dict
+
+
 def print_summary(log_file):
-    """Print a human-readable token/cost summary from an OTEL JSONL log."""
+    """Print a human-readable token/cost summary from an OTEL JSONL log.
+
+    Returns a :class:`UsageSummary`. A missing, empty, or invalid log still
+    returns that shape, with empty ``records``, ``token_totals``, and
+    ``cost_totals``.
+    """
     records = []
     try:
         with open(log_file) as f:
@@ -348,39 +425,51 @@ def print_summary(log_file):
                     records.append(json.loads(line))
     except FileNotFoundError:
         print("No OTEL data collected (log file not found).")
-        return
+        return UsageSummary([], {}, {})
     except json.JSONDecodeError as e:
         print(f"Error parsing OTEL log: {e}")
-        return
+        return UsageSummary([], {}, {})
 
     if not records:
         print("No OTEL data collected.")
-        return
+        return UsageSummary([], {}, {})
 
     token_totals, cost_totals, api_requests, active_time = parse_metrics(records)
 
     if token_totals:
         models = sorted(set(m for m, _ in token_totals.keys()))
         for model in models:
+            model_tokens = {}
+            for (m, token_type), count in token_totals.items():
+                if m != model:
+                    continue
+                number = _finite_number(count)
+                if number is not None:
+                    model_tokens[token_type] = number
+            if not model_tokens:
+                continue
             print(f"\n  Model: {model}")
             print(f"  {'Token Type':<20} {'Count':>12}")
             print(f"  {'-' * 20} {'-' * 12}")
-            model_tokens = {t: c for (m, t), c in token_totals.items() if m == model}
             for token_type in ["input", "cacheRead", "cacheCreation", "output"]:
                 if token_type in model_tokens:
                     print(f"  {token_type:<20} {model_tokens[token_type]:>12,.0f}")
             total = sum(model_tokens.values())
             print(f"  {'TOTAL':<20} {total:>12,.0f}")
 
-    if cost_totals:
+    priced = []
+    for model in sorted(cost_totals):
+        cost = _finite_number(cost_totals[model])
+        if cost is not None:
+            priced.append((model, cost))
+    if priced:
         print(f"\n  {'Model':<30} {'Cost (USD)':>12}")
         print(f"  {'-' * 30} {'-' * 12}")
         grand_total = 0.0
-        for model in sorted(cost_totals.keys()):
-            cost = cost_totals[model]
+        for model, cost in priced:
             grand_total += cost
             print(f"  {model:<30} ${cost:>11.4f}")
-        if len(cost_totals) > 1:
+        if len(priced) > 1:
             print(f"  {'TOTAL':<30} ${grand_total:>11.4f}")
 
     if active_time:
@@ -394,6 +483,111 @@ def print_summary(log_file):
         total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
+
+    return UsageSummary(records, token_totals, cost_totals)
+
+
+def _string_attribute(key, value):
+    return {"key": key, "value": {"stringValue": str(value)}}
+
+
+def _metric_number(value):
+    number = float(value)
+    if number.is_integer():
+        return {"asInt": int(number)}
+    return {"asDouble": number}
+
+
+def _reportable_token_count(count):
+    """Return True for a finite token count worth writing as a metric point."""
+    if isinstance(count, bool) or not isinstance(count, (int, float)):
+        return False
+    return math.isfinite(count) and count > 0
+
+
+def _codex_response_models(records):
+    """Return model names that have a Codex response.completed event."""
+    models = set()
+    for rec in records:
+        if "/v1/logs" not in rec.get("path", ""):
+            continue
+        payload = rec.get("payload") or {}
+        for rl in payload.get("resourceLogs", []):
+            for sl in rl.get("scopeLogs", []):
+                for lr in sl.get("logRecords", []):
+                    attrs = {}
+                    for attribute in lr.get("attributes", []):
+                        key = attribute.get("key")
+                        if key:
+                            attrs[key] = _otel_attribute_value(attribute.get("value"))
+                    if (
+                        attrs.get("event.name") == "codex.sse_event"
+                        and attrs.get("event.kind") == "response.completed"
+                    ):
+                        models.add(str(attrs.get("model") or "unknown"))
+    return models
+
+
+def append_codex_usage(log_file, records, token_totals, cost_totals):
+    """Append Codex token and cost totals to an OTEL JSONL log.
+
+    One ``/v1/metrics`` record carries ``codex.token.usage`` and, for each
+    model ``parse_metrics`` could price, ``codex.cost.usage``. Models that
+    did not produce a ``response.completed`` event are omitted, so Claude
+    totals in the same summary are not relabeled. A model with tokens but
+    no price gets token points and no cost point. Returns True when a
+    record was written.
+    """
+    models = _codex_response_models(records)
+    if not models:
+        return False
+
+    token_points = []
+    cost_points = []
+    for model in sorted(models):
+        for token_type in _CODEX_TOKEN_TYPES:
+            count = token_totals.get((model, token_type), 0)
+            if not _reportable_token_count(count):
+                continue
+            token_points.append(
+                {
+                    **_metric_number(count),
+                    "attributes": [
+                        _string_attribute("model", model),
+                        _string_attribute("type", token_type),
+                    ],
+                }
+            )
+        cost = cost_totals.get(model)
+        if cost is not None and math.isfinite(cost):
+            cost_points.append(
+                {
+                    **_metric_number(cost),
+                    "attributes": [_string_attribute("model", model)],
+                }
+            )
+
+    if not token_points and not cost_points:
+        return False
+
+    metrics = []
+    if cost_points:
+        metrics.append({"name": _CODEX_COST_METRIC, "sum": {"dataPoints": cost_points}})
+    if token_points:
+        metrics.append({"name": _CODEX_TOKEN_METRIC, "sum": {"dataPoints": token_points}})
+
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "path": "/v1/metrics",
+        "payload": {
+            "resourceMetrics": [
+                {"scopeMetrics": [{"scope": {"name": "agentic-ci"}, "metrics": metrics}]}
+            ]
+        },
+    }
+    with open(log_file, "a") as f:
+        f.write(json.dumps(record, allow_nan=False) + "\n")
+    return True
 
 
 def generate_trace_context():
