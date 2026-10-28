@@ -838,6 +838,56 @@ class TestPrintSummary:
         assert "50" in output
         assert "1.5000" in output
 
+    def test_summary_omits_oversized_integers(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [
+                {
+                    "path": "/v1/metrics",
+                    "payload": {
+                        "resourceMetrics": [
+                            {
+                                "scopeMetrics": [
+                                    {
+                                        "metrics": [
+                                            {
+                                                "name": "codex.token.usage",
+                                                "sum": {
+                                                    "dataPoints": [
+                                                        {
+                                                            "asInt": 10**400,
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "input"),
+                                                            ],
+                                                        },
+                                                        {
+                                                            "asInt": "40",
+                                                            "attributes": [
+                                                                _otel_attr("model", "gpt-6.1-sol"),
+                                                                _otel_attr("type", "output"),
+                                                            ],
+                                                        },
+                                                    ]
+                                                },
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        _, token_totals, _ = print_summary(log_path)
+
+        assert ("gpt-6.1-sol", "input") not in token_totals
+        assert token_totals[("gpt-6.1-sol", "output")] == 40
+        assert "40" in capsys.readouterr().out
+
 
 class TestFindOrphanTraces:
     def test_no_records(self):
