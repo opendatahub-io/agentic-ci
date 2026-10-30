@@ -4,10 +4,13 @@ import copy
 import json
 import os
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 
+from agentic_ci.cli import cmd_mlflow_push
 from agentic_ci.mlflow import (
     PushResult,
     _add_codex_request_model,
@@ -534,6 +537,68 @@ class TestPushTraces:
         finally:
             os.unlink(path)
 
+    @pytest.mark.parametrize(
+        ("error", "expected_detail"),
+        [
+            (
+                requests.HTTPError(
+                    "service unavailable",
+                    response=MagicMock(status_code=503, text="database recovery"),
+                ),
+                "503: database recovery",
+            ),
+            (
+                requests.exceptions.SSLError("certificate verification failed"),
+                "certificate verification failed",
+            ),
+        ],
+    )
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_lookup_failure_is_reported_as_push_error(
+        self, mock_post, error, expected_detail, caplog
+    ):
+        mock_post.side_effect = error
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
+        try:
+            result = push_traces(path, "http://mlflow:5000", "exp")
+        finally:
+            os.unlink(path)
+
+        assert (result.ok, result.err) == (0, 1)
+        assert "MLflow experiment lookup failed" in caplog.text
+        assert expected_detail in caplog.text
+        assert "not found" not in caplog.text
+        assert mock_post.call_count == 1
+
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_missing_experiment_is_distinct_from_lookup_failure(self, mock_post, caplog):
+        mock_post.return_value.json.return_value = {"experiments": []}
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
+        try:
+            result = push_traces(path, "http://mlflow:5000", "exp")
+        finally:
+            os.unlink(path)
+
+        assert (result.ok, result.err) == (0, 1)
+        assert "MLflow experiment 'exp' not found" in caplog.text
+        assert "lookup failed" not in caplog.text
+        assert mock_post.call_count == 1
+
+    @patch("agentic_ci.mlflow.requests.post")
+    def test_trace_push_failure_logs_warning(self, mock_post, caplog):
+        lookup = MagicMock()
+        lookup.json.return_value = {"experiments": [{"experiment_id": "123"}]}
+        mock_post.side_effect = [lookup, requests.exceptions.SSLError("certificate error")]
+        path = self._write_jsonl([{"path": "/v1/traces", "payload": copy.deepcopy(TRACE_PAYLOAD)}])
+        try:
+            result = push_traces(path, "http://mlflow:5000", "exp")
+        finally:
+            os.unlink(path)
+
+        assert (result.ok, result.err) == (0, 1)
+        assert "MLflow trace push failed: certificate error" in caplog.text
+        assert any(record.levelname == "WARNING" for record in caplog.records)
+
     @patch("agentic_ci.mlflow.requests.post")
     def test_sends_json_content_type(self, mock_post):
         mock_resp = MagicMock()
@@ -846,3 +911,19 @@ class TestPushResult:
         assert err == 0
         assert tids == ["a", "b"]
         assert sids == ["x"]
+
+
+@pytest.mark.parametrize("ok, err", [(0, 1), (1, 1)])
+@patch("agentic_ci.cli.mlflow.push_traces")
+def test_cli_exits_nonzero_for_full_or_partial_push_failure(mock_push, ok, err, caplog):
+    mock_push.return_value = PushResult(ok, err, ["tr-123"], [])
+    args = SimpleNamespace(
+        jsonl="traces.jsonl", endpoint="http://mlflow:5000", experiment="exp", token=None
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cmd_mlflow_push(args)
+
+    assert exc.value.code == 1
+    assert "Failed to push 1 trace payload(s) to MLflow" in caplog.text
+    assert any(record.levelname == "WARNING" for record in caplog.records)

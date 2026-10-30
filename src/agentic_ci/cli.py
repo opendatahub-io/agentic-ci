@@ -1,6 +1,7 @@
 """CLI entry point for agentic-ci."""
 
 import argparse
+import logging
 import os
 import shutil
 import sys
@@ -16,6 +17,8 @@ from agentic_ci.container import configure_podman_storage
 from agentic_ci.forge.cli import register_subcommands
 from agentic_ci.gates import resolve_gates, validate_gate_env
 from agentic_ci.harness import create_harness
+
+_LOG = logging.getLogger(__name__)
 
 
 def _parse_gate_list(value: str | None) -> list[str]:
@@ -57,10 +60,10 @@ def cmd_mlflow_push(args):
         log.info(
             f"Pushed {ok} payload(s) covering {len(trace_ids)} trace(s) to MLflow ({err} failed)"
         )
-    elif err:
-        log.info(f"Failed to push traces to MLflow ({err} errors)")
+    if err:
+        _LOG.warning("Failed to push %d trace payload(s) to MLflow", err)
         sys.exit(1)
-    else:
+    if not ok:
         log.info("No /v1/traces records found in JSONL")
 
 
