@@ -2,6 +2,7 @@
 
 import copy
 import json
+import logging
 import sys
 from typing import NamedTuple
 from urllib.parse import quote
@@ -9,6 +10,8 @@ from urllib.parse import quote
 import requests
 
 from agentic_ci.cost import estimate_cost
+
+_LOG = logging.getLogger(__name__)
 
 # Claude Code emits per-call token counts as bare span attributes
 # (input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) -- it
@@ -394,25 +397,19 @@ def _add_query_source(payloads, source_by_request):
 
 
 def _resolve_experiment_id(endpoint, name, headers):
-    """Look up an MLflow experiment by name. Returns ID or None."""
+    """Look up an MLflow experiment by name. Return None only if it is absent."""
     url = f"{endpoint}/api/2.0/mlflow/experiments/search"
     escaped_name = name.replace("'", "''")
-    try:
-        resp = requests.post(
-            url,
-            json={"filter": f"name = '{escaped_name}'", "max_results": 1},
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        experiments = resp.json().get("experiments", [])
-        if experiments:
-            return experiments[0]["experiment_id"]
-    except requests.RequestException as e:
-        detail = ""
-        if hasattr(e, "response") and e.response is not None:
-            detail = f" ({e.response.status_code}: {e.response.text[:200]})"
-        print(f"Experiment lookup failed{detail}: {e}", file=sys.stderr)
+    resp = requests.post(
+        url,
+        json={"filter": f"name = '{escaped_name}'", "max_results": 1},
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    experiments = resp.json().get("experiments", [])
+    if experiments:
+        return experiments[0]["experiment_id"]
     return None
 
 
@@ -556,15 +553,18 @@ def push_traces(log_file, endpoint, experiment, token=None):
     if not trace_records:
         return PushResult(0, 0, [], [])
 
-    experiment_id = _resolve_experiment_id(endpoint, experiment, headers)
-    if not experiment_id:
-        print(
-            f"MLflow experiment '{experiment}' not found -- skipping trace push.",
-            file=sys.stderr,
-        )
-        return PushResult(0, 0, [], [])
-
     payloads = [rec["payload"] for rec in trace_records if rec.get("payload")]
+    try:
+        experiment_id = _resolve_experiment_id(endpoint, experiment, headers)
+    except requests.RequestException as e:
+        detail = ""
+        if e.response is not None:
+            detail = f" ({e.response.status_code}: {e.response.text[:200]})"
+        _LOG.warning("MLflow experiment lookup failed%s: %s", detail, e)
+        return PushResult(0, len(payloads), [], [])
+    if not experiment_id:
+        _LOG.warning("MLflow experiment '%s' not found; trace push skipped", experiment)
+        return PushResult(0, len(payloads), [], [])
 
     trace_ids = _extract_trace_ids(payloads)
     session_ids = _extract_session_ids(payloads, metric_records)
@@ -597,7 +597,7 @@ def push_traces(log_file, endpoint, experiment, token=None):
             detail = ""
             if hasattr(e, "response") and e.response is not None:
                 detail = f" ({e.response.status_code})"
-            print(f"Trace push failed{detail}: {e}", file=sys.stderr)
+            _LOG.warning("MLflow trace push failed%s: %s", detail, e)
             err += 1
 
     # Finalize any traces stuck as IN_PROGRESS (missing root span).

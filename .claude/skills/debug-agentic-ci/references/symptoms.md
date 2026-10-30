@@ -94,6 +94,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 
 ## Credentials and auth
 
+### MLflow trace push fails during experiment lookup
+- **Symptom**: `mlflow-push` logs `MLflow experiment lookup failed` for an HTTP or TLS error, or `MLflow experiment '<name>' not found` for a successful lookup with no match. The command exits 1 when trace payloads cannot be pushed, including partial push failures.
+- **Likely cause**: An MLflow service outage, client TLS configuration problem, or missing experiment. Check the distinct warning before investigating the service or configuration.
+- **Where to look**: `mlflow.py:_resolve_experiment_id()` / `push_traces()`, `cli.py:cmd_mlflow_push()`
+
 ### GCP project ID not resolved
 - **Likely cause**: Harness project resolution didn't fall back to `GCP_PROJECT_ID` env var when gcloud config was empty.
 - **Where to look**: `harness.py` project resolution, `cli.py` credential setup
