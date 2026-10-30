@@ -147,6 +147,10 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 
 ## Jira client
 
+### Jira REST call fails with HTTP 400 but the exception has no field details
+- **Likely cause**: Jira rejected a request and returned `errorMessages` or `errors` in its response body. `JiraClient._check()` logs a bounded, redacted summary of those fields at ERROR for CI diagnostics; the `JiraError` message stays status-only so response details do not enter Jira comments that quote the exception. Unstructured and oversized responses are omitted from the log.
+- **Where to look**: `jira/client.py:JiraClient._check()` and `_jira_error_details()`; inspect the CI job log around the failed call.
+
 ### Markdown formatting lost in ADF roundtrip
 - **Likely cause**: `adf_to_text()` was stripping markdown formatting. Fixed to preserve it during conversion.
 - **Where to look**: `jira.py:adf_to_text()`
