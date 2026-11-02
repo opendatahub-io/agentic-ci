@@ -284,14 +284,18 @@ an approximation; the session total is exact.
 Codex emits token counts in `codex.sse_event` `response.completed` log events,
 but does not emit a dollar amount. agentic-ci estimates Codex cost with a
 generated snapshot of LiteLLM's OpenAI pricing map, including cache and
-service-tier rates, and appends that result to the log as `codex.cost.usage`
-and `codex.token.usage`. A later parse keeps the event totals when a model has
-`response.completed` events, so the appended metrics are not added again.
+service-tier rates, and appends that result to the log as
+`agentic_ci.codex.cost.usage` and `agentic_ci.codex.token.usage`. The CLI and skill sessions append these
+agentic-ci-owned cumulative sums after stopping the collector, with run-start
+and collection timestamps. Cost points always use `asDouble`. These records
+are added to the JSONL artifact; they are not sent back through the collector.
+A later parse keeps the event totals when a model has `response.completed`
+events, so the appended metrics are not added again.
 `make update-cost-map` refreshes the snapshot from an exact LiteLLM commit and
 stores that source SHA with the data. Deployments can point
 `AGENTIC_CI_LITELLM_COST_MAP` at another LiteLLM-format map. Unknown models
 retain token reporting but are omitted from the cost table and from
-`codex.cost.usage`.
+`agentic_ci.codex.cost.usage`.
 
 #### Query source
 

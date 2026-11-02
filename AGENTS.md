@@ -74,7 +74,7 @@ src/agentic_ci/
 
 - **`telemetry.py`**: Generic event transport for the existing OTLP trace pipeline. Owns transport and serialization only — producers own event schemas, workflow timing, and outcome classification. Validates events for privacy (rejects sensitive keys, emails, bearer tokens, private keys) and size limits. Emits events as zero-duration OTLP spans so existing JSONL and MLflow trace exporters consume them without separate storage. File paths are constrained to a runner-owned log root with symlink and traversal protection. Raises transport errors; callers decide whether export failure is fatal.
 
-- **`otel.py`**: Lightweight OTLP HTTP/JSON receiver (stdlib `http.server`) that logs payloads to JSONL, tracks token usage over a sliding window, and prints a token/cost summary.
+- **`otel.py`**: Lightweight OTLP HTTP/JSON receiver (stdlib `http.server`) that logs payloads to JSONL, tracks token usage over a sliding window, and prints a token/cost summary. `read_usage_summary()` returns curated totals and Codex completion-model names without exposing raw records. After collector shutdown, the CLI and skill sessions persist `agentic_ci.codex.*.usage` cumulative sums with timestamps; reparsing prefers completion events to avoid double-counting.
 
 ### Key
 
