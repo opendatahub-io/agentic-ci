@@ -289,8 +289,10 @@ service-tier rates, and appends that result to the log as
 agentic-ci-owned cumulative sums after stopping the collector, with run-start
 and collection timestamps. Cost points always use `asDouble`. These records
 are added to the JSONL artifact; they are not sent back through the collector.
-A later parse keeps the event totals when a model has `response.completed`
-events, so the appended metrics are not added again.
+agentic-ci never reads these metrics back: the collector cannot tell an
+appended point from one a client posted under the same name, so a later parse
+rebuilds Codex totals from the `response.completed` events. The parser skips
+records, collections and values with an unexpected shape instead of raising.
 `make update-cost-map` refreshes the snapshot from an exact LiteLLM commit and
 stores that source SHA with the data. Deployments can point
 `AGENTIC_CI_LITELLM_COST_MAP` at another LiteLLM-format map. Unknown models

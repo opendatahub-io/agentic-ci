@@ -366,13 +366,20 @@ class _AgentSession:
                         f"Root span injection failed (non-fatal): {exc_}",
                         file=sys.stderr,
                     )
-            if self._otel_log and self.harness_name == "codex":
+            if self._otel_log:
+                # append_codex_usage writes nothing when the log has no Codex
+                # completion events, so this runs for every harness, as in
+                # cmd_run.
                 try:
                     summary = read_usage_summary(self._otel_log)
                     append_codex_usage(self._otel_log, summary, start_ns=self._start_ns)
+                except FileNotFoundError:
+                    # The collector received no payloads, so nothing to save.
+                    pass
                 except Exception as exc_:
-                    # Collector payloads can be any JSON shape. Parsing them
-                    # must not prevent cleanup or mask the run's exception.
+                    # read_usage_summary skips malformed payloads; this is a
+                    # backstop so teardown always reaches backend.stop() and
+                    # never masks the run's own exception.
                     log.warning("Codex usage metrics were not saved (non-fatal): %s", exc_)
         self.backend.stop()
         return False

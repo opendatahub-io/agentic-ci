@@ -200,13 +200,8 @@ def _otel_attribute_value(value):
 def _optional_numeric_attribute(attributes, *keys):
     """Return the first finite numeric attribute, or None if none exists."""
     for key in keys:
-        if key not in attributes:
-            continue
-        try:
-            value = float(attributes[key])
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(value):
+        value = _finite_number(attributes.get(key))
+        if value is not None:
             return value
     return None
 
@@ -254,68 +249,87 @@ _CODEX_COST_METRIC = "agentic_ci.codex.cost.usage"
 _CODEX_TOKEN_TYPES = ("input", "cacheRead", "cacheCreation", "output")
 
 
+def _mapping(value):
+    """Return ``value`` when it is a JSON object, else an empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
+def _objects(value):
+    """Return the JSON objects in an OTLP list field, skipping other shapes."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _attributes(owner):
+    """Decode an OTLP ``attributes`` list into a dict, skipping malformed entries."""
+    attrs = {}
+    for attribute in _objects(owner.get("attributes")):
+        key = attribute.get("key")
+        if isinstance(key, str) and key:
+            attrs[key] = _otel_attribute_value(attribute.get("value"))
+    return attrs
+
+
+def _label(value):
+    """Return a string label such as a model name or token type."""
+    return str(value or "unknown")
+
+
 def _parse_metrics(records):
-    """Parse totals and record the models with Codex completion events."""
+    """Parse totals and record the models with Codex completion events.
+
+    Collector payloads are whatever JSON a client posted, so malformed
+    records, collections and values are skipped rather than raising.
+    ``agentic_ci.codex.*`` metrics are never read back: completion events
+    are the source of Codex totals, and the collector cannot tell an
+    appended point from one a client posted under the same name.
+    """
     token_totals = defaultdict(float)
     cost_totals = defaultdict(float)
     api_requests = []
     codex_api_requests = []
     codex_response_requests = []
     codex_event_models = set()
-    deferred_codex_tokens = []
-    deferred_codex_costs = []
     active_time = defaultdict(float)
 
     for rec in records:
-        path = rec.get("path", "")
-        payload = rec.get("payload", {})
+        if not isinstance(rec, dict):
+            continue
+        path = rec.get("path")
+        if not isinstance(path, str):
+            continue
+        payload = _mapping(rec.get("payload"))
 
         if "/v1/metrics" in path:
-            for rm in payload.get("resourceMetrics", []):
-                for sm in rm.get("scopeMetrics", []):
-                    for metric in sm.get("metrics", []):
-                        name = metric.get("name", "")
-                        data = metric.get("sum", metric.get("gauge", metric.get("histogram", {})))
-                        for dp in data.get("dataPoints", []):
-                            attrs = {
-                                a.get("key"): _otel_attribute_value(a.get("value"))
-                                for a in dp.get("attributes", [])
-                                if a.get("key")
-                            }
-                            value = dp.get("asDouble", dp.get("asInt", 0))
+            for rm in _objects(payload.get("resourceMetrics")):
+                for sm in _objects(rm.get("scopeMetrics")):
+                    for metric in _objects(sm.get("metrics")):
+                        name = metric.get("name")
+                        data = _mapping(
+                            metric.get("sum", metric.get("gauge", metric.get("histogram")))
+                        )
+                        for dp in _objects(data.get("dataPoints")):
+                            attrs = _attributes(dp)
+                            value = _non_negative_count(dp.get("asDouble", dp.get("asInt", 0)))
+                            if value is None:
+                                continue
 
                             if name == "claude_code.token.usage":
-                                model = attrs.get("model", "unknown")
-                                token_type = attrs.get("type", "unknown")
+                                model = _label(attrs.get("model"))
+                                token_type = _label(attrs.get("type"))
                                 token_totals[(model, token_type)] += value
                             elif name == "claude_code.cost.usage":
-                                model = attrs.get("model", "unknown")
-                                cost_totals[model] += value
-                            elif name == _CODEX_TOKEN_METRIC:
-                                model = str(attrs.get("model") or "unknown")
-                                token_type = str(attrs.get("type") or "unknown")
-                                deferred_codex_tokens.append((model, token_type, value))
-                            elif name == _CODEX_COST_METRIC:
-                                model = str(attrs.get("model") or "unknown")
-                                deferred_codex_costs.append((model, value))
+                                cost_totals[_label(attrs.get("model"))] += value
                             elif name == "claude_code.active_time.total":
-                                time_type = attrs.get("type", "unknown")
-                                active_time[time_type] += value
+                                active_time[_label(attrs.get("type"))] += value
 
         elif "/v1/logs" in path:
-            for rl in payload.get("resourceLogs", []):
-                for sl in rl.get("scopeLogs", []):
-                    for lr in sl.get("logRecords", []):
-                        event_name = ""
-                        event_attrs = {}
-                        for a in lr.get("attributes", []):
-                            key = a.get("key")
-                            if not key:
-                                continue
-                            v = _otel_attribute_value(a.get("value"))
-                            event_attrs[key] = v
-                            if key == "event.name":
-                                event_name = v
+            for rl in _objects(payload.get("resourceLogs")):
+                for sl in _objects(rl.get("scopeLogs")):
+                    for lr in _objects(sl.get("logRecords")):
+                        event_attrs = _attributes(lr)
+                        event_name = event_attrs.get("event.name")
                         if event_name == "claude_code.api_request":
                             api_requests.append(event_attrs)
                         elif event_name == "codex.api_request":
@@ -326,7 +340,7 @@ def _parse_metrics(records):
                             and event_attrs.get("event.kind") == "response.completed"
                         ):
                             codex_response_requests.append(event_attrs)
-                            model = str(event_attrs.get("model") or "unknown")
+                            model = _label(event_attrs.get("model"))
                             codex_event_models.add(model)
                             input_tokens = _token_attribute(event_attrs, "input_token_count")
                             cached_tokens = _token_attribute(event_attrs, "cached_token_count")
@@ -379,19 +393,6 @@ def _parse_metrics(records):
     if not codex_api_requests:
         api_requests.extend(codex_response_requests)
 
-    # agentic_ci.codex.* metrics repeat totals taken from response.completed
-    # events. Count them only for a model that has no such events.
-    for model, token_type, value in deferred_codex_tokens:
-        if model not in codex_event_models:
-            number = _non_negative_count(value)
-            if number is not None:
-                token_totals[(model, token_type)] += number
-    for model, value in deferred_codex_costs:
-        if model not in codex_event_models:
-            number = _finite_number(value)
-            if number is not None:
-                cost_totals[model] += number
-
     return token_totals, cost_totals, api_requests, active_time, codex_event_models
 
 
@@ -418,24 +419,28 @@ def _read_metrics(log_file):
 def read_usage_summary(log_file):
     """Read curated usage totals without printing or modifying the log.
 
-    Raises OSError for unreadable logs and ValueError for invalid JSON.
+    Raises OSError for unreadable logs and ValueError for a line that is not
+    JSON. Valid JSON with an unexpected shape is skipped, not raised.
     """
     tokens, costs, _, _, models = _read_metrics(log_file)
-    return UsageSummary(frozenset(models), tokens, costs)
+    return UsageSummary(frozenset(models), dict(tokens), dict(costs))
 
 
 def print_summary(log_file):
     """Print a human-readable token/cost summary from an OTEL JSONL log.
 
-    Returns a :class:`UsageSummary`. Missing, empty, or invalid logs return
-    empty model names, token totals, and cost totals.
+    Returns a :class:`UsageSummary`. Missing, unreadable, empty, or invalid
+    logs return empty model names, token totals, and cost totals.
     """
     try:
         token_totals, cost_totals, api_requests, active_time, codex_models = _read_metrics(log_file)
     except FileNotFoundError:
         print("No OTEL data collected (log file not found).")
         return UsageSummary(frozenset(), {}, {})
-    except json.JSONDecodeError as e:
+    except OSError as e:
+        print(f"Error reading OTEL log: {e}")
+        return UsageSummary(frozenset(), {}, {})
+    except ValueError as e:
         print(f"Error parsing OTEL log: {e}")
         return UsageSummary(frozenset(), {}, {})
 
@@ -486,11 +491,11 @@ def print_summary(log_file):
 
     if api_requests:
         print(f"\n  API Requests: {len(api_requests)}")
-        total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
+        total_duration = sum(_non_negative_count(r.get("duration_ms")) or 0.0 for r in api_requests)
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
 
-    return UsageSummary(frozenset(codex_models), token_totals, cost_totals)
+    return UsageSummary(frozenset(codex_models), dict(token_totals), dict(cost_totals))
 
 
 def _string_attribute(key, value):
@@ -506,9 +511,8 @@ def _metric_number(value):
 
 def _reportable_token_count(count):
     """Return True for a finite token count worth writing as a metric point."""
-    if isinstance(count, bool) or not isinstance(count, (int, float)):
-        return False
-    return math.isfinite(count) and count > 0
+    number = _finite_number(count)
+    return number is not None and number > 0
 
 
 def append_codex_usage(log_file, summary, *, start_ns=None):
@@ -541,11 +545,11 @@ def append_codex_usage(log_file, summary, *, start_ns=None):
                     ],
                 }
             )
-        cost = summary.cost_totals.get(model)
-        if cost is not None and math.isfinite(cost):
+        cost = _non_negative_count(summary.cost_totals.get(model))
+        if cost is not None:
             cost_points.append(
                 {
-                    "asDouble": float(cost),
+                    "asDouble": cost,
                     **timestamps,
                     "attributes": [_string_attribute("model", model)],
                 }

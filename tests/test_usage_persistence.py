@@ -12,11 +12,19 @@ from agentic_ci import cli, otel, skill
 from agentic_ci.harness import create_harness
 from tests.test_otel import _codex_completed_log, _named_metric_points, _read_log, _write_jsonl
 
+_MALFORMED = [
+    None,
+    {"path": "/v1/metrics", "payload": None},
+    {"path": "/v1/metrics", "payload": {"resourceMetrics": None}},
+    {"path": "/v1/logs", "payload": {"resourceLogs": [{"scopeLogs": [{"logRecords": None}]}]}},
+]
+
 
 @pytest.mark.parametrize("entrypoint", ["cli", "skill"])
 @pytest.mark.parametrize("append_error", [None, OSError("disk full"), ValueError("invalid totals")])
+@pytest.mark.parametrize("malformed", [[], _MALFORMED], ids=["clean-log", "malformed-log"])
 def test_usage_saved_after_flush_and_before_cleanup(
-    tmp_path, monkeypatch, capsys, caplog, entrypoint, append_error
+    tmp_path, monkeypatch, capsys, caplog, entrypoint, append_error, malformed
 ):
     events = []
     log_path = tmp_path / "claude-otel.jsonl"
@@ -38,7 +46,7 @@ def test_usage_saved_after_flush_and_before_cleanup(
 
     def flush(_proc):
         events.append("flush")
-        _write_jsonl(log_path, records)
+        _write_jsonl(log_path, [*malformed, *records])
 
     original_append = otel.append_codex_usage
 
@@ -227,7 +235,7 @@ def test_claude_session_preserves_native_metrics(tmp_path, monkeypatch):
 @pytest.mark.parametrize("run_fails", [False, True])
 def test_malformed_usage_does_not_prevent_cleanup(tmp_path, monkeypatch, caplog, record, run_fails):
     path = tmp_path / "claude-otel.jsonl"
-    _write_jsonl(path, [record])
+    _write_jsonl(path, [record, _codex_completed_log("gpt-6.1-sol", 100, 20)])
     backend = mock.Mock(collector_bind_address="127.0.0.1")
     monkeypatch.setattr(skill, "create_backend", lambda *args, **kwargs: backend)
     monkeypatch.setattr(
@@ -243,4 +251,43 @@ def test_malformed_usage_does_not_prevent_cleanup(tmp_path, monkeypatch, caplog,
     if run_fails:
         assert raised.value is original_error
     backend.stop.assert_called_once()
-    assert "Codex usage metrics were not saved (non-fatal)" in caplog.text
+    # The malformed record is skipped, so the valid completion event is still
+    # persisted and nothing is reported as lost.
+    assert "not saved" not in caplog.text
+    assert _named_metric_points(_read_log(path), "agentic_ci.codex.cost.usage")
+
+
+def _session_fixtures(monkeypatch, path):
+    backend = mock.Mock(collector_bind_address="127.0.0.1")
+    monkeypatch.setattr(skill, "create_backend", lambda *args, **kwargs: backend)
+    monkeypatch.setattr(
+        skill, "start_collector", lambda *args, **kwargs: (object(), 4318, path, None)
+    )
+    monkeypatch.setattr(skill, "stop_collector", lambda *args: None)
+    monkeypatch.setattr(skill, "inject_root_spans", lambda *args, **kwargs: 0)
+    return backend
+
+
+def test_skill_session_without_log_is_quiet(tmp_path, monkeypatch, caplog):
+    path = tmp_path / "claude-otel.jsonl"
+    backend = _session_fixtures(monkeypatch, path)
+
+    with skill._AgentSession(tmp_path, harness_name="codex"):
+        pass
+
+    backend.stop.assert_called_once()
+    assert "not saved" not in caplog.text
+    assert not path.exists()
+
+
+def test_skill_session_persists_codex_events_for_any_harness(tmp_path, monkeypatch):
+    """The session follows cmd_run: the log's events decide, not the harness name."""
+    path = tmp_path / "claude-otel.jsonl"
+    _write_jsonl(path, [_codex_completed_log("gpt-6.1-sol", 100, 20)])
+    backend = _session_fixtures(monkeypatch, path)
+
+    with skill._AgentSession(tmp_path, harness_name="claude-code"):
+        pass
+
+    backend.stop.assert_called_once()
+    assert _named_metric_points(_read_log(path), "agentic_ci.codex.token.usage")

@@ -107,12 +107,13 @@ def _codex_completed_log(model, input_tokens, output_tokens, cached=0, cache_wri
 def _named_metric_points(records, name):
     points = []
     for rec in records:
-        if "/v1/metrics" not in rec.get("path", ""):
+        # Tests mix in malformed records; only well-formed ones carry points.
+        if not isinstance(rec, dict) or "/v1/metrics" not in (rec.get("path") or ""):
             continue
         payload = rec.get("payload") or {}
-        for rm in payload.get("resourceMetrics", []):
-            for sm in rm.get("scopeMetrics", []):
-                for metric in sm.get("metrics", []):
+        for rm in payload.get("resourceMetrics") or []:
+            for sm in rm.get("scopeMetrics") or []:
+                for metric in sm.get("metrics") or []:
                     if metric.get("name") == name:
                         data = metric.get("sum", {})
                         points.extend(data.get("dataPoints", []))
@@ -462,7 +463,7 @@ class TestParseMetrics:
                                 {
                                     "metrics": [
                                         {
-                                            "name": "agentic_ci.codex.token.usage",
+                                            "name": "claude_code.token.usage",
                                             "sum": {
                                                 "dataPoints": [
                                                     {
@@ -490,7 +491,7 @@ class TestParseMetrics:
                                             },
                                         },
                                         {
-                                            "name": "agentic_ci.codex.cost.usage",
+                                            "name": "claude_code.cost.usage",
                                             "sum": {
                                                 "dataPoints": [
                                                     {
@@ -546,7 +547,7 @@ class TestParseMetrics:
                             {
                                 "metrics": [
                                     {
-                                        "name": "agentic_ci.codex.token.usage",
+                                        "name": "claude_code.token.usage",
                                         "sum": {
                                             "dataPoints": [
                                                 {
@@ -640,8 +641,8 @@ class TestAppendCodexUsage:
         assert ("claude-opus-4-6", "input") not in again_tokens
 
         only_tokens, only_cost, _, _ = parse_metrics([saved[-1]])
-        assert only_cost["gpt-6.1-sol"] == pytest.approx(expected)
-        assert only_tokens[("gpt-6.1-sol", "cacheRead")] == 40
+        assert only_cost == {}
+        assert only_tokens == {}
 
         inflated = json.loads(json.dumps(saved[-1]))
         for point in _named_metric_points([inflated], "agentic_ci.codex.cost.usage"):
@@ -653,7 +654,9 @@ class TestAppendCodexUsage:
         assert mixed_cost["gpt-5.6-luna"] == pytest.approx(luna_expected)
         assert mixed_tokens[("gpt-6.1-sol", "input")] == 50
 
-    def test_dedup_keeps_a_model_that_has_no_events(self):
+    def test_reparse_ignores_posted_agentic_ci_metrics(self):
+        # The collector cannot tell an appended point from one a client
+        # posted under the same name, so these metrics are never read back.
         records = [_codex_completed_log("gpt-6.1-sol", 100, 20, cached=40, cache_write=10)]
         token_totals, cost_totals, _, _ = parse_metrics(records)
         metric = {
@@ -676,6 +679,12 @@ class TestAppendCodexUsage:
                                                 },
                                                 {
                                                     "asDouble": 1.5,
+                                                    "attributes": [
+                                                        _otel_attr("model", "gpt-5.6-luna")
+                                                    ],
+                                                },
+                                                {
+                                                    "asDouble": -7.5,
                                                     "attributes": [
                                                         _otel_attr("model", "gpt-5.6-luna")
                                                     ],
@@ -707,10 +716,9 @@ class TestAppendCodexUsage:
 
         parsed_tokens, parsed_costs, _, _ = parse_metrics([metric, *records])
 
-        assert parsed_costs["gpt-6.1-sol"] == pytest.approx(cost_totals["gpt-6.1-sol"])
-        assert parsed_costs["gpt-5.6-luna"] == pytest.approx(1.5)
-        assert parsed_tokens[("gpt-5.6-luna", "output")] == 9
-        assert parsed_tokens[("gpt-6.1-sol", "input")] == token_totals[("gpt-6.1-sol", "input")]
+        assert dict(parsed_costs) == pytest.approx(dict(cost_totals))
+        assert dict(parsed_tokens) == dict(token_totals)
+        assert "gpt-5.6-luna" not in parsed_costs
 
     def test_unknown_codex_model_appends_tokens_without_cost(self, tmp_path):
         records = [_codex_completed_log("gpt-not-a-real-model", 30, 4, cached=5, cache_write=1)]
@@ -742,8 +750,8 @@ class TestAppendCodexUsage:
         assert "gpt-not-a-real-model" not in again_cost
 
         only_tokens, only_cost, _, _ = parse_metrics([saved[-1]])
-        assert only_tokens[("gpt-not-a-real-model", "output")] == 4
-        assert "gpt-not-a-real-model" not in only_cost
+        assert only_tokens == {}
+        assert only_cost == {}
 
     def test_skips_non_finite_and_negative_token_points(self, tmp_path):
         records = [_codex_completed_log("gpt-6.1-sol", 100, 20)]
@@ -854,7 +862,7 @@ class TestPrintSummary:
                                     {
                                         "metrics": [
                                             {
-                                                "name": "agentic_ci.codex.token.usage",
+                                                "name": "claude_code.token.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {
@@ -875,7 +883,7 @@ class TestPrintSummary:
                                                 },
                                             },
                                             {
-                                                "name": "agentic_ci.codex.cost.usage",
+                                                "name": "claude_code.cost.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {
@@ -927,7 +935,7 @@ class TestPrintSummary:
                                     {
                                         "metrics": [
                                             {
-                                                "name": "agentic_ci.codex.token.usage",
+                                                "name": "claude_code.token.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {
@@ -1470,3 +1478,191 @@ class TestParseMetricsRobustness:
         _, _, api_requests, _ = parse_metrics(records)
         assert len(api_requests) == 1
         assert api_requests[0]["event.name"] == "codex.api_request"
+
+
+def _metric_record(name, points):
+    return {
+        "path": "/v1/metrics",
+        "payload": {
+            "resourceMetrics": [
+                {"scopeMetrics": [{"metrics": [{"name": name, "sum": {"dataPoints": points}}]}]}
+            ]
+        },
+    }
+
+
+_MALFORMED_RECORDS = [
+    None,
+    [1],
+    "text",
+    {"path": None, "payload": {}},
+    {"path": "/v1/metrics", "payload": None},
+    {"path": "/v1/metrics", "payload": []},
+    {"path": "/v1/metrics", "payload": {"resourceMetrics": None}},
+    {"path": "/v1/metrics", "payload": {"resourceMetrics": [None, 1, {"scopeMetrics": "x"}]}},
+    {
+        "path": "/v1/metrics",
+        "payload": {"resourceMetrics": [{"scopeMetrics": [{"metrics": [{"sum": None}]}]}]},
+    },
+    _metric_record("claude_code.token.usage", None),
+    _metric_record("claude_code.token.usage", [None, {"asInt": "x", "attributes": [None, 5]}]),
+    {"path": "/v1/logs", "payload": {"resourceLogs": None}},
+    {"path": "/v1/logs", "payload": {"resourceLogs": [{"scopeLogs": [{"logRecords": None}]}]}},
+    {
+        "path": "/v1/logs",
+        "payload": {
+            "resourceLogs": [
+                {"scopeLogs": [{"logRecords": [None, {"attributes": [{"key": 3}, None]}]}]}
+            ]
+        },
+    },
+]
+
+
+class TestMalformedPayloads:
+    """Collector payloads are whatever JSON a client posted; parsing skips bad shapes."""
+
+    @pytest.mark.parametrize("record", _MALFORMED_RECORDS)
+    def test_parse_metrics_skips_malformed_shapes(self, record):
+        valid = _codex_completed_log("gpt-6.1-sol", 100, 20)
+        expected = parse_metrics([valid])
+
+        assert parse_metrics([record, valid]) == expected
+
+    @pytest.mark.parametrize("record", _MALFORMED_RECORDS)
+    def test_print_summary_skips_malformed_shapes(self, tmp_path, capsys, record):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(log_path, [record, _codex_completed_log("gpt-6.1-sol", 100, 20)])
+
+        summary = print_summary(log_path)
+
+        assert summary.codex_models == frozenset({"gpt-6.1-sol"})
+        assert summary.token_totals[("gpt-6.1-sol", "input")] == 100
+        assert "gpt-6.1-sol" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "value",
+        ["7", 10**400, -3, True, "nope", "NaN", [1], None],
+        ids=["string", "oversized", "negative", "bool", "text", "nan", "list", "null"],
+    )
+    def test_claude_metric_values_are_normalized(self, value):
+        point_attrs = [_otel_attr("model", "claude-opus-4-6"), _otel_attr("type", "input")]
+        records = [
+            _metric_record(
+                "claude_code.token.usage", [{"asInt": value, "attributes": point_attrs}]
+            ),
+            _metric_record(
+                "claude_code.cost.usage",
+                [{"asDouble": value, "attributes": [_otel_attr("model", "claude-opus-4-6")]}],
+            ),
+            _metric_record(
+                "claude_code.active_time.total",
+                [{"asDouble": value, "attributes": [_otel_attr("type", "cli")]}],
+            ),
+        ]
+
+        token_totals, cost_totals, _, active_time = parse_metrics(records)
+
+        if value == "7":
+            assert token_totals[("claude-opus-4-6", "input")] == 7
+            assert cost_totals["claude-opus-4-6"] == 7
+            assert active_time["cli"] == 7
+        else:
+            assert token_totals == {}
+            assert cost_totals == {}
+            assert active_time == {}
+
+    def test_unhashable_model_attribute_becomes_a_string_label(self):
+        record = _metric_record(
+            "claude_code.token.usage",
+            [{"asInt": 4, "attributes": [{"key": "model", "value": {"stringValue": ["a"]}}]}],
+        )
+
+        token_totals, _, _, _ = parse_metrics([record])
+
+        assert token_totals == {("['a']", "unknown"): 4}
+
+    def test_oversized_direct_cost_falls_back_to_estimate(self):
+        record = _codex_completed_log("gpt-6.1-sol", 100, 20)
+        attrs = record["payload"]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+        attrs["attributes"].append(_otel_attr("cost_usd", 10**400))
+
+        _, cost_totals, _, _ = parse_metrics([record])
+
+        assert cost_totals["gpt-6.1-sol"] == pytest.approx(
+            estimate_cost("gpt-6.1-sol", input_tokens=100, output_tokens=20)
+        )
+
+    def test_print_summary_skips_invalid_request_durations(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(
+            log_path,
+            [
+                {
+                    "path": "/v1/logs",
+                    "payload": {
+                        "resourceLogs": [
+                            {
+                                "scopeLogs": [
+                                    {
+                                        "logRecords": [
+                                            {
+                                                "attributes": [
+                                                    _otel_attr("event.name", event),
+                                                    _otel_attr("duration_ms", duration),
+                                                ]
+                                            }
+                                            for event, duration in [
+                                                ("claude_code.api_request", "abc"),
+                                                ("claude_code.api_request", 1500),
+                                            ]
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ],
+        )
+
+        print_summary(log_path)
+
+        output = capsys.readouterr().out
+        assert "API Requests: 2" in output
+        assert "Total API time: 1.5s" in output
+
+    def test_print_summary_reports_unreadable_log(self, tmp_path, capsys):
+        summary = print_summary(tmp_path)
+
+        assert summary == UsageSummary(frozenset(), {}, {})
+        assert "Error reading OTEL log" in capsys.readouterr().out
+
+
+class TestUsageSummaryContainers:
+    def test_summaries_return_plain_dicts(self, tmp_path, capsys):
+        log_path = tmp_path / "otel.jsonl"
+        _write_jsonl(log_path, [_codex_completed_log("gpt-6.1-sol", 100, 20)])
+
+        for summary in (read_usage_summary(log_path), print_summary(log_path)):
+            assert type(summary.token_totals) is dict
+            assert type(summary.cost_totals) is dict
+            assert summary.cost_totals.get("missing") is None
+            assert ("missing", "input") not in summary.token_totals
+            with pytest.raises(KeyError):
+                summary.cost_totals["missing"]
+
+    def test_append_skips_oversized_counts(self, tmp_path):
+        log_path = tmp_path / "otel.jsonl"
+        summary = UsageSummary(
+            frozenset({"gpt-6.1-sol"}),
+            {("gpt-6.1-sol", "input"): 10**400, ("gpt-6.1-sol", "output"): 3},
+            {"gpt-6.1-sol": 10**400},
+        )
+
+        assert append_codex_usage(log_path, summary)
+
+        saved = _read_log(log_path)
+        assert _named_metric_points(saved, "agentic_ci.codex.cost.usage") == []
+        token_points = _named_metric_points(saved, "agentic_ci.codex.token.usage")
+        assert [_point_attr(point, "type") for point in token_points] == ["output"]
