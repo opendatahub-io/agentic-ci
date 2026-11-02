@@ -16,6 +16,7 @@ from agentic_ci.otel import (
     inject_root_spans,
     parse_metrics,
     print_summary,
+    read_usage_summary,
     start_collector,
     stop_collector,
 )
@@ -461,7 +462,7 @@ class TestParseMetrics:
                                 {
                                     "metrics": [
                                         {
-                                            "name": "codex.token.usage",
+                                            "name": "agentic_ci.codex.token.usage",
                                             "sum": {
                                                 "dataPoints": [
                                                     {
@@ -489,7 +490,7 @@ class TestParseMetrics:
                                             },
                                         },
                                         {
-                                            "name": "codex.cost.usage",
+                                            "name": "agentic_ci.codex.cost.usage",
                                             "sum": {
                                                 "dataPoints": [
                                                     {
@@ -545,7 +546,7 @@ class TestParseMetrics:
                             {
                                 "metrics": [
                                     {
-                                        "name": "codex.token.usage",
+                                        "name": "agentic_ci.codex.token.usage",
                                         "sum": {
                                             "dataPoints": [
                                                 {
@@ -614,12 +615,17 @@ class TestAppendCodexUsage:
 
         log_path = tmp_path / "claude-otel.jsonl"
         _write_jsonl(log_path, records)
-        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+        assert append_codex_usage(
+            log_path,
+            read_usage_summary(log_path)._replace(
+                token_totals=token_totals, cost_totals=cost_totals
+            ),
+        )
 
         saved = _read_log(log_path)
         assert len(saved) == 3
-        cost_points = _named_metric_points(saved, "codex.cost.usage")
-        token_points = _named_metric_points(saved, "codex.token.usage")
+        cost_points = _named_metric_points(saved, "agentic_ci.codex.cost.usage")
+        token_points = _named_metric_points(saved, "agentic_ci.codex.token.usage")
         costs = {_point_attr(point, "model"): _point_value(point) for point in cost_points}
         models = {_point_attr(point, "model") for point in cost_points + token_points}
         assert costs["gpt-6.1-sol"] == pytest.approx(expected)
@@ -638,7 +644,7 @@ class TestAppendCodexUsage:
         assert only_tokens[("gpt-6.1-sol", "cacheRead")] == 40
 
         inflated = json.loads(json.dumps(saved[-1]))
-        for point in _named_metric_points([inflated], "codex.cost.usage"):
+        for point in _named_metric_points([inflated], "agentic_ci.codex.cost.usage"):
             if _point_attr(point, "model") == "gpt-6.1-sol":
                 point.pop("asInt", None)
                 point["asDouble"] = 50
@@ -659,7 +665,7 @@ class TestAppendCodexUsage:
                             {
                                 "metrics": [
                                     {
-                                        "name": "codex.cost.usage",
+                                        "name": "agentic_ci.codex.cost.usage",
                                         "sum": {
                                             "dataPoints": [
                                                 {
@@ -678,7 +684,7 @@ class TestAppendCodexUsage:
                                         },
                                     },
                                     {
-                                        "name": "codex.token.usage",
+                                        "name": "agentic_ci.codex.token.usage",
                                         "sum": {
                                             "dataPoints": [
                                                 {
@@ -714,11 +720,16 @@ class TestAppendCodexUsage:
 
         log_path = tmp_path / "claude-otel.jsonl"
         _write_jsonl(log_path, records)
-        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+        assert append_codex_usage(
+            log_path,
+            read_usage_summary(log_path)._replace(
+                token_totals=token_totals, cost_totals=cost_totals
+            ),
+        )
 
         saved = _read_log(log_path)
-        assert _named_metric_points(saved, "codex.cost.usage") == []
-        token_points = _named_metric_points(saved, "codex.token.usage")
+        assert _named_metric_points(saved, "agentic_ci.codex.cost.usage") == []
+        token_points = _named_metric_points(saved, "agentic_ci.codex.token.usage")
         counts = {
             _point_attr(point, "type"): _point_value(point)
             for point in token_points
@@ -749,35 +760,42 @@ class TestAppendCodexUsage:
 
         log_path = tmp_path / "claude-otel.jsonl"
         _write_jsonl(log_path, records)
-        assert append_codex_usage(log_path, records, token_totals, cost_totals)
+        assert append_codex_usage(
+            log_path,
+            read_usage_summary(log_path)._replace(
+                token_totals=token_totals, cost_totals=cost_totals
+            ),
+        )
 
         appended = json.loads(log_path.read_text().splitlines()[-1])
         types = {
             _point_attr(point, "type")
-            for point in _named_metric_points([appended], "codex.token.usage")
+            for point in _named_metric_points([appended], "agentic_ci.codex.token.usage")
         }
         assert types == {"input"}
 
     def test_returns_false_when_every_point_is_unusable(self, tmp_path):
-        records = [_codex_completed_log("gpt-not-a-real-model", 0, 0)]
         log_path = tmp_path / "claude-otel.jsonl"
         wrote = append_codex_usage(
             log_path,
-            records,
-            {("gpt-not-a-real-model", "output"): float("nan")},
-            {"gpt-not-a-real-model": float("nan")},
+            UsageSummary(
+                frozenset({"gpt-not-a-real-model"}),
+                {("gpt-not-a-real-model", "output"): float("nan")},
+                {"gpt-not-a-real-model": float("nan")},
+            ),
         )
         assert wrote is False
         assert not log_path.exists()
 
     def test_append_skips_logs_without_codex_responses(self, tmp_path):
-        records = [{"path": "/v1/metrics", "payload": {}}]
         log_path = tmp_path / "claude-otel.jsonl"
         wrote = append_codex_usage(
             log_path,
-            records,
-            {("claude-opus-4-6", "input"): 10},
-            {"claude-opus-4-6": 1.25},
+            UsageSummary(
+                frozenset(),
+                {("claude-opus-4-6", "input"): 10},
+                {"claude-opus-4-6": 1.25},
+            ),
         )
         assert wrote is False
         assert not log_path.exists()
@@ -787,7 +805,7 @@ class TestPrintSummary:
     def test_missing_log(self, tmp_path, capsys):
         summary = print_summary(tmp_path / "missing.jsonl")
 
-        assert summary == UsageSummary([], {}, {})
+        assert summary == UsageSummary(frozenset(), {}, {})
         assert "log file not found" in capsys.readouterr().out
 
     def test_invalid_json(self, tmp_path, capsys):
@@ -796,7 +814,7 @@ class TestPrintSummary:
 
         summary = print_summary(log_path)
 
-        assert summary == UsageSummary([], {}, {})
+        assert summary == UsageSummary(frozenset(), {}, {})
         assert "Error parsing OTEL log" in capsys.readouterr().out
 
     def test_empty_log(self, tmp_path, capsys):
@@ -805,7 +823,7 @@ class TestPrintSummary:
 
         summary = print_summary(log_path)
 
-        assert summary == UsageSummary([], {}, {})
+        assert summary == UsageSummary(frozenset(), {}, {})
         assert "No OTEL data collected." in capsys.readouterr().out
 
     def test_returns_parsed_totals(self, tmp_path, capsys):
@@ -815,9 +833,9 @@ class TestPrintSummary:
             [_codex_completed_log("gpt-6.1-sol", 100, 20, cached=40, cache_write=10)],
         )
 
-        records, token_totals, cost_totals = print_summary(log_path)
+        models, token_totals, cost_totals = print_summary(log_path)
 
-        assert len(records) == 1
+        assert models == frozenset({"gpt-6.1-sol"})
         assert token_totals[("gpt-6.1-sol", "input")] == 50
         assert cost_totals["gpt-6.1-sol"] > 0
         assert "gpt-6.1-sol" in capsys.readouterr().out
@@ -836,7 +854,7 @@ class TestPrintSummary:
                                     {
                                         "metrics": [
                                             {
-                                                "name": "codex.token.usage",
+                                                "name": "agentic_ci.codex.token.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {
@@ -857,7 +875,7 @@ class TestPrintSummary:
                                                 },
                                             },
                                             {
-                                                "name": "codex.cost.usage",
+                                                "name": "agentic_ci.codex.cost.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {
@@ -909,7 +927,7 @@ class TestPrintSummary:
                                     {
                                         "metrics": [
                                             {
-                                                "name": "codex.token.usage",
+                                                "name": "agentic_ci.codex.token.usage",
                                                 "sum": {
                                                     "dataPoints": [
                                                         {

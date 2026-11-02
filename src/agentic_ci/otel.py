@@ -249,13 +249,13 @@ def _token_attribute(attributes, key):
     return number
 
 
-_CODEX_TOKEN_METRIC = "codex.token.usage"
-_CODEX_COST_METRIC = "codex.cost.usage"
+_CODEX_TOKEN_METRIC = "agentic_ci.codex.token.usage"
+_CODEX_COST_METRIC = "agentic_ci.codex.cost.usage"
 _CODEX_TOKEN_TYPES = ("input", "cacheRead", "cacheCreation", "output")
 
 
-def parse_metrics(records):
-    """Parse OTLP JSONL records into structured token/cost data."""
+def _parse_metrics(records):
+    """Parse totals and record the models with Codex completion events."""
     token_totals = defaultdict(float)
     cost_totals = defaultdict(float)
     api_requests = []
@@ -379,7 +379,7 @@ def parse_metrics(records):
     if not codex_api_requests:
         api_requests.extend(codex_response_requests)
 
-    # codex.* metrics repeat totals already taken from response.completed
+    # agentic_ci.codex.* metrics repeat totals taken from response.completed
     # events. Count them only for a model that has no such events.
     for model, token_type, value in deferred_codex_tokens:
         if model not in codex_event_models:
@@ -392,49 +392,55 @@ def parse_metrics(records):
             if number is not None:
                 cost_totals[model] += number
 
+    return token_totals, cost_totals, api_requests, active_time, codex_event_models
+
+
+def parse_metrics(records):
+    """Parse OTLP JSONL records into structured token/cost data."""
+    token_totals, cost_totals, api_requests, active_time, _ = _parse_metrics(records)
     return token_totals, cost_totals, api_requests, active_time
 
 
 class UsageSummary(NamedTuple):
-    """Totals printed from one OTEL log.
+    """Usage totals and models with Codex completion events from one OTEL log."""
 
-    ``records`` is the parsed JSONL. ``token_totals`` maps
-    ``(model, token_type)`` to a count and ``cost_totals`` maps a model to
-    USD. All three are empty when the log is missing, empty, or not valid
-    JSON.
-    """
-
-    records: list
+    codex_models: frozenset[str]
     token_totals: dict
     cost_totals: dict
+
+
+def _read_metrics(log_file):
+    with open(log_file) as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    return _parse_metrics(records)
+
+
+def read_usage_summary(log_file):
+    """Read curated usage totals without printing or modifying the log.
+
+    Raises OSError for unreadable logs and ValueError for invalid JSON.
+    """
+    tokens, costs, _, _, models = _read_metrics(log_file)
+    return UsageSummary(frozenset(models), tokens, costs)
 
 
 def print_summary(log_file):
     """Print a human-readable token/cost summary from an OTEL JSONL log.
 
-    Returns a :class:`UsageSummary`. A missing, empty, or invalid log still
-    returns that shape, with empty ``records``, ``token_totals``, and
-    ``cost_totals``.
+    Returns a :class:`UsageSummary`. Missing, empty, or invalid logs return
+    empty model names, token totals, and cost totals.
     """
-    records = []
     try:
-        with open(log_file) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
+        token_totals, cost_totals, api_requests, active_time, codex_models = _read_metrics(log_file)
     except FileNotFoundError:
         print("No OTEL data collected (log file not found).")
-        return UsageSummary([], {}, {})
+        return UsageSummary(frozenset(), {}, {})
     except json.JSONDecodeError as e:
         print(f"Error parsing OTEL log: {e}")
-        return UsageSummary([], {}, {})
+        return UsageSummary(frozenset(), {}, {})
 
-    if not records:
+    if not any((token_totals, cost_totals, api_requests, active_time)):
         print("No OTEL data collected.")
-        return UsageSummary([], {}, {})
-
-    token_totals, cost_totals, api_requests, active_time = parse_metrics(records)
 
     if token_totals:
         models = sorted(set(m for m, _ in token_totals.keys()))
@@ -484,7 +490,7 @@ def print_summary(log_file):
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
 
-    return UsageSummary(records, token_totals, cost_totals)
+    return UsageSummary(frozenset(codex_models), token_totals, cost_totals)
 
 
 def _string_attribute(key, value):
@@ -505,64 +511,42 @@ def _reportable_token_count(count):
     return math.isfinite(count) and count > 0
 
 
-def _codex_response_models(records):
-    """Return model names that have a Codex response.completed event."""
-    models = set()
-    for rec in records:
-        if "/v1/logs" not in rec.get("path", ""):
-            continue
-        payload = rec.get("payload") or {}
-        for rl in payload.get("resourceLogs", []):
-            for sl in rl.get("scopeLogs", []):
-                for lr in sl.get("logRecords", []):
-                    attrs = {}
-                    for attribute in lr.get("attributes", []):
-                        key = attribute.get("key")
-                        if key:
-                            attrs[key] = _otel_attribute_value(attribute.get("value"))
-                    if (
-                        attrs.get("event.name") == "codex.sse_event"
-                        and attrs.get("event.kind") == "response.completed"
-                    ):
-                        models.add(str(attrs.get("model") or "unknown"))
-    return models
+def append_codex_usage(log_file, summary, *, start_ns=None):
+    """Append agentic-ci-owned Codex usage totals to an OTEL JSONL log.
 
-
-def append_codex_usage(log_file, records, token_totals, cost_totals):
-    """Append Codex token and cost totals to an OTEL JSONL log.
-
-    One ``/v1/metrics`` record carries ``codex.token.usage`` and, for each
-    model ``parse_metrics`` could price, ``codex.cost.usage``. Models that
-    did not produce a ``response.completed`` event are omitted, so Claude
-    totals in the same summary are not relabeled. A model with tokens but
-    no price gets token points and no cost point. Returns True when a
-    record was written.
+    Only models with completion events in ``summary`` are written. Unknown
+    prices omit the cost point but retain tokens. Returns True when written.
+    ``start_ns`` is the run start time for the cumulative sums; when unknown,
+    the collection time is used as the start of the series.
     """
-    models = _codex_response_models(records)
-    if not models:
+    if not summary.codex_models:
         return False
 
+    end_ns = time.time_ns()
+    timestamps = {"startTimeUnixNano": str(start_ns or end_ns), "timeUnixNano": str(end_ns)}
     token_points = []
     cost_points = []
-    for model in sorted(models):
+    for model in sorted(summary.codex_models):
         for token_type in _CODEX_TOKEN_TYPES:
-            count = token_totals.get((model, token_type), 0)
+            count = summary.token_totals.get((model, token_type), 0)
             if not _reportable_token_count(count):
                 continue
             token_points.append(
                 {
                     **_metric_number(count),
+                    **timestamps,
                     "attributes": [
                         _string_attribute("model", model),
                         _string_attribute("type", token_type),
                     ],
                 }
             )
-        cost = cost_totals.get(model)
+        cost = summary.cost_totals.get(model)
         if cost is not None and math.isfinite(cost):
             cost_points.append(
                 {
-                    **_metric_number(cost),
+                    "asDouble": float(cost),
+                    **timestamps,
                     "attributes": [_string_attribute("model", model)],
                 }
             )
@@ -572,9 +556,29 @@ def append_codex_usage(log_file, records, token_totals, cost_totals):
 
     metrics = []
     if cost_points:
-        metrics.append({"name": _CODEX_COST_METRIC, "sum": {"dataPoints": cost_points}})
+        metrics.append(
+            {
+                "name": _CODEX_COST_METRIC,
+                "unit": "USD",
+                "sum": {
+                    "aggregationTemporality": 2,
+                    "isMonotonic": True,
+                    "dataPoints": cost_points,
+                },
+            }
+        )
     if token_points:
-        metrics.append({"name": _CODEX_TOKEN_METRIC, "sum": {"dataPoints": token_points}})
+        metrics.append(
+            {
+                "name": _CODEX_TOKEN_METRIC,
+                "unit": "{token}",
+                "sum": {
+                    "aggregationTemporality": 2,
+                    "isMonotonic": True,
+                    "dataPoints": token_points,
+                },
+            }
+        )
 
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),

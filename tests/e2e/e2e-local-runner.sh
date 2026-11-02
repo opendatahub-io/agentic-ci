@@ -181,7 +181,7 @@ if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
 
     print_step "Running Codex via local backend with OTEL..."
     RC=0
-    CODEX_HOME="$CODEX_HOME" agentic-ci run --backend local \
+    GITHUB_WORKSPACE="$WORKDIR" CODEX_HOME="$CODEX_HOME" agentic-ci run --backend local \
         "Remember this unique fact exactly: codex-resume-fact-7f3c. Reply with only codex-first-pong." \
         --harness codex \
         --model gpt-5.6-sol \
@@ -199,6 +199,12 @@ if command -v codex >/dev/null 2>&1 && _has_codex_creds; then
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "Reasoning effort.*high"
     assert_contains "Codex default sub-agent reasoning effort is high" \
         "$(cat "$TMPDIR_E2E/codex-out.txt")" "Sub-agent reasoning effort.*high"
+
+    assert_ok "Codex OTEL artifact exists" test -s "$WORKDIR/claude-otel.jsonl"
+    assert_contains "Codex token totals persisted" \
+        "$(cat "$WORKDIR/claude-otel.jsonl" 2>/dev/null || true)" "agentic_ci.codex.token.usage"
+    assert_contains "Codex estimated cost persisted" \
+        "$(cat "$WORKDIR/claude-otel.jsonl" 2>/dev/null || true)" "agentic_ci.codex.cost.usage"
 
     print_step "Resuming the Codex session with --last..."
     RC=0

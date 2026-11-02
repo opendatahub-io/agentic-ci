@@ -39,9 +39,11 @@ from typing import Callable, TypedDict
 from agentic_ci.backends import create_backend
 from agentic_ci.harness import create_harness
 from agentic_ci.otel import (
+    append_codex_usage,
     generate_trace_context,
     inject_root_spans,
     parse_metrics,
+    read_usage_summary,
     root_span_attributes,
     start_collector,
     stop_collector,
@@ -364,6 +366,12 @@ class _AgentSession:
                         f"Root span injection failed (non-fatal): {exc_}",
                         file=sys.stderr,
                     )
+            if self._otel_log and self.harness_name == "codex":
+                try:
+                    summary = read_usage_summary(self._otel_log)
+                    append_codex_usage(self._otel_log, summary, start_ns=self._start_ns)
+                except (OSError, ValueError) as exc_:
+                    log.warning("Codex usage metrics were not saved (non-fatal): %s", exc_)
         self.backend.stop()
         return False
 

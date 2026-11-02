@@ -146,6 +146,24 @@ def main() -> int:
     elif args.expect_source == "forced":
         checks["classifier_output_absent"] = not (run_dir / "classifier-output.txt").exists()
 
+    if args.harness == "codex":
+        records = [
+            json.loads(line)
+            for line in (run_dir / "claude-otel.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        metrics = [
+            metric
+            for record in records
+            if record.get("path") == "/v1/metrics"
+            for resource in record["payload"].get("resourceMetrics", [])
+            for scope in resource.get("scopeMetrics", [])
+            for metric in scope.get("metrics", [])
+        ]
+        names = {metric["name"] for metric in metrics}
+        checks["codex_token_metrics"] = "agentic_ci.codex.token.usage" in names
+        checks["codex_cost_metrics"] = "agentic_ci.codex.cost.usage" in names
+
     spans = _otel_spans(run_dir)
     routed = [s for s in spans if s.get("name") == "skill.routed"]
     roots = [s for s in spans if not s.get("parentSpanId")]

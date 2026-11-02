@@ -115,14 +115,19 @@ mkdir -p "$WORKDIR"
 
 print_step "Running Codex via agentic-ci..."
 RC=0
-agentic-ci run "Reply with only the word pong" \
+GITHUB_WORKSPACE="$WORKDIR" agentic-ci run "Reply with only the word pong" \
     --image "$IMAGE" \
     --harness codex \
     --workdir "$WORKDIR" \
-    --no-otel \
     > "$TMPDIR_E2E/out.txt" 2>"$TMPDIR_E2E/err.txt" || RC=$?
 
 assert_ok "container exited successfully" test "$RC" -eq 0
+assert_ok "OTEL artifact exists" test -s "$WORKDIR/claude-otel.jsonl"
+assert_contains "token totals persisted" \
+    "$(cat "$WORKDIR/claude-otel.jsonl" 2>/dev/null || true)" "agentic_ci.codex.token.usage"
+assert_contains "estimated cost persisted" \
+    "$(cat "$WORKDIR/claude-otel.jsonl" 2>/dev/null || true)" "agentic_ci.codex.cost.usage"
+
 
 COMBINED_OUTPUT="$(cat "$TMPDIR_E2E/out.txt" 2>/dev/null)$(cat "$TMPDIR_E2E/err.txt" 2>/dev/null)"
 assert_ok "output captured" test -n "$COMBINED_OUTPUT"

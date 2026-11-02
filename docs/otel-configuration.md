@@ -75,8 +75,11 @@ counters and duration histograms. Exporters flush when Codex shuts down.
 
 Codex reports token usage rather than dollar cost. agentic-ci estimates USD
 cost from a generated snapshot of LiteLLM's OpenAI model-price map, including
-cache and `priority`/`flex` service-tier rates, and appends `codex.cost.usage`
-and `codex.token.usage` to the OTEL log. `make update-cost-map` resolves
+cache and `priority`/`flex` service-tier rates, and appends `agentic_ci.codex.cost.usage`
+and `agentic_ci.codex.token.usage` to the OTEL log after the collector stops.
+This applies to `agentic-ci run`, `run_skill()`, and `run_routed_skill()`.
+These metrics are agentic-ci estimates, separate from native Codex metrics.
+`make update-cost-map` resolves
 LiteLLM `main` to an immutable commit SHA, fetches the map from that revision,
 and records the SHA alongside the generated pricing data. Set
 `AGENTIC_CI_LITELLM_COST_MAP` to a path containing a LiteLLM-format JSON map to
