@@ -6,34 +6,39 @@
       "litellm_provider": "openai",
       "output_cost_per_token": 3e-05
     },
-    "chatgpt-4o-latest": {
-      "input_cost_per_token": 5e-06,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 1.5e-05
-    },
     "chatgpt-image-latest": {
+      "cache_read_input_image_token_cost": 2e-06,
       "cache_read_input_token_cost": 1.25e-06,
-      "input_cost_per_image_token": 1e-05,
+      "cache_read_input_token_cost_batches": 6.3e-07,
+      "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
       "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_image_token": 4e-05
+      "output_cost_per_image_token": 3.2e-05,
+      "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06
     },
-    "codex-mini-latest": {
-      "cache_read_input_token_cost": 3.75e-07,
-      "input_cost_per_token": 1.5e-06,
+    "computer-use-preview": {
+      "input_cost_per_token": 3e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 6e-06
+      "output_cost_per_token": 1.2e-05
+    },
+    "computer-use-preview-2025-03-11": {
+      "input_cost_per_token": 3e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 1.2e-05
     },
     "daybreak-blue-latest": {
-      "cache_creation_input_token_cost": 6.25e-06,
-      "cache_creation_input_token_cost_above_272k_tokens": 1.25e-05,
-      "cache_read_input_token_cost": 5e-07,
-      "cache_read_input_token_cost_above_272k_tokens": 1e-06,
-      "input_cost_per_token": 5e-06,
-      "input_cost_per_token_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens": 1e-05,
+      "cache_read_input_token_cost": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens": 8e-07,
+      "input_cost_per_token": 4e-06,
+      "input_cost_per_token_above_272k_tokens": 8e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 3e-05,
-      "output_cost_per_token_above_272k_tokens": 4.5e-05
+      "output_cost_per_token": 2e-05,
+      "output_cost_per_token_above_272k_tokens": 3e-05
     },
     "daybreak-red-latest": {
       "cache_creation_input_token_cost": 1.5625e-05,
@@ -75,6 +80,7 @@
     },
     "ft:gpt-4.1-2025-04-14": {
       "cache_read_input_token_cost": 7.5e-07,
+      "cache_read_input_token_cost_batches": 5e-07,
       "input_cost_per_token": 3e-06,
       "input_cost_per_token_batches": 1.5e-06,
       "litellm_provider": "openai",
@@ -83,6 +89,7 @@
     },
     "ft:gpt-4.1-mini-2025-04-14": {
       "cache_read_input_token_cost": 2e-07,
+      "cache_read_input_token_cost_batches": 1e-07,
       "input_cost_per_token": 8e-07,
       "input_cost_per_token_batches": 4e-07,
       "litellm_provider": "openai",
@@ -91,6 +98,7 @@
     },
     "ft:gpt-4.1-nano-2025-04-14": {
       "cache_read_input_token_cost": 5e-08,
+      "cache_read_input_token_cost_batches": 2.5e-08,
       "input_cost_per_token": 2e-07,
       "input_cost_per_token_batches": 1e-07,
       "litellm_provider": "openai",
@@ -99,11 +107,12 @@
     },
     "ft:gpt-4o-2024-08-06": {
       "cache_read_input_token_cost": 1.875e-06,
+      "cache_read_input_token_cost_batches": 9e-07,
       "input_cost_per_token": 3.75e-06,
-      "input_cost_per_token_batches": 1.875e-06,
+      "input_cost_per_token_batches": 2.225e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.5e-05,
-      "output_cost_per_token_batches": 7.5e-06
+      "output_cost_per_token_batches": 1.25e-05
     },
     "ft:gpt-4o-2024-11-20": {
       "cache_creation_input_token_cost": 1.875e-06,
@@ -113,6 +122,7 @@
     },
     "ft:gpt-4o-mini-2024-07-18": {
       "cache_read_input_token_cost": 1.5e-07,
+      "cache_read_input_token_cost_batches": 7.5e-08,
       "input_cost_per_token": 3e-07,
       "input_cost_per_token_batches": 1.5e-07,
       "litellm_provider": "openai",
@@ -121,6 +131,7 @@
     },
     "ft:o4-mini-2025-04-16": {
       "cache_read_input_token_cost": 1e-06,
+      "cache_read_input_token_cost_batches": 5e-07,
       "input_cost_per_token": 4e-06,
       "input_cost_per_token_batches": 2e-06,
       "litellm_provider": "openai",
@@ -134,13 +145,17 @@
     },
     "gpt-3.5-turbo-0125": {
       "input_cost_per_token": 5e-07,
+      "input_cost_per_token_batches": 2.5e-07,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1.5e-06
+      "output_cost_per_token": 1.5e-06,
+      "output_cost_per_token_batches": 7.5e-07
     },
     "gpt-3.5-turbo-1106": {
       "input_cost_per_token": 1e-06,
+      "input_cost_per_token_batches": 1e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 2e-06
+      "output_cost_per_token": 2e-06,
+      "output_cost_per_token_batches": 2e-06
     },
     "gpt-3.5-turbo-16k": {
       "input_cost_per_token": 3e-06,
@@ -152,20 +167,12 @@
       "litellm_provider": "openai",
       "output_cost_per_token": 6e-05
     },
-    "gpt-4-0125-preview": {
-      "input_cost_per_token": 1e-05,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 3e-05
-    },
-    "gpt-4-0314": {
-      "input_cost_per_token": 3e-05,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 6e-05
-    },
     "gpt-4-0613": {
       "input_cost_per_token": 3e-05,
+      "input_cost_per_token_batches": 1.5e-05,
       "litellm_provider": "openai",
-      "output_cost_per_token": 6e-05
+      "output_cost_per_token": 6e-05,
+      "output_cost_per_token_batches": 3e-05
     },
     "gpt-4-1106-preview": {
       "input_cost_per_token": 1e-05,
@@ -179,13 +186,10 @@
     },
     "gpt-4-turbo-2024-04-09": {
       "input_cost_per_token": 1e-05,
+      "input_cost_per_token_batches": 5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 3e-05
-    },
-    "gpt-4-turbo-preview": {
-      "input_cost_per_token": 1e-05,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 3e-05
+      "output_cost_per_token": 3e-05,
+      "output_cost_per_token_batches": 1.5e-05
     },
     "gpt-4.1": {
       "cache_read_input_token_cost": 5e-07,
@@ -315,13 +319,6 @@
       "output_cost_per_token_batches": 5e-06,
       "output_cost_per_token_priority": 1.7e-05
     },
-    "gpt-4o-audio-preview": {
-      "input_cost_per_audio_token": 4e-05,
-      "input_cost_per_token": 2.5e-06,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 8e-05,
-      "output_cost_per_token": 1e-05
-    },
     "gpt-4o-audio-preview-2024-12-17": {
       "input_cost_per_audio_token": 4e-05,
       "input_cost_per_token": 2.5e-06,
@@ -345,7 +342,12 @@
       "litellm_provider": "openai",
       "output_cost_per_token": 6e-07,
       "output_cost_per_token_batches": 3e-07,
-      "output_cost_per_token_priority": 1e-06
+      "output_cost_per_token_priority": 1e-06,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.025,
+        "search_context_size_low": 0.025,
+        "search_context_size_medium": 0.025
+      }
     },
     "gpt-4o-mini-2024-07-18": {
       "cache_read_input_token_cost": 7.5e-08,
@@ -358,17 +360,10 @@
       "output_cost_per_token_batches": 3e-07,
       "output_cost_per_token_priority": 1e-06,
       "search_context_cost_per_query": {
-        "search_context_size_high": 0.03,
+        "search_context_size_high": 0.025,
         "search_context_size_low": 0.025,
-        "search_context_size_medium": 0.0275
+        "search_context_size_medium": 0.025
       }
-    },
-    "gpt-4o-mini-audio-preview": {
-      "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_token": 1.5e-07,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 2e-05,
-      "output_cost_per_token": 6e-07
     },
     "gpt-4o-mini-audio-preview-2024-12-17": {
       "input_cost_per_audio_token": 1e-05,
@@ -376,15 +371,6 @@
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 2e-05,
       "output_cost_per_token": 6e-07
-    },
-    "gpt-4o-mini-realtime-preview": {
-      "cache_creation_input_audio_token_cost": 3e-07,
-      "cache_read_input_token_cost": 3e-07,
-      "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_token": 6e-07,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 2e-05,
-      "output_cost_per_token": 2.4e-06
     },
     "gpt-4o-mini-realtime-preview-2024-12-17": {
       "cache_creation_input_audio_token_cost": 3e-07,
@@ -403,9 +389,9 @@
       "output_cost_per_token": 6e-07,
       "output_cost_per_token_batches": 3e-07,
       "search_context_cost_per_query": {
-        "search_context_size_high": 0.03,
+        "search_context_size_high": 0.025,
         "search_context_size_low": 0.025,
-        "search_context_size_medium": 0.0275
+        "search_context_size_medium": 0.025
       }
     },
     "gpt-4o-mini-search-preview-2025-03-11": {
@@ -416,73 +402,52 @@
       "output_cost_per_token": 6e-07,
       "output_cost_per_token_batches": 3e-07,
       "search_context_cost_per_query": {
-        "search_context_size_high": 0.03,
+        "search_context_size_high": 0.025,
         "search_context_size_low": 0.025,
-        "search_context_size_medium": 0.0275
+        "search_context_size_medium": 0.025
       }
     },
     "gpt-4o-mini-transcribe": {
       "input_cost_per_audio_token": 1.25e-06,
+      "input_cost_per_second": 5e-05,
       "input_cost_per_token": 1.25e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 5e-06
     },
     "gpt-4o-mini-transcribe-2025-03-20": {
       "input_cost_per_audio_token": 1.25e-06,
+      "input_cost_per_second": 5e-05,
       "input_cost_per_token": 1.25e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 5e-06
     },
     "gpt-4o-mini-transcribe-2025-12-15": {
       "input_cost_per_audio_token": 1.25e-06,
+      "input_cost_per_second": 5e-05,
       "input_cost_per_token": 1.25e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 5e-06
     },
     "gpt-4o-mini-tts": {
-      "input_cost_per_token": 2.5e-06,
+      "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 1.2e-05,
       "output_cost_per_second": 0.00025,
       "output_cost_per_token": 1e-05
     },
     "gpt-4o-mini-tts-2025-03-20": {
-      "input_cost_per_token": 2.5e-06,
+      "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 1.2e-05,
       "output_cost_per_second": 0.00025,
       "output_cost_per_token": 1e-05
     },
     "gpt-4o-mini-tts-2025-12-15": {
-      "input_cost_per_token": 2.5e-06,
+      "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 1.2e-05,
       "output_cost_per_second": 0.00025,
       "output_cost_per_token": 1e-05
-    },
-    "gpt-4o-realtime-preview": {
-      "cache_read_input_token_cost": 2.5e-06,
-      "input_cost_per_audio_token": 4e-05,
-      "input_cost_per_token": 5e-06,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 8e-05,
-      "output_cost_per_token": 2e-05
-    },
-    "gpt-4o-realtime-preview-2024-12-17": {
-      "cache_read_input_token_cost": 2.5e-06,
-      "input_cost_per_audio_token": 4e-05,
-      "input_cost_per_token": 5e-06,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 8e-05,
-      "output_cost_per_token": 2e-05
-    },
-    "gpt-4o-realtime-preview-2025-06-03": {
-      "cache_read_input_token_cost": 2.5e-06,
-      "input_cost_per_audio_token": 4e-05,
-      "input_cost_per_token": 5e-06,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 8e-05,
-      "output_cost_per_token": 2e-05
     },
     "gpt-4o-search-preview": {
       "cache_read_input_token_cost": 1.25e-06,
@@ -492,9 +457,9 @@
       "output_cost_per_token": 1e-05,
       "output_cost_per_token_batches": 5e-06,
       "search_context_cost_per_query": {
-        "search_context_size_high": 0.05,
-        "search_context_size_low": 0.03,
-        "search_context_size_medium": 0.035
+        "search_context_size_high": 0.025,
+        "search_context_size_low": 0.025,
+        "search_context_size_medium": 0.025
       }
     },
     "gpt-4o-search-preview-2025-03-11": {
@@ -505,32 +470,37 @@
       "output_cost_per_token": 1e-05,
       "output_cost_per_token_batches": 5e-06,
       "search_context_cost_per_query": {
-        "search_context_size_high": 0.05,
-        "search_context_size_low": 0.03,
-        "search_context_size_medium": 0.035
+        "search_context_size_high": 0.025,
+        "search_context_size_low": 0.025,
+        "search_context_size_medium": 0.025
       }
     },
     "gpt-4o-transcribe": {
       "input_cost_per_audio_token": 2.5e-06,
+      "input_cost_per_second": 0.0001,
       "input_cost_per_token": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05
     },
     "gpt-4o-transcribe-diarize": {
       "input_cost_per_audio_token": 2.5e-06,
+      "input_cost_per_second": 0.0001,
       "input_cost_per_token": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05
     },
     "gpt-5": {
       "cache_read_input_token_cost": 1.25e-07,
+      "cache_read_input_token_cost_batches": 6.25e-08,
       "cache_read_input_token_cost_flex": 6.25e-08,
       "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
+      "input_cost_per_token_batches": 6.25e-07,
       "input_cost_per_token_flex": 6.25e-07,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06,
       "output_cost_per_token_flex": 5e-06,
       "output_cost_per_token_priority": 2e-05,
       "search_context_cost_per_query": {
@@ -541,13 +511,16 @@
     },
     "gpt-5-2025-08-07": {
       "cache_read_input_token_cost": 1.25e-07,
+      "cache_read_input_token_cost_batches": 6.25e-08,
       "cache_read_input_token_cost_flex": 6.25e-08,
       "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
+      "input_cost_per_token_batches": 6.25e-07,
       "input_cost_per_token_flex": 6.25e-07,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06,
       "output_cost_per_token_flex": 5e-06,
       "output_cost_per_token_priority": 2e-05,
       "search_context_cost_per_query": {
@@ -572,22 +545,20 @@
       "cache_read_input_token_cost": 1.25e-07,
       "input_cost_per_token": 1.25e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1e-05
     },
     "gpt-5-mini": {
       "cache_read_input_token_cost": 2.5e-08,
+      "cache_read_input_token_cost_batches": 1.25e-08,
       "cache_read_input_token_cost_flex": 1.25e-08,
       "cache_read_input_token_cost_priority": 4.5e-08,
       "input_cost_per_token": 2.5e-07,
+      "input_cost_per_token_batches": 1.25e-07,
       "input_cost_per_token_flex": 1.25e-07,
       "input_cost_per_token_priority": 4.5e-07,
       "litellm_provider": "openai",
       "output_cost_per_token": 2e-06,
+      "output_cost_per_token_batches": 1e-06,
       "output_cost_per_token_flex": 1e-06,
       "output_cost_per_token_priority": 3.6e-06,
       "search_context_cost_per_query": {
@@ -598,13 +569,16 @@
     },
     "gpt-5-mini-2025-08-07": {
       "cache_read_input_token_cost": 2.5e-08,
+      "cache_read_input_token_cost_batches": 1.25e-08,
       "cache_read_input_token_cost_flex": 1.25e-08,
       "cache_read_input_token_cost_priority": 4.5e-08,
       "input_cost_per_token": 2.5e-07,
+      "input_cost_per_token_batches": 1.25e-07,
       "input_cost_per_token_flex": 1.25e-07,
       "input_cost_per_token_priority": 4.5e-07,
       "litellm_provider": "openai",
       "output_cost_per_token": 2e-06,
+      "output_cost_per_token_batches": 1e-06,
       "output_cost_per_token_flex": 1e-06,
       "output_cost_per_token_priority": 3.6e-06,
       "search_context_cost_per_query": {
@@ -615,12 +589,15 @@
     },
     "gpt-5-nano": {
       "cache_read_input_token_cost": 5e-09,
+      "cache_read_input_token_cost_batches": 2.5e-09,
       "cache_read_input_token_cost_flex": 2.5e-09,
       "input_cost_per_token": 5e-08,
+      "input_cost_per_token_batches": 2.5e-08,
       "input_cost_per_token_flex": 2.5e-08,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 4e-07,
+      "output_cost_per_token_batches": 2e-07,
       "output_cost_per_token_flex": 2e-07,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -630,12 +607,15 @@
     },
     "gpt-5-nano-2025-08-07": {
       "cache_read_input_token_cost": 5e-09,
+      "cache_read_input_token_cost_batches": 2.5e-09,
       "cache_read_input_token_cost_flex": 2.5e-09,
       "input_cost_per_token": 5e-08,
+      "input_cost_per_token_batches": 2.5e-08,
       "input_cost_per_token_flex": 2.5e-08,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 4e-07,
+      "output_cost_per_token_batches": 2e-07,
       "output_cost_per_token_flex": 2e-07,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -691,11 +671,17 @@
     },
     "gpt-5.1": {
       "cache_read_input_token_cost": 1.25e-07,
+      "cache_read_input_token_cost_batches": 6.25e-08,
+      "cache_read_input_token_cost_flex": 6.25e-08,
       "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
+      "input_cost_per_token_batches": 6.25e-07,
+      "input_cost_per_token_flex": 6.25e-07,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06,
+      "output_cost_per_token_flex": 5e-06,
       "output_cost_per_token_priority": 2e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -705,11 +691,17 @@
     },
     "gpt-5.1-2025-11-13": {
       "cache_read_input_token_cost": 1.25e-07,
+      "cache_read_input_token_cost_batches": 6.25e-08,
+      "cache_read_input_token_cost_flex": 6.25e-08,
       "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
+      "input_cost_per_token_batches": 6.25e-07,
+      "input_cost_per_token_flex": 6.25e-07,
       "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06,
+      "output_cost_per_token_flex": 5e-06,
       "output_cost_per_token_priority": 2e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -719,64 +711,41 @@
     },
     "gpt-5.1-chat-latest": {
       "cache_read_input_token_cost": 1.25e-07,
-      "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
-      "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1e-05,
-      "output_cost_per_token_priority": 2e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1e-05
     },
     "gpt-5.1-codex": {
       "cache_read_input_token_cost": 1.25e-07,
-      "cache_read_input_token_cost_priority": 2.5e-07,
       "input_cost_per_token": 1.25e-06,
-      "input_cost_per_token_priority": 2.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1e-05,
-      "output_cost_per_token_priority": 2e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1e-05
     },
     "gpt-5.1-codex-max": {
       "cache_read_input_token_cost": 1.25e-07,
       "input_cost_per_token": 1.25e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1e-05
     },
     "gpt-5.1-codex-mini": {
       "cache_read_input_token_cost": 2.5e-08,
-      "cache_read_input_token_cost_priority": 4.5e-08,
       "input_cost_per_token": 2.5e-07,
-      "input_cost_per_token_priority": 4.5e-07,
       "litellm_provider": "openai",
-      "output_cost_per_token": 2e-06,
-      "output_cost_per_token_priority": 3.6e-06,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 2e-06
     },
     "gpt-5.2": {
       "cache_read_input_token_cost": 1.75e-07,
+      "cache_read_input_token_cost_batches": 8.75e-08,
+      "cache_read_input_token_cost_flex": 8.75e-08,
       "cache_read_input_token_cost_priority": 3.5e-07,
       "input_cost_per_token": 1.75e-06,
+      "input_cost_per_token_batches": 8.75e-07,
+      "input_cost_per_token_flex": 8.75e-07,
       "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.4e-05,
+      "output_cost_per_token_batches": 7e-06,
+      "output_cost_per_token_flex": 7e-06,
       "output_cost_per_token_priority": 2.8e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -786,11 +755,17 @@
     },
     "gpt-5.2-2025-12-11": {
       "cache_read_input_token_cost": 1.75e-07,
+      "cache_read_input_token_cost_batches": 8.75e-08,
+      "cache_read_input_token_cost_flex": 8.75e-08,
       "cache_read_input_token_cost_priority": 3.5e-07,
       "input_cost_per_token": 1.75e-06,
+      "input_cost_per_token_batches": 8.75e-07,
+      "input_cost_per_token_flex": 8.75e-07,
       "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.4e-05,
+      "output_cost_per_token_batches": 7e-06,
+      "output_cost_per_token_flex": 7e-06,
       "output_cost_per_token_priority": 2.8e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
@@ -800,36 +775,22 @@
     },
     "gpt-5.2-chat-latest": {
       "cache_read_input_token_cost": 1.75e-07,
-      "cache_read_input_token_cost_priority": 3.5e-07,
       "input_cost_per_token": 1.75e-06,
-      "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1.4e-05,
-      "output_cost_per_token_priority": 2.8e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1.4e-05
     },
     "gpt-5.2-codex": {
       "cache_read_input_token_cost": 1.75e-07,
-      "cache_read_input_token_cost_priority": 3.5e-07,
       "input_cost_per_token": 1.75e-06,
-      "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1.4e-05,
-      "output_cost_per_token_priority": 2.8e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1.4e-05
     },
     "gpt-5.2-pro": {
       "input_cost_per_token": 2.1e-05,
+      "input_cost_per_token_batches": 1.05e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.000168,
+      "output_cost_per_token_batches": 8.4e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
         "search_context_size_low": 0.01,
@@ -838,8 +799,10 @@
     },
     "gpt-5.2-pro-2025-12-11": {
       "input_cost_per_token": 2.1e-05,
+      "input_cost_per_token_batches": 1.05e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.000168,
+      "output_cost_per_token_batches": 8.4e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
         "search_context_size_low": 0.01,
@@ -848,17 +811,9 @@
     },
     "gpt-5.3-chat-latest": {
       "cache_read_input_token_cost": 1.75e-07,
-      "cache_read_input_token_cost_priority": 3.5e-07,
       "input_cost_per_token": 1.75e-06,
-      "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 1.4e-05,
-      "output_cost_per_token_priority": 2.8e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 1.4e-05
     },
     "gpt-5.3-codex": {
       "cache_read_input_token_cost": 1.75e-07,
@@ -877,16 +832,23 @@
     "gpt-5.4": {
       "cache_read_input_token_cost": 2.5e-07,
       "cache_read_input_token_cost_above_272k_tokens": 5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 2.5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 2.5e-07,
+      "cache_read_input_token_cost_batches": 1.3e-07,
       "cache_read_input_token_cost_flex": 1.3e-07,
       "cache_read_input_token_cost_priority": 5e-07,
       "input_cost_per_token": 2.5e-06,
       "input_cost_per_token_above_272k_tokens": 5e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 2.5e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 2.5e-06,
       "input_cost_per_token_batches": 1.25e-06,
       "input_cost_per_token_flex": 1.25e-06,
       "input_cost_per_token_priority": 5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.5e-05,
       "output_cost_per_token_above_272k_tokens": 2.25e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 1.125e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 1.125e-05,
       "output_cost_per_token_batches": 7.5e-06,
       "output_cost_per_token_flex": 7.5e-06,
       "output_cost_per_token_priority": 3e-05
@@ -894,22 +856,30 @@
     "gpt-5.4-2026-03-05": {
       "cache_read_input_token_cost": 2.5e-07,
       "cache_read_input_token_cost_above_272k_tokens": 5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 2.5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 2.5e-07,
+      "cache_read_input_token_cost_batches": 1.3e-07,
       "cache_read_input_token_cost_flex": 1.3e-07,
       "cache_read_input_token_cost_priority": 5e-07,
       "input_cost_per_token": 2.5e-06,
       "input_cost_per_token_above_272k_tokens": 5e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 2.5e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 2.5e-06,
       "input_cost_per_token_batches": 1.25e-06,
       "input_cost_per_token_flex": 1.25e-06,
       "input_cost_per_token_priority": 5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.5e-05,
       "output_cost_per_token_above_272k_tokens": 2.25e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 1.125e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 1.125e-05,
       "output_cost_per_token_batches": 7.5e-06,
       "output_cost_per_token_flex": 7.5e-06,
       "output_cost_per_token_priority": 3e-05
     },
     "gpt-5.4-mini": {
       "cache_read_input_token_cost": 7.5e-08,
+      "cache_read_input_token_cost_batches": 3.75e-08,
       "cache_read_input_token_cost_flex": 3.75e-08,
       "cache_read_input_token_cost_priority": 1.5e-07,
       "input_cost_per_token": 7.5e-07,
@@ -929,6 +899,7 @@
     },
     "gpt-5.4-mini-2026-03-17": {
       "cache_read_input_token_cost": 7.5e-08,
+      "cache_read_input_token_cost_batches": 3.75e-08,
       "cache_read_input_token_cost_flex": 3.75e-08,
       "cache_read_input_token_cost_priority": 1.5e-07,
       "input_cost_per_token": 7.5e-07,
@@ -948,6 +919,7 @@
     },
     "gpt-5.4-nano": {
       "cache_read_input_token_cost": 2e-08,
+      "cache_read_input_token_cost_batches": 1e-08,
       "cache_read_input_token_cost_flex": 1e-08,
       "input_cost_per_token": 2e-07,
       "input_cost_per_token_batches": 1e-07,
@@ -964,6 +936,7 @@
     },
     "gpt-5.4-nano-2026-03-17": {
       "cache_read_input_token_cost": 2e-08,
+      "cache_read_input_token_cost_batches": 1e-08,
       "cache_read_input_token_cost_flex": 1e-08,
       "input_cost_per_token": 2e-07,
       "input_cost_per_token_batches": 1e-07,
@@ -979,15 +952,17 @@
       }
     },
     "gpt-5.4-pro": {
-      "cache_read_input_token_cost": 3e-06,
-      "cache_read_input_token_cost_above_272k_tokens": 6e-06,
       "input_cost_per_token": 3e-05,
       "input_cost_per_token_above_272k_tokens": 6e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 3e-05,
+      "input_cost_per_token_above_272k_tokens_flex": 3e-05,
       "input_cost_per_token_batches": 1.5e-05,
       "input_cost_per_token_flex": 1.5e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.00018,
       "output_cost_per_token_above_272k_tokens": 0.00027,
+      "output_cost_per_token_above_272k_tokens_batches": 0.000135,
+      "output_cost_per_token_above_272k_tokens_flex": 0.000135,
       "output_cost_per_token_batches": 9e-05,
       "output_cost_per_token_flex": 9e-05,
       "search_context_cost_per_query": {
@@ -997,15 +972,17 @@
       }
     },
     "gpt-5.4-pro-2026-03-05": {
-      "cache_read_input_token_cost": 3e-06,
-      "cache_read_input_token_cost_above_272k_tokens": 6e-06,
       "input_cost_per_token": 3e-05,
       "input_cost_per_token_above_272k_tokens": 6e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 3e-05,
+      "input_cost_per_token_above_272k_tokens_flex": 3e-05,
       "input_cost_per_token_batches": 1.5e-05,
       "input_cost_per_token_flex": 1.5e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.00018,
       "output_cost_per_token_above_272k_tokens": 0.00027,
+      "output_cost_per_token_above_272k_tokens_batches": 0.000135,
+      "output_cost_per_token_above_272k_tokens_flex": 0.000135,
       "output_cost_per_token_batches": 9e-05,
       "output_cost_per_token_flex": 9e-05,
       "search_context_cost_per_query": {
@@ -1017,19 +994,26 @@
     "gpt-5.5": {
       "cache_read_input_token_cost": 5e-07,
       "cache_read_input_token_cost_above_272k_tokens": 1e-06,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 5e-07,
+      "cache_read_input_token_cost_batches": 2.5e-07,
       "cache_read_input_token_cost_flex": 2.5e-07,
-      "cache_read_input_token_cost_priority": 1e-06,
+      "cache_read_input_token_cost_priority": 1.25e-06,
       "input_cost_per_token": 5e-06,
       "input_cost_per_token_above_272k_tokens": 1e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 5e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 5e-06,
       "input_cost_per_token_batches": 2.5e-06,
       "input_cost_per_token_flex": 2.5e-06,
-      "input_cost_per_token_priority": 1e-05,
+      "input_cost_per_token_priority": 1.25e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 3e-05,
       "output_cost_per_token_above_272k_tokens": 4.5e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 2.25e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 2.25e-05,
       "output_cost_per_token_batches": 1.5e-05,
       "output_cost_per_token_flex": 1.5e-05,
-      "output_cost_per_token_priority": 6e-05,
+      "output_cost_per_token_priority": 7.5e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
         "search_context_size_low": 0.01,
@@ -1039,35 +1023,54 @@
     "gpt-5.5-2026-04-23": {
       "cache_read_input_token_cost": 5e-07,
       "cache_read_input_token_cost_above_272k_tokens": 1e-06,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 5e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 5e-07,
+      "cache_read_input_token_cost_batches": 2.5e-07,
       "cache_read_input_token_cost_flex": 2.5e-07,
-      "cache_read_input_token_cost_priority": 1e-06,
+      "cache_read_input_token_cost_priority": 1.25e-06,
       "input_cost_per_token": 5e-06,
       "input_cost_per_token_above_272k_tokens": 1e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 5e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 5e-06,
       "input_cost_per_token_batches": 2.5e-06,
       "input_cost_per_token_flex": 2.5e-06,
-      "input_cost_per_token_priority": 1e-05,
+      "input_cost_per_token_priority": 1.25e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 3e-05,
       "output_cost_per_token_above_272k_tokens": 4.5e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 2.25e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 2.25e-05,
       "output_cost_per_token_batches": 1.5e-05,
       "output_cost_per_token_flex": 1.5e-05,
-      "output_cost_per_token_priority": 6e-05,
+      "output_cost_per_token_priority": 7.5e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
         "search_context_size_low": 0.01,
         "search_context_size_medium": 0.01
       }
     },
+    "gpt-5.5-cyber": {
+      "cache_read_input_token_cost": 1.25e-06,
+      "input_cost_per_token": 1.25e-05,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 7.5e-05
+    },
+    "gpt-5.5-cyber-preview": {
+      "cache_read_input_token_cost": 1.25e-06,
+      "input_cost_per_token": 1.25e-05,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 7.5e-05
+    },
     "gpt-5.5-pro": {
-      "cache_read_input_token_cost": 3e-06,
-      "cache_read_input_token_cost_above_272k_tokens": 6e-06,
       "input_cost_per_token": 3e-05,
       "input_cost_per_token_above_272k_tokens": 6e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 3e-05,
       "input_cost_per_token_batches": 1.5e-05,
       "input_cost_per_token_flex": 1.5e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.00018,
       "output_cost_per_token_above_272k_tokens": 0.00027,
+      "output_cost_per_token_above_272k_tokens_batches": 0.000135,
       "output_cost_per_token_batches": 9e-05,
       "output_cost_per_token_flex": 9e-05,
       "search_context_cost_per_query": {
@@ -1077,15 +1080,15 @@
       }
     },
     "gpt-5.5-pro-2026-04-23": {
-      "cache_read_input_token_cost": 3e-06,
-      "cache_read_input_token_cost_above_272k_tokens": 6e-06,
       "input_cost_per_token": 3e-05,
       "input_cost_per_token_above_272k_tokens": 6e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 3e-05,
       "input_cost_per_token_batches": 1.5e-05,
       "input_cost_per_token_flex": 1.5e-05,
       "litellm_provider": "openai",
       "output_cost_per_token": 0.00018,
       "output_cost_per_token_above_272k_tokens": 0.00027,
+      "output_cost_per_token_above_272k_tokens_batches": 0.000135,
       "output_cost_per_token_batches": 9e-05,
       "output_cost_per_token_flex": 9e-05,
       "search_context_cost_per_query": {
@@ -1095,29 +1098,45 @@
       }
     },
     "gpt-5.6": {
-      "cache_creation_input_token_cost": 6.25e-06,
-      "cache_creation_input_token_cost_above_272k_tokens": 1.25e-05,
-      "cache_creation_input_token_cost_above_272k_tokens_flex": 6.25e-06,
-      "cache_creation_input_token_cost_flex": 3.125e-06,
-      "cache_creation_input_token_cost_priority": 1.25e-05,
-      "cache_read_input_token_cost": 5e-07,
-      "cache_read_input_token_cost_above_272k_tokens": 1e-06,
-      "cache_read_input_token_cost_above_272k_tokens_flex": 5e-07,
-      "cache_read_input_token_cost_flex": 2.5e-07,
-      "cache_read_input_token_cost_priority": 1e-06,
-      "input_cost_per_token": 5e-06,
-      "input_cost_per_token_above_272k_tokens": 1e-05,
-      "input_cost_per_token_above_272k_tokens_flex": 5e-06,
-      "input_cost_per_token_batches": 2.5e-06,
-      "input_cost_per_token_flex": 2.5e-06,
-      "input_cost_per_token_priority": 1e-05,
+      "cache_creation_input_token_cost": 5e-06,
+      "cache_creation_input_token_cost_above_12hr": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 2e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 4e-05,
+      "cache_creation_input_token_cost_above_12hr_flex": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 2e-05,
+      "cache_creation_input_token_cost_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_flex": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 2e-05,
+      "cache_creation_input_token_cost_batches": 2.5e-06,
+      "cache_creation_input_token_cost_flex": 2.5e-06,
+      "cache_creation_input_token_cost_priority": 1e-05,
+      "cache_read_input_token_cost": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens": 8e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 1.6e-06,
+      "cache_read_input_token_cost_batches": 2e-07,
+      "cache_read_input_token_cost_flex": 2e-07,
+      "cache_read_input_token_cost_priority": 8e-07,
+      "input_cost_per_token": 4e-06,
+      "input_cost_per_token_above_272k_tokens": 8e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 4e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 4e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 1.6e-05,
+      "input_cost_per_token_batches": 2e-06,
+      "input_cost_per_token_flex": 2e-06,
+      "input_cost_per_token_priority": 8e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 3e-05,
-      "output_cost_per_token_above_272k_tokens": 4.5e-05,
-      "output_cost_per_token_above_272k_tokens_flex": 2.25e-05,
-      "output_cost_per_token_batches": 1.5e-05,
-      "output_cost_per_token_flex": 1.5e-05,
-      "output_cost_per_token_priority": 6e-05,
+      "output_cost_per_token": 2e-05,
+      "output_cost_per_token_above_272k_tokens": 3e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 1.5e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 1.5e-05,
+      "output_cost_per_token_above_272k_tokens_priority": 6e-05,
+      "output_cost_per_token_batches": 1e-05,
+      "output_cost_per_token_flex": 1e-05,
+      "output_cost_per_token_priority": 4e-05,
       "search_context_cost_per_query": {
         "search_context_size_high": 0.01,
         "search_context_size_low": 0.01,
@@ -1126,6 +1145,7 @@
     },
     "gpt-5.6-cyber": {
       "cache_creation_input_token_cost": 1.5625e-05,
+      "cache_creation_input_token_cost_above_12hr": 3.125e-05,
       "cache_creation_input_token_cost_above_272k_tokens": 3.125e-05,
       "cache_read_input_token_cost": 1.25e-06,
       "cache_read_input_token_cost_above_272k_tokens": 2.5e-06,
@@ -1137,25 +1157,43 @@
     },
     "gpt-5.6-luna": {
       "cache_creation_input_token_cost": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr": 5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 1e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 2e-06,
+      "cache_creation_input_token_cost_above_12hr_batches": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr_flex": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr_priority": 1e-06,
       "cache_creation_input_token_cost_above_272k_tokens": 5e-07,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 2.5e-07,
       "cache_creation_input_token_cost_above_272k_tokens_flex": 2.5e-07,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 1e-06,
+      "cache_creation_input_token_cost_batches": 1.25e-07,
       "cache_creation_input_token_cost_flex": 1.25e-07,
       "cache_creation_input_token_cost_priority": 5e-07,
       "cache_read_input_token_cost": 2e-08,
       "cache_read_input_token_cost_above_272k_tokens": 4e-08,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 2e-08,
       "cache_read_input_token_cost_above_272k_tokens_flex": 2e-08,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 8e-08,
+      "cache_read_input_token_cost_batches": 1e-08,
       "cache_read_input_token_cost_flex": 1e-08,
       "cache_read_input_token_cost_priority": 4e-08,
       "input_cost_per_token": 2e-07,
       "input_cost_per_token_above_272k_tokens": 4e-07,
+      "input_cost_per_token_above_272k_tokens_batches": 2e-07,
       "input_cost_per_token_above_272k_tokens_flex": 2e-07,
+      "input_cost_per_token_above_272k_tokens_priority": 8e-07,
       "input_cost_per_token_batches": 1e-07,
       "input_cost_per_token_flex": 1e-07,
       "input_cost_per_token_priority": 4e-07,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.2e-06,
       "output_cost_per_token_above_272k_tokens": 1.8e-06,
+      "output_cost_per_token_above_272k_tokens_batches": 9e-07,
       "output_cost_per_token_above_272k_tokens_flex": 9e-07,
+      "output_cost_per_token_above_272k_tokens_priority": 3.6e-06,
       "output_cost_per_token_batches": 6e-07,
       "output_cost_per_token_flex": 6e-07,
       "output_cost_per_token_priority": 2.4e-06,
@@ -1167,25 +1205,43 @@
     },
     "gpt-5.6-sol": {
       "cache_creation_input_token_cost": 5e-06,
+      "cache_creation_input_token_cost_above_12hr": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 2e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 4e-05,
+      "cache_creation_input_token_cost_above_12hr_batches": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_flex": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 2e-05,
       "cache_creation_input_token_cost_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 5e-06,
       "cache_creation_input_token_cost_above_272k_tokens_flex": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 2e-05,
+      "cache_creation_input_token_cost_batches": 2.5e-06,
       "cache_creation_input_token_cost_flex": 2.5e-06,
       "cache_creation_input_token_cost_priority": 1e-05,
       "cache_read_input_token_cost": 4e-07,
       "cache_read_input_token_cost_above_272k_tokens": 8e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 4e-07,
       "cache_read_input_token_cost_above_272k_tokens_flex": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 1.6e-06,
+      "cache_read_input_token_cost_batches": 2e-07,
       "cache_read_input_token_cost_flex": 2e-07,
       "cache_read_input_token_cost_priority": 8e-07,
       "input_cost_per_token": 4e-06,
       "input_cost_per_token_above_272k_tokens": 8e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 4e-06,
       "input_cost_per_token_above_272k_tokens_flex": 4e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 1.6e-05,
       "input_cost_per_token_batches": 2e-06,
       "input_cost_per_token_flex": 2e-06,
       "input_cost_per_token_priority": 8e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 2e-05,
       "output_cost_per_token_above_272k_tokens": 3e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 1.5e-05,
       "output_cost_per_token_above_272k_tokens_flex": 1.5e-05,
+      "output_cost_per_token_above_272k_tokens_priority": 6e-05,
       "output_cost_per_token_batches": 1e-05,
       "output_cost_per_token_flex": 1e-05,
       "output_cost_per_token_priority": 4e-05,
@@ -1197,25 +1253,43 @@
     },
     "gpt-5.6-terra": {
       "cache_creation_input_token_cost": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 2e-05,
+      "cache_creation_input_token_cost_above_12hr_batches": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 1e-05,
       "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 2.5e-06,
       "cache_creation_input_token_cost_above_272k_tokens_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 1e-05,
+      "cache_creation_input_token_cost_batches": 1.25e-06,
       "cache_creation_input_token_cost_flex": 1.25e-06,
       "cache_creation_input_token_cost_priority": 5e-06,
       "cache_read_input_token_cost": 2e-07,
       "cache_read_input_token_cost_above_272k_tokens": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 2e-07,
       "cache_read_input_token_cost_above_272k_tokens_flex": 2e-07,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 8e-07,
+      "cache_read_input_token_cost_batches": 1e-07,
       "cache_read_input_token_cost_flex": 1e-07,
       "cache_read_input_token_cost_priority": 4e-07,
       "input_cost_per_token": 2e-06,
       "input_cost_per_token_above_272k_tokens": 4e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 2e-06,
       "input_cost_per_token_above_272k_tokens_flex": 2e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 8e-06,
       "input_cost_per_token_batches": 1e-06,
       "input_cost_per_token_flex": 1e-06,
       "input_cost_per_token_priority": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1.2e-05,
       "output_cost_per_token_above_272k_tokens": 1.8e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 9e-06,
       "output_cost_per_token_above_272k_tokens_flex": 9e-06,
+      "output_cost_per_token_above_272k_tokens_priority": 3.6e-05,
       "output_cost_per_token_batches": 6e-06,
       "output_cost_per_token_flex": 6e-06,
       "output_cost_per_token_priority": 2.4e-05,
@@ -1225,55 +1299,273 @@
         "search_context_size_medium": 0.01
       }
     },
+    "gpt-6-astra": {
+      "cache_creation_input_token_cost": 1.25e-05,
+      "cache_creation_input_token_cost_above_12hr": 2.5e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 5e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 2.5e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 2.5e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 0.0001,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_ultrafast": 0.0003,
+      "cache_creation_input_token_cost_above_12hr_batches": 1.25e-05,
+      "cache_creation_input_token_cost_above_12hr_flex": 1.25e-05,
+      "cache_creation_input_token_cost_above_12hr_priority": 5e-05,
+      "cache_creation_input_token_cost_above_12hr_ultrafast": 0.00015,
+      "cache_creation_input_token_cost_above_272k_tokens": 2.5e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 1.25e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_flex": 1.25e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 5e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_ultrafast": 0.00015,
+      "cache_creation_input_token_cost_batches": 6.25e-06,
+      "cache_creation_input_token_cost_flex": 6.25e-06,
+      "cache_creation_input_token_cost_priority": 2.5e-05,
+      "cache_creation_input_token_cost_ultrafast": 7.5e-05,
+      "cache_read_input_token_cost": 1e-06,
+      "cache_read_input_token_cost_above_272k_tokens": 2e-06,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 1e-06,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 1e-06,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 4e-06,
+      "cache_read_input_token_cost_above_272k_tokens_ultrafast": 1.2e-05,
+      "cache_read_input_token_cost_batches": 5e-07,
+      "cache_read_input_token_cost_flex": 5e-07,
+      "cache_read_input_token_cost_priority": 2e-06,
+      "cache_read_input_token_cost_ultrafast": 6e-06,
+      "input_cost_per_token": 1e-05,
+      "input_cost_per_token_above_272k_tokens": 2e-05,
+      "input_cost_per_token_above_272k_tokens_batches": 1e-05,
+      "input_cost_per_token_above_272k_tokens_flex": 1e-05,
+      "input_cost_per_token_above_272k_tokens_priority": 4e-05,
+      "input_cost_per_token_above_272k_tokens_ultrafast": 0.00012,
+      "input_cost_per_token_batches": 5e-06,
+      "input_cost_per_token_flex": 5e-06,
+      "input_cost_per_token_priority": 2e-05,
+      "input_cost_per_token_ultrafast": 6e-05,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 5e-05,
+      "output_cost_per_token_above_272k_tokens": 7.5e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 3.75e-05,
+      "output_cost_per_token_above_272k_tokens_flex": 3.75e-05,
+      "output_cost_per_token_above_272k_tokens_priority": 0.00015,
+      "output_cost_per_token_above_272k_tokens_ultrafast": 0.00045,
+      "output_cost_per_token_batches": 2.5e-05,
+      "output_cost_per_token_flex": 2.5e-05,
+      "output_cost_per_token_priority": 0.0001,
+      "output_cost_per_token_ultrafast": 0.0003,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.01,
+        "search_context_size_low": 0.01,
+        "search_context_size_medium": 0.01
+      }
+    },
     "gpt-6-luna": {
       "cache_creation_input_token_cost": 1.25e-07,
+      "cache_creation_input_token_cost_above_12hr": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 2.5e-07,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 1e-06,
+      "cache_creation_input_token_cost_above_12hr_batches": 1.25e-07,
+      "cache_creation_input_token_cost_above_12hr_flex": 1.25e-07,
+      "cache_creation_input_token_cost_above_12hr_priority": 5e-07,
       "cache_creation_input_token_cost_above_272k_tokens": 2.5e-07,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 1.25e-07,
+      "cache_creation_input_token_cost_above_272k_tokens_decisions": 2.5e-07,
       "cache_creation_input_token_cost_above_272k_tokens_flex": 1.25e-07,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 5e-07,
+      "cache_creation_input_token_cost_batches": 6.25e-08,
+      "cache_creation_input_token_cost_decisions": 1.25e-07,
       "cache_creation_input_token_cost_flex": 6.25e-08,
       "cache_creation_input_token_cost_priority": 2.5e-07,
       "cache_read_input_token_cost": 1e-08,
       "cache_read_input_token_cost_above_272k_tokens": 2e-08,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 1e-08,
+      "cache_read_input_token_cost_above_272k_tokens_decisions": 2e-08,
       "cache_read_input_token_cost_above_272k_tokens_flex": 1e-08,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 4e-08,
+      "cache_read_input_token_cost_batches": 5e-09,
+      "cache_read_input_token_cost_decisions": 1e-08,
       "cache_read_input_token_cost_flex": 5e-09,
       "cache_read_input_token_cost_priority": 2e-08,
       "input_cost_per_token": 1e-07,
       "input_cost_per_token_above_272k_tokens": 2e-07,
+      "input_cost_per_token_above_272k_tokens_batches": 1e-07,
+      "input_cost_per_token_above_272k_tokens_decisions": 2e-07,
       "input_cost_per_token_above_272k_tokens_flex": 1e-07,
+      "input_cost_per_token_above_272k_tokens_priority": 4e-07,
       "input_cost_per_token_batches": 5e-08,
+      "input_cost_per_token_decisions": 1e-07,
       "input_cost_per_token_flex": 5e-08,
       "input_cost_per_token_priority": 2e-07,
       "litellm_provider": "openai",
       "output_cost_per_token": 5e-07,
       "output_cost_per_token_above_272k_tokens": 7.5e-07,
+      "output_cost_per_token_above_272k_tokens_batches": 3.75e-07,
+      "output_cost_per_token_above_272k_tokens_decisions": 0.0,
       "output_cost_per_token_above_272k_tokens_flex": 3.75e-07,
+      "output_cost_per_token_above_272k_tokens_priority": 1.5e-06,
       "output_cost_per_token_batches": 2.5e-07,
+      "output_cost_per_token_decisions": 0.0,
       "output_cost_per_token_flex": 2.5e-07,
-      "output_cost_per_token_priority": 1e-06
+      "output_cost_per_token_priority": 1e-06,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.01,
+        "search_context_size_low": 0.01,
+        "search_context_size_medium": 0.01
+      }
     },
     "gpt-6-sol": {
       "cache_creation_input_token_cost": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 2e-05,
+      "cache_creation_input_token_cost_above_12hr_batches": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 1e-05,
       "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 2.5e-06,
       "cache_creation_input_token_cost_above_272k_tokens_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 1e-05,
+      "cache_creation_input_token_cost_batches": 1.25e-06,
       "cache_creation_input_token_cost_flex": 1.25e-06,
       "cache_creation_input_token_cost_priority": 5e-06,
       "cache_read_input_token_cost": 2e-07,
       "cache_read_input_token_cost_above_272k_tokens": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 2e-07,
       "cache_read_input_token_cost_above_272k_tokens_flex": 2e-07,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 8e-07,
+      "cache_read_input_token_cost_batches": 1e-07,
       "cache_read_input_token_cost_flex": 1e-07,
       "cache_read_input_token_cost_priority": 4e-07,
       "input_cost_per_token": 2e-06,
       "input_cost_per_token_above_272k_tokens": 4e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 2e-06,
       "input_cost_per_token_above_272k_tokens_flex": 2e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 8e-06,
       "input_cost_per_token_batches": 1e-06,
       "input_cost_per_token_flex": 1e-06,
       "input_cost_per_token_priority": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 1e-05,
       "output_cost_per_token_above_272k_tokens": 1.5e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 7.5e-06,
       "output_cost_per_token_above_272k_tokens_flex": 7.5e-06,
+      "output_cost_per_token_above_272k_tokens_priority": 3e-05,
       "output_cost_per_token_batches": 5e-06,
       "output_cost_per_token_flex": 5e-06,
-      "output_cost_per_token_priority": 2e-05
+      "output_cost_per_token_priority": 2e-05,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.01,
+        "search_context_size_low": 0.01,
+        "search_context_size_medium": 0.01
+      }
+    },
+    "gpt-6.1-sol": {
+      "cache_creation_input_token_cost": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 2e-05,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_ultrafast": 6e-05,
+      "cache_creation_input_token_cost_above_12hr_batches": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_ultrafast": 3e-05,
+      "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 2.5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 1e-05,
+      "cache_creation_input_token_cost_above_272k_tokens_ultrafast": 3e-05,
+      "cache_creation_input_token_cost_batches": 1.25e-06,
+      "cache_creation_input_token_cost_flex": 1.25e-06,
+      "cache_creation_input_token_cost_priority": 5e-06,
+      "cache_creation_input_token_cost_ultrafast": 1.5e-05,
+      "cache_read_input_token_cost": 1e-07,
+      "cache_read_input_token_cost_above_272k_tokens": 2e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 1e-07,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 1e-07,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens_ultrafast": 1.2e-06,
+      "cache_read_input_token_cost_batches": 5e-08,
+      "cache_read_input_token_cost_flex": 5e-08,
+      "cache_read_input_token_cost_priority": 2e-07,
+      "cache_read_input_token_cost_ultrafast": 6e-07,
+      "input_cost_per_token": 2e-06,
+      "input_cost_per_token_above_272k_tokens": 4e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 2e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 2e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 8e-06,
+      "input_cost_per_token_above_272k_tokens_ultrafast": 2.4e-05,
+      "input_cost_per_token_batches": 1e-06,
+      "input_cost_per_token_flex": 1e-06,
+      "input_cost_per_token_priority": 4e-06,
+      "input_cost_per_token_ultrafast": 1.2e-05,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 1e-05,
+      "output_cost_per_token_above_272k_tokens": 1.5e-05,
+      "output_cost_per_token_above_272k_tokens_batches": 7.5e-06,
+      "output_cost_per_token_above_272k_tokens_flex": 7.5e-06,
+      "output_cost_per_token_above_272k_tokens_priority": 3e-05,
+      "output_cost_per_token_above_272k_tokens_ultrafast": 9e-05,
+      "output_cost_per_token_batches": 5e-06,
+      "output_cost_per_token_flex": 5e-06,
+      "output_cost_per_token_priority": 2e-05,
+      "output_cost_per_token_ultrafast": 6e-05,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.01,
+        "search_context_size_low": 0.01,
+        "search_context_size_medium": 0.01
+      }
+    },
+    "gpt-6.1-terra": {
+      "cache_creation_input_token_cost": 1.25e-06,
+      "cache_creation_input_token_cost_above_12hr": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens": 5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_batches": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_flex": 2.5e-06,
+      "cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 1e-05,
+      "cache_creation_input_token_cost_above_12hr_batches": 1.25e-06,
+      "cache_creation_input_token_cost_above_12hr_flex": 1.25e-06,
+      "cache_creation_input_token_cost_above_12hr_priority": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens": 2.5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_batches": 1.25e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_flex": 1.25e-06,
+      "cache_creation_input_token_cost_above_272k_tokens_priority": 5e-06,
+      "cache_creation_input_token_cost_batches": 6.25e-07,
+      "cache_creation_input_token_cost_flex": 6.25e-07,
+      "cache_creation_input_token_cost_priority": 2.5e-06,
+      "cache_read_input_token_cost": 5e-08,
+      "cache_read_input_token_cost_above_272k_tokens": 1e-07,
+      "cache_read_input_token_cost_above_272k_tokens_batches": 5e-08,
+      "cache_read_input_token_cost_above_272k_tokens_flex": 5e-08,
+      "cache_read_input_token_cost_above_272k_tokens_priority": 2e-07,
+      "cache_read_input_token_cost_batches": 2.5e-08,
+      "cache_read_input_token_cost_flex": 2.5e-08,
+      "cache_read_input_token_cost_priority": 1e-07,
+      "input_cost_per_token": 1e-06,
+      "input_cost_per_token_above_272k_tokens": 2e-06,
+      "input_cost_per_token_above_272k_tokens_batches": 1e-06,
+      "input_cost_per_token_above_272k_tokens_flex": 1e-06,
+      "input_cost_per_token_above_272k_tokens_priority": 4e-06,
+      "input_cost_per_token_batches": 5e-07,
+      "input_cost_per_token_flex": 5e-07,
+      "input_cost_per_token_priority": 2e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 5e-06,
+      "output_cost_per_token_above_272k_tokens": 7.5e-06,
+      "output_cost_per_token_above_272k_tokens_batches": 3.75e-06,
+      "output_cost_per_token_above_272k_tokens_flex": 3.75e-06,
+      "output_cost_per_token_above_272k_tokens_priority": 1.5e-05,
+      "output_cost_per_token_batches": 2.5e-06,
+      "output_cost_per_token_flex": 2.5e-06,
+      "output_cost_per_token_priority": 1e-05,
+      "search_context_cost_per_query": {
+        "search_context_size_high": 0.01,
+        "search_context_size_low": 0.01,
+        "search_context_size_medium": 0.01
+      }
     },
     "gpt-audio": {
       "input_cost_per_audio_token": 3.2e-05,
@@ -1317,57 +1609,140 @@
       "output_cost_per_audio_token": 2e-05,
       "output_cost_per_token": 2.4e-06
     },
-    "gpt-image-1": {
+    "gpt-daybreak-blue-latest": {
+      "cache_creation_input_token_cost": 5e-06,
+      "cache_creation_input_token_cost_above_272k_tokens": 1e-05,
+      "cache_read_input_token_cost": 4e-07,
+      "cache_read_input_token_cost_above_272k_tokens": 8e-07,
+      "input_cost_per_token": 4e-06,
+      "input_cost_per_token_above_272k_tokens": 8e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 2e-05,
+      "output_cost_per_token_above_272k_tokens": 3e-05
+    },
+    "gpt-daybreak-red-latest": {
+      "cache_creation_input_token_cost": 1.5625e-05,
+      "cache_creation_input_token_cost_above_272k_tokens": 3.125e-05,
       "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_above_272k_tokens": 2.5e-06,
+      "input_cost_per_token": 1.25e-05,
+      "input_cost_per_token_above_272k_tokens": 2.5e-05,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 7.5e-05,
+      "output_cost_per_token_above_272k_tokens": 0.0001125
+    },
+    "gpt-image-1": {
+      "cache_read_input_image_token_cost": 2.5e-06,
+      "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.3e-07,
       "input_cost_per_image_token": 1e-05,
+      "input_cost_per_image_token_batches": 5e-06,
       "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_image_token": 4e-05
     },
     "gpt-image-1-mini": {
+      "cache_read_input_image_token_cost": 2.5e-07,
       "cache_read_input_token_cost": 2e-07,
+      "cache_read_input_token_cost_batches": 1e-07,
       "input_cost_per_image_token": 2.5e-06,
+      "input_cost_per_image_token_batches": 1.25e-06,
       "input_cost_per_token": 2e-06,
+      "input_cost_per_token_batches": 1e-06,
       "litellm_provider": "openai",
       "output_cost_per_image_token": 8e-06
     },
     "gpt-image-1.5": {
+      "cache_read_input_image_token_cost": 2e-06,
       "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.3e-07,
       "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
       "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_image_token": 3.2e-05,
-      "output_cost_per_token": 1e-05
+      "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06
     },
     "gpt-image-1.5-2025-12-16": {
+      "cache_read_input_image_token_cost": 2e-06,
       "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.3e-07,
       "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
       "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_image_token": 3.2e-05,
-      "output_cost_per_token": 1e-05
+      "output_cost_per_token": 1e-05,
+      "output_cost_per_token_batches": 5e-06
     },
     "gpt-image-2": {
+      "cache_read_input_image_token_cost": 2e-06,
       "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.25e-07,
       "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
       "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_image_token": 3e-05,
-      "output_cost_per_token": 1e-05
+      "output_cost_per_image_token": 3e-05
     },
     "gpt-image-2-2026-04-21": {
+      "cache_read_input_image_token_cost": 2e-06,
       "cache_read_input_token_cost": 1.25e-06,
       "input_cost_per_image_token": 8e-06,
       "input_cost_per_token": 5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_image_token": 3e-05,
-      "output_cost_per_token": 1e-05
+      "output_cost_per_image_token": 3e-05
+    },
+    "gpt-image-2.5-flare": {
+      "cache_read_input_image_token_cost": 2e-06,
+      "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.25e-07,
+      "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
+      "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_image_token": 3e-05
+    },
+    "gpt-image-2.5-flare-2026-09-08": {
+      "cache_read_input_image_token_cost": 2e-06,
+      "cache_read_input_token_cost": 1.25e-06,
+      "input_cost_per_image_token": 8e-06,
+      "input_cost_per_token": 5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_image_token": 3e-05
+    },
+    "gpt-image-2.5-sunburst": {
+      "cache_read_input_image_token_cost": 2e-06,
+      "cache_read_input_token_cost": 1.25e-06,
+      "cache_read_input_token_cost_batches": 6.25e-07,
+      "input_cost_per_image_token": 8e-06,
+      "input_cost_per_image_token_batches": 4e-06,
+      "input_cost_per_token": 5e-06,
+      "input_cost_per_token_batches": 2.5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_image_token": 3e-05
+    },
+    "gpt-image-2.5-sunburst-2026-09-08": {
+      "cache_read_input_image_token_cost": 2e-06,
+      "cache_read_input_token_cost": 1.25e-06,
+      "input_cost_per_image_token": 8e-06,
+      "input_cost_per_token": 5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_image_token": 3e-05
     },
     "gpt-realtime": {
       "cache_creation_input_audio_token_cost": 4e-07,
+      "cache_read_input_audio_token_cost": 4e-07,
+      "cache_read_input_image_token_cost": 5e-07,
       "cache_read_input_token_cost": 4e-07,
       "input_cost_per_audio_token": 3.2e-05,
-      "input_cost_per_image": 5e-06,
+      "input_cost_per_image_token": 5e-06,
       "input_cost_per_token": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 6.4e-05,
@@ -1375,9 +1750,11 @@
     },
     "gpt-realtime-1.5": {
       "cache_creation_input_audio_token_cost": 4e-07,
+      "cache_read_input_audio_token_cost": 4e-07,
+      "cache_read_input_image_token_cost": 5e-07,
       "cache_read_input_token_cost": 4e-07,
       "input_cost_per_audio_token": 3.2e-05,
-      "input_cost_per_image": 5e-06,
+      "input_cost_per_image_token": 5e-06,
       "input_cost_per_token": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 6.4e-05,
@@ -1385,20 +1762,23 @@
     },
     "gpt-realtime-2": {
       "cache_creation_input_audio_token_cost": 4e-07,
+      "cache_read_input_audio_token_cost": 4e-07,
+      "cache_read_input_image_token_cost": 5e-07,
       "cache_read_input_token_cost": 4e-07,
       "input_cost_per_audio_token": 3.2e-05,
-      "input_cost_per_image": 5e-06,
+      "input_cost_per_image_token": 5e-06,
       "input_cost_per_token": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 6.4e-05,
-      "output_cost_per_token": 1.6e-05
+      "output_cost_per_token": 2.4e-05
     },
     "gpt-realtime-2.1": {
       "cache_creation_input_audio_token_cost": 4e-07,
       "cache_read_input_audio_token_cost": 4e-07,
+      "cache_read_input_image_token_cost": 5e-07,
       "cache_read_input_token_cost": 4e-07,
       "input_cost_per_audio_token": 3.2e-05,
-      "input_cost_per_image": 5e-06,
+      "input_cost_per_image_token": 5e-06,
       "input_cost_per_token": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 6.4e-05,
@@ -1407,9 +1787,10 @@
     "gpt-realtime-2.1-mini": {
       "cache_creation_input_audio_token_cost": 3e-07,
       "cache_read_input_audio_token_cost": 3e-07,
+      "cache_read_input_image_token_cost": 8e-08,
       "cache_read_input_token_cost": 6e-08,
       "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_image": 8e-07,
+      "input_cost_per_image_token": 8e-07,
       "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 2e-05,
@@ -1417,9 +1798,11 @@
     },
     "gpt-realtime-2025-08-28": {
       "cache_creation_input_audio_token_cost": 4e-07,
+      "cache_read_input_audio_token_cost": 4e-07,
+      "cache_read_input_image_token_cost": 5e-07,
       "cache_read_input_token_cost": 4e-07,
       "input_cost_per_audio_token": 3.2e-05,
-      "input_cost_per_image": 5e-06,
+      "input_cost_per_image_token": 5e-06,
       "input_cost_per_token": 4e-06,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 6.4e-05,
@@ -1428,18 +1811,10 @@
     "gpt-realtime-mini": {
       "cache_creation_input_audio_token_cost": 3e-07,
       "cache_read_input_audio_token_cost": 3e-07,
-      "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_token": 6e-07,
-      "litellm_provider": "openai",
-      "output_cost_per_audio_token": 2e-05,
-      "output_cost_per_token": 2.4e-06
-    },
-    "gpt-realtime-mini-2025-10-06": {
-      "cache_creation_input_audio_token_cost": 3e-07,
-      "cache_read_input_audio_token_cost": 3e-07,
+      "cache_read_input_image_token_cost": 8e-08,
       "cache_read_input_token_cost": 6e-08,
       "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_image": 8e-07,
+      "input_cost_per_image_token": 8e-07,
       "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 2e-05,
@@ -1448,25 +1823,42 @@
     "gpt-realtime-mini-2025-12-15": {
       "cache_creation_input_audio_token_cost": 3e-07,
       "cache_read_input_audio_token_cost": 3e-07,
+      "cache_read_input_image_token_cost": 8e-08,
       "cache_read_input_token_cost": 6e-08,
       "input_cost_per_audio_token": 1e-05,
-      "input_cost_per_image": 8e-07,
+      "input_cost_per_image_token": 8e-07,
       "input_cost_per_token": 6e-07,
       "litellm_provider": "openai",
       "output_cost_per_audio_token": 2e-05,
       "output_cost_per_token": 2.4e-06
     },
+    "gpt-rosalind-discovery": {
+      "cache_read_input_token_cost": 5e-07,
+      "input_cost_per_token": 5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 2.5e-05
+    },
+    "gpt-rosalind-research": {
+      "cache_read_input_token_cost": 5e-07,
+      "input_cost_per_token": 5e-06,
+      "litellm_provider": "openai",
+      "output_cost_per_token": 2.5e-05
+    },
     "o1": {
       "cache_read_input_token_cost": 7.5e-06,
       "input_cost_per_token": 1.5e-05,
+      "input_cost_per_token_batches": 7.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 6e-05
+      "output_cost_per_token": 6e-05,
+      "output_cost_per_token_batches": 3e-05
     },
     "o1-2024-12-17": {
       "cache_read_input_token_cost": 7.5e-06,
       "input_cost_per_token": 1.5e-05,
+      "input_cost_per_token_batches": 7.5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 6e-05
+      "output_cost_per_token": 6e-05,
+      "output_cost_per_token_batches": 3e-05
     },
     "o1-pro": {
       "input_cost_per_token": 0.00015,
@@ -1487,10 +1879,12 @@
       "cache_read_input_token_cost_flex": 2.5e-07,
       "cache_read_input_token_cost_priority": 8.75e-07,
       "input_cost_per_token": 2e-06,
+      "input_cost_per_token_batches": 1e-06,
       "input_cost_per_token_flex": 1e-06,
       "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 8e-06,
+      "output_cost_per_token_batches": 4e-06,
       "output_cost_per_token_flex": 4e-06,
       "output_cost_per_token_priority": 1.4e-05,
       "search_context_cost_per_query": {
@@ -1504,10 +1898,12 @@
       "cache_read_input_token_cost_flex": 2.5e-07,
       "cache_read_input_token_cost_priority": 8.75e-07,
       "input_cost_per_token": 2e-06,
+      "input_cost_per_token_batches": 1e-06,
       "input_cost_per_token_flex": 1e-06,
       "input_cost_per_token_priority": 3.5e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 8e-06,
+      "output_cost_per_token_batches": 4e-06,
       "output_cost_per_token_flex": 4e-06,
       "output_cost_per_token_priority": 1.4e-05,
       "search_context_cost_per_query": {
@@ -1519,40 +1915,30 @@
     "o3-deep-research": {
       "cache_read_input_token_cost": 2.5e-06,
       "input_cost_per_token": 1e-05,
-      "input_cost_per_token_batches": 5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 4e-05,
-      "output_cost_per_token_batches": 2e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 4e-05
     },
     "o3-deep-research-2025-06-26": {
       "cache_read_input_token_cost": 2.5e-06,
       "input_cost_per_token": 1e-05,
-      "input_cost_per_token_batches": 5e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 4e-05,
-      "output_cost_per_token_batches": 2e-05,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 4e-05
     },
     "o3-mini": {
       "cache_read_input_token_cost": 5.5e-07,
       "input_cost_per_token": 1.1e-06,
+      "input_cost_per_token_batches": 5.5e-07,
       "litellm_provider": "openai",
-      "output_cost_per_token": 4.4e-06
+      "output_cost_per_token": 4.4e-06,
+      "output_cost_per_token_batches": 2.2e-06
     },
     "o3-mini-2025-01-31": {
       "cache_read_input_token_cost": 5.5e-07,
       "input_cost_per_token": 1.1e-06,
+      "input_cost_per_token_batches": 5.5e-07,
       "litellm_provider": "openai",
-      "output_cost_per_token": 4.4e-06
+      "output_cost_per_token": 4.4e-06,
+      "output_cost_per_token_batches": 2.2e-06
     },
     "o3-pro": {
       "input_cost_per_token": 2e-05,
@@ -1580,13 +1966,15 @@
     },
     "o4-mini": {
       "cache_read_input_token_cost": 2.75e-07,
-      "cache_read_input_token_cost_flex": 1.375e-07,
+      "cache_read_input_token_cost_flex": 1.38e-07,
       "cache_read_input_token_cost_priority": 5e-07,
       "input_cost_per_token": 1.1e-06,
+      "input_cost_per_token_batches": 5.5e-07,
       "input_cost_per_token_flex": 5.5e-07,
       "input_cost_per_token_priority": 2e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 4.4e-06,
+      "output_cost_per_token_batches": 2.2e-06,
       "output_cost_per_token_flex": 2.2e-06,
       "output_cost_per_token_priority": 8e-06,
       "search_context_cost_per_query": {
@@ -1597,13 +1985,15 @@
     },
     "o4-mini-2025-04-16": {
       "cache_read_input_token_cost": 2.75e-07,
-      "cache_read_input_token_cost_flex": 1.375e-07,
+      "cache_read_input_token_cost_flex": 1.38e-07,
       "cache_read_input_token_cost_priority": 5e-07,
       "input_cost_per_token": 1.1e-06,
+      "input_cost_per_token_batches": 5.5e-07,
       "input_cost_per_token_flex": 5.5e-07,
       "input_cost_per_token_priority": 2e-06,
       "litellm_provider": "openai",
       "output_cost_per_token": 4.4e-06,
+      "output_cost_per_token_batches": 2.2e-06,
       "output_cost_per_token_flex": 2.2e-06,
       "output_cost_per_token_priority": 8e-06,
       "search_context_cost_per_query": {
@@ -1615,28 +2005,14 @@
     "o4-mini-deep-research": {
       "cache_read_input_token_cost": 5e-07,
       "input_cost_per_token": 2e-06,
-      "input_cost_per_token_batches": 1e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 8e-06,
-      "output_cost_per_token_batches": 4e-06,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 8e-06
     },
     "o4-mini-deep-research-2025-06-26": {
       "cache_read_input_token_cost": 5e-07,
       "input_cost_per_token": 2e-06,
-      "input_cost_per_token_batches": 1e-06,
       "litellm_provider": "openai",
-      "output_cost_per_token": 8e-06,
-      "output_cost_per_token_batches": 4e-06,
-      "search_context_cost_per_query": {
-        "search_context_size_high": 0.01,
-        "search_context_size_low": 0.01,
-        "search_context_size_medium": 0.01
-      }
+      "output_cost_per_token": 8e-06
     },
     "omni-moderation-2024-09-26": {
       "input_cost_per_token": 0.0,
@@ -1673,27 +2049,12 @@
       "litellm_provider": "openai",
       "output_cost_per_token": 0.0,
       "output_cost_per_token_batches": 0.0
-    },
-    "text-moderation-007": {
-      "input_cost_per_token": 0.0,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 0.0
-    },
-    "text-moderation-latest": {
-      "input_cost_per_token": 0.0,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 0.0
-    },
-    "text-moderation-stable": {
-      "input_cost_per_token": 0.0,
-      "litellm_provider": "openai",
-      "output_cost_per_token": 0.0
     }
   },
   "source": {
-    "commit": "418c7c6012d7c39a9d4a28c72cabe1995595ad2b",
+    "commit": "969161501acfca278642ea645130754e66dee846",
     "path": "model_prices_and_context_window.json",
     "repository": "https://github.com/BerriAI/litellm",
-    "url": "https://raw.githubusercontent.com/BerriAI/litellm/418c7c6012d7c39a9d4a28c72cabe1995595ad2b/model_prices_and_context_window.json"
+    "url": "https://raw.githubusercontent.com/BerriAI/litellm/969161501acfca278642ea645130754e66dee846/model_prices_and_context_window.json"
   }
 }

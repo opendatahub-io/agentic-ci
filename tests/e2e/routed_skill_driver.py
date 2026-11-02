@@ -30,6 +30,7 @@ import json
 import sys
 from pathlib import Path
 
+from agentic_ci.cost import estimate_cost
 from agentic_ci.routing import ModelTier, route_path
 from agentic_ci.skill import SkillConfig, run_routed_skill
 
@@ -38,6 +39,38 @@ SKILL_PROMPT = (
     '{"verdict": "committed"}. Then reply with only the word pong.'
 )
 NOOP_CLASSIFIER_PROMPT = "Reply with only the word pong. Do not read or write any files."
+
+
+def _otel_metric_names(run_dir: Path) -> set[str]:
+    """Return metric names in the OTEL log; a missing log or bad line is skipped."""
+    log_file = run_dir / "claude-otel.jsonl"
+    if not log_file.exists():
+        return set()
+    names: set[str] = set()
+    for line in log_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, dict) or record.get("path") != "/v1/metrics":
+            continue
+        for rm in _objects(record.get("payload"), "resourceMetrics"):
+            for sm in _objects(rm, "scopeMetrics"):
+                for metric in _objects(sm, "metrics"):
+                    if isinstance(metric.get("name"), str):
+                        names.add(metric["name"])
+    return names
+
+
+def _objects(owner: object, key: str) -> list[dict]:
+    """Return the JSON objects listed under ``owner[key]``, skipping other shapes."""
+    value = owner.get(key) if isinstance(owner, dict) else None
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _otel_spans(run_dir: Path) -> list[dict]:
@@ -145,6 +178,14 @@ def main() -> int:
         checks["route_file_absent"] = not route_path(work_dir).exists()
     elif args.expect_source == "forced":
         checks["classifier_output_absent"] = not (run_dir / "classifier-output.txt").exists()
+
+    if args.harness == "codex":
+        names = _otel_metric_names(run_dir)
+        checks["codex_token_metrics"] = "agentic_ci.codex.token.usage" in names
+        # A model with no price gets token points and no cost point by design,
+        # so only require a cost point when the routed model is priced.
+        if route is not None and estimate_cost(route.model, 1, 1) is not None:
+            checks["codex_cost_metrics"] = "agentic_ci.codex.cost.usage" in names
 
     spans = _otel_spans(run_dir)
     routed = [s for s in spans if s.get("name") == "skill.routed"]

@@ -15,6 +15,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import NamedTuple
 
 from agentic_ci.cost import estimate_cost
 
@@ -196,79 +197,139 @@ def _otel_attribute_value(value):
     return None
 
 
-def _numeric_attribute(attributes, key):
-    try:
-        return float(attributes.get(key, 0))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _optional_numeric_attribute(attributes, *keys):
     """Return the first finite numeric attribute, or None if none exists."""
     for key in keys:
-        if key not in attributes:
-            continue
-        try:
-            value = float(attributes[key])
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(value):
+        value = _finite_number(attributes.get(key))
+        if value is not None:
             return value
     return None
 
 
-def parse_metrics(records):
-    """Parse OTLP JSONL records into structured token/cost data."""
+def _finite_number(value):
+    """Return a finite float, or None when the value cannot be aggregated.
+
+    OTLP ProtoJSON encodes int64 fields such as ``asInt`` as strings.
+    Booleans are rejected because they are integers.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            number = float(value.strip())
+        elif isinstance(value, (int, float)):
+            number = float(value)
+        else:
+            return None
+    except (ValueError, OverflowError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _non_negative_count(value):
+    """Return a finite token count of zero or more, or None."""
+    number = _finite_number(value)
+    if number is None or number < 0:
+        return None
+    return number
+
+
+def _token_attribute(attributes, key):
+    """Return a response token count, using zero when the attribute is unusable."""
+    number = _non_negative_count(attributes.get(key, 0))
+    if number is None:
+        return 0.0
+    return number
+
+
+_CODEX_TOKEN_METRIC = "agentic_ci.codex.token.usage"
+_CODEX_COST_METRIC = "agentic_ci.codex.cost.usage"
+_CODEX_TOKEN_TYPES = ("input", "cacheRead", "cacheCreation", "output")
+
+
+def _mapping(value):
+    """Return ``value`` when it is a JSON object, else an empty dict."""
+    return value if isinstance(value, dict) else {}
+
+
+def _objects(value):
+    """Return the JSON objects in an OTLP list field, skipping other shapes."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _attributes(owner):
+    """Decode an OTLP ``attributes`` list into a dict, skipping malformed entries."""
+    attrs = {}
+    for attribute in _objects(owner.get("attributes")):
+        key = attribute.get("key")
+        if isinstance(key, str) and key:
+            attrs[key] = _otel_attribute_value(attribute.get("value"))
+    return attrs
+
+
+def _label(value):
+    """Return a string label such as a model name or token type."""
+    return str(value or "unknown")
+
+
+def _parse_metrics(records):
+    """Parse totals and record the models with Codex completion events.
+
+    Collector payloads are whatever JSON a client posted, so malformed
+    records, collections and values are skipped rather than raising.
+    ``agentic_ci.codex.*`` metrics are never read back: completion events
+    are the source of Codex totals, and the collector cannot tell an
+    appended point from one a client posted under the same name.
+    """
     token_totals = defaultdict(float)
     cost_totals = defaultdict(float)
     api_requests = []
     codex_api_requests = []
     codex_response_requests = []
+    codex_event_models = set()
     active_time = defaultdict(float)
 
     for rec in records:
-        path = rec.get("path", "")
-        payload = rec.get("payload", {})
+        if not isinstance(rec, dict):
+            continue
+        path = rec.get("path")
+        if not isinstance(path, str):
+            continue
+        payload = _mapping(rec.get("payload"))
 
         if "/v1/metrics" in path:
-            for rm in payload.get("resourceMetrics", []):
-                for sm in rm.get("scopeMetrics", []):
-                    for metric in sm.get("metrics", []):
-                        name = metric.get("name", "")
-                        data = metric.get("sum", metric.get("gauge", metric.get("histogram", {})))
-                        for dp in data.get("dataPoints", []):
-                            attrs = {
-                                a.get("key"): _otel_attribute_value(a.get("value"))
-                                for a in dp.get("attributes", [])
-                                if a.get("key")
-                            }
-                            value = dp.get("asDouble", dp.get("asInt", 0))
+            for rm in _objects(payload.get("resourceMetrics")):
+                for sm in _objects(rm.get("scopeMetrics")):
+                    for metric in _objects(sm.get("metrics")):
+                        name = metric.get("name")
+                        data = _mapping(
+                            metric.get("sum", metric.get("gauge", metric.get("histogram")))
+                        )
+                        for dp in _objects(data.get("dataPoints")):
+                            attrs = _attributes(dp)
+                            value = _non_negative_count(dp.get("asDouble", dp.get("asInt", 0)))
+                            if value is None:
+                                continue
 
                             if name == "claude_code.token.usage":
-                                model = attrs.get("model", "unknown")
-                                token_type = attrs.get("type", "unknown")
+                                model = _label(attrs.get("model"))
+                                token_type = _label(attrs.get("type"))
                                 token_totals[(model, token_type)] += value
                             elif name == "claude_code.cost.usage":
-                                model = attrs.get("model", "unknown")
-                                cost_totals[model] += value
+                                cost_totals[_label(attrs.get("model"))] += value
                             elif name == "claude_code.active_time.total":
-                                time_type = attrs.get("type", "unknown")
-                                active_time[time_type] += value
+                                active_time[_label(attrs.get("type"))] += value
 
         elif "/v1/logs" in path:
-            for rl in payload.get("resourceLogs", []):
-                for sl in rl.get("scopeLogs", []):
-                    for lr in sl.get("logRecords", []):
-                        event_name = ""
-                        event_attrs = {}
-                        for a in lr.get("attributes", []):
-                            key = a.get("key")
-                            if not key:
-                                continue
-                            v = _otel_attribute_value(a.get("value"))
-                            event_attrs[key] = v
-                            if key == "event.name":
-                                event_name = v
+            for rl in _objects(payload.get("resourceLogs")):
+                for sl in _objects(rl.get("scopeLogs")):
+                    for lr in _objects(sl.get("logRecords")):
+                        event_attrs = _attributes(lr)
+                        event_name = event_attrs.get("event.name")
                         if event_name == "claude_code.api_request":
                             api_requests.append(event_attrs)
                         elif event_name == "codex.api_request":
@@ -279,12 +340,14 @@ def parse_metrics(records):
                             and event_attrs.get("event.kind") == "response.completed"
                         ):
                             codex_response_requests.append(event_attrs)
-                            model = str(event_attrs.get("model") or "unknown")
-                            input_tokens = _numeric_attribute(event_attrs, "input_token_count")
-                            cached_tokens = _numeric_attribute(event_attrs, "cached_token_count")
-                            cache_write_tokens = _numeric_attribute(
+                            model = _label(event_attrs.get("model"))
+                            codex_event_models.add(model)
+                            input_tokens = _token_attribute(event_attrs, "input_token_count")
+                            cached_tokens = _token_attribute(event_attrs, "cached_token_count")
+                            cache_write_tokens = _token_attribute(
                                 event_attrs, "cache_write_token_count"
                             )
+                            output_tokens = _token_attribute(event_attrs, "output_token_count")
                             # Codex reports input_token_count inclusive of the
                             # cached and cache-write tokens, so subtract them to
                             # get the fresh prompt tokens. The max(..., 0) guards
@@ -298,9 +361,7 @@ def parse_metrics(records):
                             token_totals[(model, "input")] += fresh_input
                             token_totals[(model, "cacheRead")] += cached_tokens
                             token_totals[(model, "cacheCreation")] += cache_write_tokens
-                            token_totals[(model, "output")] += _numeric_attribute(
-                                event_attrs, "output_token_count"
-                            )
+                            token_totals[(model, "output")] += output_tokens
 
                             direct_cost = _optional_numeric_attribute(
                                 event_attrs,
@@ -318,9 +379,7 @@ def parse_metrics(records):
                                 estimated_cost = estimate_cost(
                                     model,
                                     input_tokens=fresh_input,
-                                    output_tokens=_numeric_attribute(
-                                        event_attrs, "output_token_count"
-                                    ),
+                                    output_tokens=output_tokens,
                                     cached_input_tokens=cached_tokens,
                                     cache_creation_input_tokens=cache_write_tokens,
                                     service_tier=service_tier,
@@ -334,53 +393,94 @@ def parse_metrics(records):
     if not codex_api_requests:
         api_requests.extend(codex_response_requests)
 
+    return token_totals, cost_totals, api_requests, active_time, codex_event_models
+
+
+def parse_metrics(records):
+    """Parse OTLP JSONL records into structured token/cost data."""
+    token_totals, cost_totals, api_requests, active_time, _ = _parse_metrics(records)
     return token_totals, cost_totals, api_requests, active_time
 
 
+class UsageSummary(NamedTuple):
+    """Usage totals and models with Codex completion events from one OTEL log."""
+
+    codex_models: frozenset[str]
+    token_totals: dict
+    cost_totals: dict
+
+
+def _read_metrics(log_file):
+    with open(log_file) as f:
+        records = [json.loads(line) for line in f if line.strip()]
+    return _parse_metrics(records)
+
+
+def read_usage_summary(log_file):
+    """Read curated usage totals without printing or modifying the log.
+
+    Raises OSError for unreadable logs and ValueError for a line that is not
+    JSON. Valid JSON with an unexpected shape is skipped, not raised.
+    """
+    tokens, costs, _, _, models = _read_metrics(log_file)
+    return UsageSummary(frozenset(models), dict(tokens), dict(costs))
+
+
 def print_summary(log_file):
-    """Print a human-readable token/cost summary from an OTEL JSONL log."""
-    records = []
+    """Print a human-readable token/cost summary from an OTEL JSONL log.
+
+    Returns a :class:`UsageSummary`. Missing, unreadable, empty, or invalid
+    logs return empty model names, token totals, and cost totals.
+    """
     try:
-        with open(log_file) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    records.append(json.loads(line))
+        token_totals, cost_totals, api_requests, active_time, codex_models = _read_metrics(log_file)
     except FileNotFoundError:
         print("No OTEL data collected (log file not found).")
-        return
-    except json.JSONDecodeError as e:
+        return UsageSummary(frozenset(), {}, {})
+    except OSError as e:
+        print(f"Error reading OTEL log: {e}")
+        return UsageSummary(frozenset(), {}, {})
+    except ValueError as e:
         print(f"Error parsing OTEL log: {e}")
-        return
+        return UsageSummary(frozenset(), {}, {})
 
-    if not records:
+    if not any((token_totals, cost_totals, api_requests, active_time)):
         print("No OTEL data collected.")
-        return
-
-    token_totals, cost_totals, api_requests, active_time = parse_metrics(records)
 
     if token_totals:
         models = sorted(set(m for m, _ in token_totals.keys()))
         for model in models:
+            model_tokens = {}
+            for (m, token_type), count in token_totals.items():
+                if m != model:
+                    continue
+                number = _finite_number(count)
+                if number is not None:
+                    model_tokens[token_type] = number
+            if not model_tokens:
+                continue
             print(f"\n  Model: {model}")
             print(f"  {'Token Type':<20} {'Count':>12}")
             print(f"  {'-' * 20} {'-' * 12}")
-            model_tokens = {t: c for (m, t), c in token_totals.items() if m == model}
             for token_type in ["input", "cacheRead", "cacheCreation", "output"]:
                 if token_type in model_tokens:
                     print(f"  {token_type:<20} {model_tokens[token_type]:>12,.0f}")
             total = sum(model_tokens.values())
             print(f"  {'TOTAL':<20} {total:>12,.0f}")
 
-    if cost_totals:
+    priced = []
+    for model in sorted(cost_totals):
+        cost = _finite_number(cost_totals[model])
+        if cost is not None:
+            priced.append((model, cost))
+    if priced:
         print(f"\n  {'Model':<30} {'Cost (USD)':>12}")
         print(f"  {'-' * 30} {'-' * 12}")
         grand_total = 0.0
-        for model in sorted(cost_totals.keys()):
-            cost = cost_totals[model]
+        for model, cost in priced:
             grand_total += cost
             print(f"  {model:<30} ${cost:>11.4f}")
-        if len(cost_totals) > 1:
+        if len(priced) > 1:
             print(f"  {'TOTAL':<30} ${grand_total:>11.4f}")
 
     if active_time:
@@ -391,9 +491,111 @@ def print_summary(log_file):
 
     if api_requests:
         print(f"\n  API Requests: {len(api_requests)}")
-        total_duration = sum(float(r.get("duration_ms", 0)) for r in api_requests)
+        total_duration = sum(_non_negative_count(r.get("duration_ms")) or 0.0 for r in api_requests)
         if total_duration:
             print(f"  Total API time: {total_duration / 1000:.1f}s")
+
+    return UsageSummary(frozenset(codex_models), dict(token_totals), dict(cost_totals))
+
+
+def _string_attribute(key, value):
+    return {"key": key, "value": {"stringValue": str(value)}}
+
+
+def _metric_number(value):
+    number = float(value)
+    if number.is_integer():
+        return {"asInt": int(number)}
+    return {"asDouble": number}
+
+
+def _reportable_token_count(count):
+    """Return True for a finite token count worth writing as a metric point."""
+    number = _finite_number(count)
+    return number is not None and number > 0
+
+
+def append_codex_usage(log_file, summary, *, start_ns=None):
+    """Append agentic-ci-owned Codex usage totals to an OTEL JSONL log.
+
+    Only models with completion events in ``summary`` are written. Unknown
+    prices omit the cost point but retain tokens. Returns True when written.
+    ``start_ns`` is the run start time for the cumulative sums; when unknown,
+    the collection time is used as the start of the series.
+    """
+    if not summary.codex_models:
+        return False
+
+    end_ns = time.time_ns()
+    timestamps = {"startTimeUnixNano": str(start_ns or end_ns), "timeUnixNano": str(end_ns)}
+    token_points = []
+    cost_points = []
+    for model in sorted(summary.codex_models):
+        for token_type in _CODEX_TOKEN_TYPES:
+            count = summary.token_totals.get((model, token_type), 0)
+            if not _reportable_token_count(count):
+                continue
+            token_points.append(
+                {
+                    **_metric_number(count),
+                    **timestamps,
+                    "attributes": [
+                        _string_attribute("model", model),
+                        _string_attribute("type", token_type),
+                    ],
+                }
+            )
+        cost = _non_negative_count(summary.cost_totals.get(model))
+        if cost is not None:
+            cost_points.append(
+                {
+                    "asDouble": cost,
+                    **timestamps,
+                    "attributes": [_string_attribute("model", model)],
+                }
+            )
+
+    if not token_points and not cost_points:
+        return False
+
+    metrics = []
+    if cost_points:
+        metrics.append(
+            {
+                "name": _CODEX_COST_METRIC,
+                "unit": "USD",
+                "sum": {
+                    "aggregationTemporality": 2,
+                    "isMonotonic": True,
+                    "dataPoints": cost_points,
+                },
+            }
+        )
+    if token_points:
+        metrics.append(
+            {
+                "name": _CODEX_TOKEN_METRIC,
+                "unit": "{token}",
+                "sum": {
+                    "aggregationTemporality": 2,
+                    "isMonotonic": True,
+                    "dataPoints": token_points,
+                },
+            }
+        )
+
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "path": "/v1/metrics",
+        "payload": {
+            "resourceMetrics": [
+                {"scopeMetrics": [{"scope": {"name": "agentic-ci"}, "metrics": metrics}]}
+            ]
+        },
+    }
+    with open(log_file, "a") as f:
+        f.write(json.dumps(record, allow_nan=False) + "\n")
+    return True
 
 
 def generate_trace_context():

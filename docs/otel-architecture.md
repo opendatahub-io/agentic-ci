@@ -282,12 +282,22 @@ MLflow aggregates these into `mlflow.trace.cost`. The per-span split is
 an approximation; the session total is exact.
 
 Codex emits token counts in `codex.sse_event` `response.completed` log events,
-but does not emit a dollar amount. The collector estimates Codex cost with a
+but does not emit a dollar amount. agentic-ci estimates Codex cost with a
 generated snapshot of LiteLLM's OpenAI pricing map, including cache and
-service-tier rates. `make update-cost-map` refreshes the snapshot from an exact
-LiteLLM commit and stores that source SHA with the data. Deployments can point
+service-tier rates, and appends that result to the log as
+`agentic_ci.codex.cost.usage` and `agentic_ci.codex.token.usage`. The CLI and skill sessions append these
+agentic-ci-owned cumulative sums after stopping the collector, with run-start
+and collection timestamps. Cost points always use `asDouble`. These records
+are added to the JSONL artifact; they are not sent back through the collector.
+agentic-ci never reads these metrics back: the collector cannot tell an
+appended point from one a client posted under the same name, so a later parse
+rebuilds Codex totals from the `response.completed` events. The parser skips
+records, collections and values with an unexpected shape instead of raising.
+`make update-cost-map` refreshes the snapshot from an exact LiteLLM commit and
+stores that source SHA with the data. Deployments can point
 `AGENTIC_CI_LITELLM_COST_MAP` at another LiteLLM-format map. Unknown models
-retain token reporting but are omitted from the cost table.
+retain token reporting but are omitted from the cost table and from
+`agentic_ci.codex.cost.usage`.
 
 #### Query source
 
