@@ -370,7 +370,9 @@ class _AgentSession:
                 try:
                     summary = read_usage_summary(self._otel_log)
                     append_codex_usage(self._otel_log, summary, start_ns=self._start_ns)
-                except (OSError, ValueError) as exc_:
+                except Exception as exc_:
+                    # Collector payloads can be any JSON shape. Parsing them
+                    # must not prevent cleanup or mask the run's exception.
                     log.warning("Codex usage metrics were not saved (non-fatal): %s", exc_)
         self.backend.stop()
         return False

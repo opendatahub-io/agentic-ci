@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest import mock
 
@@ -204,3 +205,42 @@ def test_claude_session_preserves_native_metrics(tmp_path, monkeypatch):
         pass
     backend.stop.assert_called_once()
     assert _read_log(path) == [record]
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        None,
+        {"path": "/v1/metrics", "payload": None},
+        {"path": "/v1/metrics", "payload": {"resourceMetrics": None}},
+        {
+            "path": "/v1/metrics",
+            "payload": {
+                "resourceMetrics": [
+                    {"scopeMetrics": [{"metrics": [{"sum": {"dataPoints": None}}]}]}
+                ]
+            },
+        },
+    ],
+    ids=["null-record", "null-payload", "null-resources", "null-points"],
+)
+@pytest.mark.parametrize("run_fails", [False, True])
+def test_malformed_usage_does_not_prevent_cleanup(tmp_path, monkeypatch, caplog, record, run_fails):
+    path = tmp_path / "claude-otel.jsonl"
+    _write_jsonl(path, [record])
+    backend = mock.Mock(collector_bind_address="127.0.0.1")
+    monkeypatch.setattr(skill, "create_backend", lambda *args, **kwargs: backend)
+    monkeypatch.setattr(
+        skill, "start_collector", lambda *args, **kwargs: (object(), 4318, path, None)
+    )
+    monkeypatch.setattr(skill, "stop_collector", lambda *args: None)
+    monkeypatch.setattr(skill, "inject_root_spans", lambda *args, **kwargs: 0)
+    original_error = RuntimeError("agent failed")
+    with pytest.raises(RuntimeError) if run_fails else nullcontext() as raised:
+        with skill._AgentSession(tmp_path, harness_name="codex"):
+            if run_fails:
+                raise original_error
+    if run_fails:
+        assert raised.value is original_error
+    backend.stop.assert_called_once()
+    assert "Codex usage metrics were not saved (non-fatal)" in caplog.text
