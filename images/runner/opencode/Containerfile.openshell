@@ -133,7 +133,7 @@ ARG AGENTIC_CI_VERSION=""
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
-    uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.16.5 \
+    uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.17.3 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 
