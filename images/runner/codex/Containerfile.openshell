@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.159.0@sha256:badc58c853f199a9140aa4aa500f677c6d4a79ef4092c293fb0c94be30ba513e
+ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.159.0@sha256:075470151ef9f18d7abdc88b26331922a34fb9ecf5eb5e44f0cdb9074e8546c3
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:b9a4e0ec353dd30a89fc4c18775ac284b1fce6d5e19c2af6d0030be28e46eaf4 AS builder
 
 # Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
@@ -32,8 +32,8 @@ RUN mkdir -p /out \
 
 FROM ${CODEX_BASE_IMAGE}
 
-ARG UV_VERSION=0.12.9
-ARG UV_SHA256=aa4b1f8770910f7c7c543c7acc980e4270e52e70750c996acef813ea1c7c2912
+ARG UV_VERSION=0.13.6
+ARG UV_SHA256=5d61f26b6c7213779eda90edc6971ea6b0b796bfb8d49a574c8ad69b59838548
 
 ARG SHELLCHECK_VERSION=0.11.0
 ARG SHELLCHECK_SHA256=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
