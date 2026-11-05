@@ -79,7 +79,7 @@ COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     && UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
-       uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.5 \
+       uv pip install --system --no-cache /tmp/agentic-ci ruff==0.17.3 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o agent-ci /usr/local/share/agentic-ci
 
