@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.159.0@sha256:075470151ef9f18d7abdc88b26331922a34fb9ecf5eb5e44f0cdb9074e8546c3
+ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.166.0@sha256:5650241d869dbe3587ad4298df392567bfd3ad7a34048df5b4839c75667a35d4
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:f2f1497e0a7307875da71a6ce1c0ebda240cdb067aab48379083505d256ff95e AS builder
 
 # Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
@@ -44,8 +44,8 @@ ARG SHFMT_SHA256=76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7b
 ARG GH_VERSION=2.103.3
 ARG GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
 
-ARG GLAB_VERSION=1.116.0
-ARG GLAB_SHA256=173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea
+ARG GLAB_VERSION=1.126.0
+ARG GLAB_SHA256=f386519ba83e9482979992ee7f60eeebee4d95b950f95f4fe7289e0a1b1ea74c
 
 USER root
 
@@ -133,7 +133,7 @@ ARG AGENTIC_CI_VERSION=""
 COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
-    uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.16.5 \
+    uv pip install --system --python python3 --no-cache /tmp/agentic-ci ruff==0.17.3 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o sandbox -g sandbox /usr/local/share/agentic-ci
 

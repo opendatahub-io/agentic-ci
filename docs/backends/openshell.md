@@ -12,7 +12,7 @@ step-by-step guide to running agents in a sandbox on your workstation.
 ## Requirements
 
 OpenShell `0.1.2` or later, for both the `openshell` CLI and the
-`openshell-gateway` binary (the CI image pins `v0.1.2-rhaiv.0`). Before it
+`openshell-gateway` binary (the CI image pins `v0.1.6-rhaiv.4`). Before it
 starts a gateway, agentic-ci reads `openshell --version` and
 `openshell-gateway --version` and stops with
 `OpenShell >= 0.1.2 required; <binary> is <version>` when either is older
@@ -135,7 +135,7 @@ The binaries are the agent launchers under `/usr/local/bin` and
 attached provider's profile (`_provider_ci_gcp`), which the sandbox policy
 cannot remove, and the proxy injects the credential for any caller that rule
 admits. The Vertex profile is OpenShell's `google-vertex-ai` example
-(unchanged from `v0.0.116-rhaiv.11` to `v0.1.2-rhaiv.0`) with agentic-ci's
+(unchanged from `v0.0.116-rhaiv.11` to `v0.1.6-rhaiv.4`) with agentic-ci's
 id and binaries; the example declares no binaries.
 
 A provider kept on a running gateway composes that rule from the gateway's
@@ -713,7 +713,7 @@ could not prepare:
    after 45 s, so a reused sandbox left detached is attached again by the
    switch to `agent` in `setup()`. The
    placeholder a fresh exec gets is the same before the detach and after the
-   attach on v0.1.2, so one an agent stored in the agent phase (Codex's
+   attach on v0.1.2 and v0.1.6, so one an agent stored in the agent phase (Codex's
    `auth.json`, a Vertex bearer token) keeps resolving. Vertex is detached
    too: its profile declares the aiplatform hosts, so OpenShell composes a
    rule for them that parking cannot touch.
@@ -743,7 +743,7 @@ supervisor too old to honor the flag refuses the exec, and the switch fails.
 ## OpenShell Artifacts
 
 OpenShell is consumed from UBI9-based artifacts. All four components are
-pinned to the same version (`v0.1.2-rhaiv.0`) via `OPENSHELL_IMAGE_TAG` in
+pinned to the same version (`v0.1.6-rhaiv.4`) via `OPENSHELL_IMAGE_TAG` in
 `images/ci/Containerfile.openshell`:
 
 | Component | Source | How it is consumed |

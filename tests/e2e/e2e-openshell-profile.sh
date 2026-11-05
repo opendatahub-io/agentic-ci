@@ -1369,13 +1369,15 @@ while pid > 1:
     # unresolved placeholder both produce "invalid x-api-key". Use the proxy's
     # request log instead: an ALLOWED request with no credential_unavailable
     # record proves that the provider resolved the placeholder and injected
-    # the fake key before the request was sent.
+    # the fake key before the request was sent. v0.1.2 logs the URL as
+    # "http://api.anthropic.com:443/...", v0.1.6 as
+    # "https://api.anthropic.com/..." (NVIDIA/OpenShell#4684).
     # shellcheck disable=SC2016 # expanded inside the sandbox
     KEY_PROBE=(bash -c 'curl -sS --max-time 20 https://api.anthropic.com/v1/models \
         -H "x-api-key: ${1:-$ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" 2>&1 |
         head -c 200' key-probe)
     INJECTED=""
-    INJECTION_LOG_PATTERN='ALLOWED (GET|POST) .*api\.anthropic\.com:443/v1/models'
+    INJECTION_LOG_PATTERN='ALLOWED (GET|POST) https?://api\.anthropic\.com(:443)?/v1/models'
     key_provider_checks
 else
     fail "claude: sandbox created with api-key auth and the profile"
