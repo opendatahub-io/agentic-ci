@@ -25,6 +25,11 @@ Known failure patterns from this repo's history. Update this file when fixing bu
 - **Likely cause**: Plugin env var wasn't being passed through to the sandbox environment. Fixed by explicitly forwarding it.
 - **Where to look**: `backends/openshell/sandbox.py` env var injection, `harness.py`
 
+### Claude Code loads extra `cc-plugin-*` plugins despite AGENT_ENABLED_PLUGINS
+- **Symptom**: The run's `Plugins:` line lists the requested plugin plus Claude Code built-ins, for example `Plugins: rfe-creator, cc-plugin-agents-md, cc-plugin-plugin-authoring`, and the OpenShell E2E fails with `plugin-filter: only 1 plugin loaded (got 3)`.
+- **Likely cause**: Claude Code 2.1.316 and later ship built-in plugins (`<name>@builtin`) that are enabled without an entry in `settings.json`, and nothing lists them. `_filter_claude()` writes `<name>@builtin: false` only for the names in `plugins.CLAUDE_BUILTIN_PLUGINS`, so a built-in added by a newer Claude Code release stays enabled until its name is added there.
+- **Where to look**: `plugins.py` `CLAUDE_BUILTIN_PLUGINS` and `_filter_claude()`, the `Plugins:` line of the run log, `enabledPlugins` in `$CLAUDE_CONFIG_DIR/settings.json` after `agentic-ci enable-plugins`
+
 ## Skill engine
 
 ### Verdict file missing but agent exited 0

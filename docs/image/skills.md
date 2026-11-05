@@ -194,7 +194,9 @@ to use:
 
 **Claude Code** (`AGENT_TOOL=claude`): Sets `enabledPlugins` entries to
 `false` in `~/.claude/settings.json` for unwanted plugins. Claude Code
-reads this at startup and skips disabled plugins.
+reads this at startup and skips disabled plugins. Plugins that Claude Code
+ships itself (such as `cc-plugin-agents-md`) are disabled the same way, as
+`<name>@builtin` entries, unless `AGENT_ENABLED_PLUGINS` names them.
 
 **OpenCode** (`AGENT_TOOL=opencode`): Reads the plugin-skills manifest
 to find which skills belong to unwanted plugins, then removes unwanted skill
