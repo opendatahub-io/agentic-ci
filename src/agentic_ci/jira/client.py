@@ -36,11 +36,17 @@ from requests.exceptions import HTTPError
 
 from agentic_ci.jira import acli as acli_mod
 from agentic_ci.jira.adf import adf_to_text, text_to_adf
+from agentic_ci.redact import redact, secret_values
 
 log = logging.getLogger(__name__)
 
 API_VERSION = "3"
 MAX_RETRY_AFTER = 60
+_MAX_ERROR_BODY_CHARS = 65_536
+_MAX_ERROR_DETAIL_CHARS = 1_024
+_MAX_ERROR_ITEMS = 5
+_MAX_ERROR_VALUE_CHARS = 256
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 
 # Fields requested by ``JiraClient.search`` when the caller passes none.
 _SEARCH_DEFAULT_FIELDS = (
@@ -107,6 +113,50 @@ class JiraError(Exception):
         self.response_text = response_text
 
 
+def _jira_error_details(response_text: str, secrets: tuple[str, ...], auth_token: str) -> str:
+    """Return bounded, single-line Jira error fields for the CI log."""
+    if len(response_text) > _MAX_ERROR_BODY_CHARS:
+        return ""
+    try:
+        body = json.loads(response_text)
+    except (TypeError, ValueError):
+        return ""
+    if not isinstance(body, dict):
+        return ""
+
+    def clean(value: str) -> str:
+        if auth_token:
+            value = value.replace(auth_token, "[REDACTED]")
+        value = _EMAIL_RE.sub("[REDACTED]", redact(value, secrets))
+        if len(value) > _MAX_ERROR_VALUE_CHARS:
+            return value[:_MAX_ERROR_VALUE_CHARS] + "..."
+        return value
+
+    details: dict[str, Any] = {}
+    messages = body.get("errorMessages")
+    if isinstance(messages, list):
+        safe_messages = [
+            clean(item) for item in messages[:_MAX_ERROR_ITEMS] if isinstance(item, str)
+        ]
+        if safe_messages:
+            details["errorMessages"] = safe_messages
+    errors = body.get("errors")
+    if isinstance(errors, dict):
+        safe_errors = {
+            clean(key): clean(value)
+            for key, value in list(errors.items())[:_MAX_ERROR_ITEMS]
+            if isinstance(key, str) and isinstance(value, str)
+        }
+        if safe_errors:
+            details["errors"] = safe_errors
+    if not details:
+        return ""
+    rendered = json.dumps(details, ensure_ascii=True)
+    if len(rendered) > _MAX_ERROR_DETAIL_CHARS:
+        return rendered[:_MAX_ERROR_DETAIL_CHARS] + "..."
+    return rendered
+
+
 class JiraClient:
     """Jira client that delegates to acli where possible.
 
@@ -169,6 +219,11 @@ class JiraClient:
         if isinstance(expected, int):
             expected = (expected,)
         if resp.status_code not in expected:
+            details = _jira_error_details(resp.text, secret_values(os.environ), self.auth[1])
+            if details:
+                log.error(
+                    "Jira API error: HTTP %s; response details: %s", resp.status_code, details
+                )
             raise JiraError(
                 f"Jira API error: HTTP {resp.status_code}",
                 status_code=resp.status_code,

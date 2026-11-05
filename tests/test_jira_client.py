@@ -1,5 +1,6 @@
 """Tests for JiraClient (with mocked HTTP)."""
 
+import json
 import os
 from unittest.mock import MagicMock, call, patch
 
@@ -12,6 +13,68 @@ from agentic_ci.jira.client import MAX_RETRY_AFTER, JiraClient, JiraError
 def client():
     with patch("agentic_ci.jira.client.acli_mod.is_available", return_value=False):
         return JiraClient("https://test.atlassian.net", "user@test.com", "tok123")
+
+
+class TestJiraErrorDiagnostics:
+    def test_logs_standard_error_fields_without_changing_exception(self, client, caplog):
+        response = MagicMock(status_code=400)
+        response.text = json.dumps(
+            {
+                "errorMessages": ["Issue type is invalid"],
+                "errors": {"issuetype": "Specify a valid issue type"},
+                "requestBody": "do not log this",
+            }
+        )
+
+        with pytest.raises(JiraError, match="Jira API error: HTTP 400") as raised:
+            client._check(response, expected=201)
+
+        assert str(raised.value) == "Jira API error: HTTP 400"
+        assert raised.value.response_text == response.text
+        assert "Issue type is invalid" in caplog.text
+        assert "issuetype" in caplog.text
+        assert "Specify a valid issue type" in caplog.text
+        assert "do not log this" not in caplog.text
+        assert len(caplog.records) == 1
+        assert caplog.records[0].levelname == "ERROR"
+
+    def test_redacts_and_bounds_untrusted_error_fields(self, client, caplog):
+        token = "sk-proj-" + "x" * 24
+        response = MagicMock(status_code=400)
+        response.text = json.dumps(
+            {
+                "errorMessages": [
+                    f"Bearer {token}\nuser@example.com {client.auth[1]} " + "a" * 2_000,
+                    *["extra"] * 10,
+                ],
+                "errors": {"apiToken": f"token={token}"},
+            }
+        )
+
+        with pytest.raises(JiraError):
+            client._check(response)
+
+        message = caplog.records[0].getMessage()
+        assert token not in message
+        assert client.auth[1] not in message
+        assert "user@example.com" not in message
+        assert "[REDACTED]" in message
+        assert "\\n" in message
+        assert "\n" not in message
+        assert len(message) < 1_100
+        assert message.count("extra") <= 4
+
+    def test_does_not_log_unstructured_or_oversized_response(self, client, caplog):
+        response = MagicMock(status_code=400)
+        response.text = "unstructured secret response"
+        with pytest.raises(JiraError):
+            client._check(response)
+        assert not caplog.records
+
+        response.text = json.dumps({"errorMessages": ["too large"]}) + "x" * 70_000
+        with pytest.raises(JiraError):
+            client._check(response)
+        assert not caplog.records
 
 
 class TestFromEnv:
