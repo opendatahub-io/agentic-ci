@@ -65,6 +65,23 @@ _CODEX_JSON_TIMEOUT = 120
 # ``codex plugin list`` entry fields that :func:`_codex_installed_path` builds a path from.
 _CODEX_ENTRY_PATH_KEYS = ("installedPath", "marketplaceName", "name", "version")
 
+# Plugins that Claude Code itself ships, enabled under ``<name>@builtin``.
+# They are on by default without an entry in settings.json, and neither
+# settings.json nor the CLI lists them, so ``_filter_claude()`` cannot
+# discover them and writes an explicit ``<name>@builtin: false`` for each
+# name here (``true`` when ``AGENT_ENABLED_PLUGINS`` asks for it). The list
+# is hardcoded for that reason: add new names whenever a Claude Code release
+# ships another built-in plugin, or ``AGENT_ENABLED_PLUGINS`` leaves it
+# enabled. Seen so far: 2.1.316 ships agents-md and plugin-authoring,
+# 2.1.318 adds privacy and telemetry.
+CLAUDE_BUILTIN_PLUGINS = (
+    "cc-plugin-agents-md",
+    "cc-plugin-plugin-authoring",
+    "cc-plugin-privacy",
+    "cc-plugin-telemetry",
+)
+_CLAUDE_BUILTIN_MARKETPLACE = "builtin"
+
 
 def _manifest_path() -> Path:
     return Path(os.environ.get("PLUGIN_SKILLS_MANIFEST", DEFAULT_MANIFEST_PATH))
@@ -649,21 +666,43 @@ def _filter_claude(wanted: set[str]) -> None:
         )
         settings = {}
 
-    enabled = settings.get("enabledPlugins", {})
-    if not enabled:
-        return
+    enabled = settings.get("enabledPlugins")
+    if not isinstance(enabled, dict):
+        enabled = {}
+        settings["enabledPlugins"] = enabled
+    has_marketplace_plugins = any(
+        key.partition("@")[2] != _CLAUDE_BUILTIN_MARKETPLACE for key in enabled
+    )
 
     matched: set[str] = set()
-    for key in enabled:
-        name = key.split("@")[0]
+    for key in list(enabled):
+        name, _, marketplace = key.partition("@")
+        if marketplace == _CLAUDE_BUILTIN_MARKETPLACE:
+            continue
         if name in wanted:
             enabled[key] = True
             matched.add(name)
         else:
             enabled[key] = False
 
-    _check_unmatched(wanted, matched)
-    _warn_enabled_without_skills(matched, _load_plugin_manifest())
+    # Built-in plugins are absent from settings.json until written here, so
+    # set every known one explicitly (and any built-in key already present).
+    builtin_names = set(CLAUDE_BUILTIN_PLUGINS) | {
+        key.partition("@")[0]
+        for key in enabled
+        if key.partition("@")[2] == _CLAUDE_BUILTIN_MARKETPLACE
+    }
+    for name in sorted(builtin_names):
+        enabled[f"{name}@{_CLAUDE_BUILTIN_MARKETPLACE}"] = name in wanted
+    matched_builtins = wanted & builtin_names
+
+    # Without marketplace plugins there is nothing to match the request
+    # against, so only the built-ins are switched off (no unknown-plugin
+    # error), as before built-ins existed.
+    if has_marketplace_plugins:
+        _check_unmatched(wanted, matched | matched_builtins)
+        # Built-ins are not in the skills manifest; leave them out of the check.
+        _warn_enabled_without_skills(matched, _load_plugin_manifest())
 
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=2)

@@ -10,6 +10,7 @@ import pytest
 
 from agentic_ci import cli
 from agentic_ci.plugins import (
+    CLAUDE_BUILTIN_PLUGINS,
     _claude_skill_names,
     _codex_installed_path,
     _codex_marketplace_root,
@@ -356,6 +357,7 @@ class TestEnablePluginsClaude:
             "alpha@mkt": True,
             "mcp-only@mkt": True,
             "emptied@mkt": True,
+            **{f"{name}@builtin": False for name in CLAUDE_BUILTIN_PLUGINS},
         }
 
     def test_no_skills_warning_needs_manifest(self, monkeypatch, tmp_path, capsys):
@@ -375,6 +377,87 @@ class TestEnablePluginsClaude:
         monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha")
         monkeypatch.setenv("AGENT_TOOL", "claude")
         enable_plugins()
+
+    def _run_claude_filter(self, monkeypatch, tmp_path, wanted, manifest=None):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        if manifest is None:
+            monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(tmp_path / "missing.json"))
+        else:
+            manifest_path = tmp_path / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            monkeypatch.setenv("PLUGIN_SKILLS_MANIFEST", str(manifest_path))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", wanted)
+        monkeypatch.setenv("AGENT_TOOL", "claude")
+        enable_plugins()
+
+    def test_known_builtins_include_claude_code_2_1_318(self):
+        assert set(CLAUDE_BUILTIN_PLUGINS) >= {
+            "cc-plugin-agents-md",
+            "cc-plugin-plugin-authoring",
+            "cc-plugin-privacy",
+            "cc-plugin-telemetry",
+        }
+
+    def test_disables_builtin_plugins(self, monkeypatch, tmp_path):
+        # Claude Code 2.1.316 enables built-ins that settings.json does not
+        # list; filtering must switch them off explicitly.
+        settings = tmp_path / "settings.json"
+        self._write_settings(settings, {"alpha@mkt": True, "beta@mkt": True})
+        self._run_claude_filter(monkeypatch, tmp_path, "alpha")
+        ep = self._read_enabled(settings)
+        assert ep["alpha@mkt"] is True
+        assert ep["beta@mkt"] is False
+        for name in CLAUDE_BUILTIN_PLUGINS:
+            assert ep[f"{name}@builtin"] is False
+        assert [k for k, v in ep.items() if v] == ["alpha@mkt"]
+
+    def test_requested_builtin_stays_enabled(self, monkeypatch, tmp_path, capsys):
+        settings = tmp_path / "settings.json"
+        self._write_settings(settings, {"alpha@mkt": True})
+        self._run_claude_filter(
+            monkeypatch,
+            tmp_path,
+            "alpha,cc-plugin-agents-md",
+            manifest={"alpha": ["review"]},
+        )
+        ep = self._read_enabled(settings)
+        assert ep["alpha@mkt"] is True
+        assert ep["cc-plugin-agents-md@builtin"] is True
+        assert ep["cc-plugin-plugin-authoring@builtin"] is False
+        # Built-ins are not in the skills manifest, so no warning for them.
+        assert "provide no skills" not in capsys.readouterr().err
+
+    def test_builtin_key_already_in_settings_is_filtered(self, monkeypatch, tmp_path):
+        settings = tmp_path / "settings.json"
+        self._write_settings(
+            settings,
+            {"alpha@mkt": True, "cc-plugin-future@builtin": True},
+        )
+        self._run_claude_filter(monkeypatch, tmp_path, "alpha")
+        ep = self._read_enabled(settings)
+        assert ep["cc-plugin-future@builtin"] is False
+        assert ep["alpha@mkt"] is True
+
+    def test_builtin_name_does_not_match_marketplace_request(self, monkeypatch, tmp_path):
+        # A built-in in settings.json must not count as a marketplace match.
+        settings = tmp_path / "settings.json"
+        self._write_settings(settings, {"alpha@mkt": True, "beta@builtin": True})
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        monkeypatch.setenv("AGENT_ENABLED_PLUGINS", "alpha,gamma")
+        monkeypatch.setenv("AGENT_TOOL", "claude")
+        with pytest.raises(SystemExit):
+            enable_plugins()
+
+    def test_disables_builtins_without_marketplace_plugins(self, monkeypatch, tmp_path, capsys):
+        settings = tmp_path / "settings.json"
+        settings.write_text(json.dumps({"theme": "dark"}))
+        self._run_claude_filter(monkeypatch, tmp_path, "alpha")
+        data = json.loads(settings.read_text())
+        assert data["theme"] == "dark"
+        assert data["enabledPlugins"] == {
+            f"{name}@builtin": False for name in CLAUDE_BUILTIN_PLUGINS
+        }
+        assert "unknown plugin" not in capsys.readouterr().err
 
     def test_mixed_known_unknown_exits_with_matched_info(self, monkeypatch, tmp_path, capsys):
         settings = tmp_path / "settings.json"
