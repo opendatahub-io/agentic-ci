@@ -12,8 +12,8 @@ ARG SHFMT_SHA256=76e77641faa025814b77f153b29796b8e6fa2fca03e0c76a691608b86c7ea7b
 ARG GH_VERSION=2.103.3
 ARG GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
 
-ARG GLAB_VERSION=1.116.0
-ARG GLAB_SHA256=173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea
+ARG GLAB_VERSION=1.126.0
+ARG GLAB_SHA256=f386519ba83e9482979992ee7f60eeebee4d95b950f95f4fe7289e0a1b1ea74c
 
 RUN microdnf install -y --nodocs \
         python3 \
@@ -79,7 +79,7 @@ COPY pyproject.toml README.md /tmp/agentic-ci/
 COPY src/ /tmp/agentic-ci/src/
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     && UV_DYNAMIC_VERSIONING_BYPASS="${AGENTIC_CI_VERSION}" \
-       uv pip install --system --no-cache /tmp/agentic-ci ruff==0.16.5 \
+       uv pip install --system --no-cache /tmp/agentic-ci ruff==0.17.3 \
     && rm -rf /tmp/agentic-ci \
     && install -d -m 755 -o agent-ci /usr/local/share/agentic-ci
 
