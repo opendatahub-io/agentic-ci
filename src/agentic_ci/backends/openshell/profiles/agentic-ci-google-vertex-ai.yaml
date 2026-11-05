@@ -1,11 +1,11 @@
 # OpenShell provider profile for agentic-ci's Vertex AI provider.
 #
 # Copied from providers/google-vertex-ai.yaml at opendatahub-io/openshell
-# v0.1.2-rhaiv.0 (unchanged since v0.0.116-rhaiv.11). OpenShell no longer
-# ships provider profiles in the gateway, and it removed the GCE metadata
-# emulator the older google-cloud provider relied on, so agentic-ci imports
-# this profile (provider.ensure_profile) before it creates a Vertex
-# provider.
+# v0.1.2-rhaiv.0 (unchanged from v0.0.116-rhaiv.11 to v0.1.6-rhaiv.4).
+# OpenShell no longer ships provider profiles in the gateway, and it removed
+# the GCE metadata emulator the older google-cloud provider relied on, so
+# agentic-ci imports this profile (provider.ensure_profile) before it creates
+# a Vertex provider.
 #
 # The gateway keeps the refresh material and mints short-lived access
 # tokens. The sandbox only gets GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN
