@@ -118,7 +118,7 @@ scripts/
 ```
 
 OpenShell is consumed from four UBI9 artifacts sharing one tag
-(`OPENSHELL_IMAGE_TAG`, `v0.1.2-rhaiv.0`): the CLI binary copied from
+(`OPENSHELL_IMAGE_TAG`, `v0.1.6-rhaiv.4`): the CLI binary copied from
 `quay.io/opendatahub/odh-openshell-cli`, the gateway binary copied from
 `quay.io/opendatahub/odh-openshell-gateway`, the supervisor pulled at
 runtime from `quay.io/opendatahub/odh-openshell-supervisor`, and the sandbox

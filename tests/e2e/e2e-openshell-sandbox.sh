@@ -695,12 +695,14 @@ else
         # HTTP 500, which Codex reports as "high demand". The proxy logs
         # each Responses API request as ALLOWED by policy before it binds
         # the credential, so requiring one such line keeps an empty or
-        # failed log read from passing the rejection check below.
+        # failed log read from passing the rejection check below. v0.1.2
+        # logs the URL as "http://api.openai.com:443/...", v0.1.6 as
+        # "https://api.openai.com/..." (NVIDIA/OpenShell#4684).
         LOG_RC=0
         PROXY_LOG="$(openshell logs ci -n 5000 2>&1)" || LOG_RC=$?
         assert_ok "read the sandbox proxy log" test "$LOG_RC" -eq 0
         REQUESTS="$(printf '%s\n' "$PROXY_LOG" \
-            | grep -cE "ALLOWED (GET|POST) http://api\.openai\.com:443/v1/responses" || true)"
+            | grep -cE "ALLOWED (GET|POST) https?://api\.openai\.com(:443)?/v1/responses" || true)"
         assert_ok "proxy log shows Codex requests to api.openai.com" test "${REQUESTS:-0}" -ge 1
         REJECTED="$(printf '%s\n' "$PROXY_LOG" \
             | grep -cE "prohibited characters|reason:credential_unavailable" || true)"

@@ -18,8 +18,8 @@ to confirm or override each one before proceeding:
 | Role               | Default image                                          | Variable                    |
 |--------------------|--------------------------------------------------------|-----------------------------|
 | CI image           | `quay.io/aipcc/agentic-ci/openshell`                  | `$CI_IMAGE`                 |
-| Supervisor         | `quay.io/opendatahub/odh-openshell-supervisor:v0.1.2-rhaiv.0` | `$SUPERVISOR_IMAGE`  |
-| Sandbox runtime    | `quay.io/opendatahub/odh-openshell-sandbox:v0.1.2-rhaiv.0`    | `$SANDBOX_RUNTIME_IMAGE` |
+| Supervisor         | `quay.io/opendatahub/odh-openshell-supervisor:v0.1.6-rhaiv.4` | `$SUPERVISOR_IMAGE`  |
+| Sandbox runtime    | `quay.io/opendatahub/odh-openshell-sandbox:v0.1.6-rhaiv.4`    | `$SANDBOX_RUNTIME_IMAGE` |
 | Claude sandbox     | `quay.io/aipcc/agentic-ci/claude-sandbox`              | `$CLAUDE_SANDBOX_IMAGE`     |
 | OpenCode sandbox   | `quay.io/aipcc/agentic-ci/opencode-sandbox`            | `$OPENCODE_SANDBOX_IMAGE`   |
 
