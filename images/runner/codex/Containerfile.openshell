@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.166.0@sha256:5650241d869dbe3587ad4298df392567bfd3ad7a34048df5b4839c75667a35d4
+ARG CODEX_BASE_IMAGE=quay.io/aipcc/base-images/agentic/codex:0.166.0@sha256:a05abfc49b137c1224bd86729e1331ef9e7189f20895fcf4e39a36ef5bc13116
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:f2f1497e0a7307875da71a6ce1c0ebda240cdb067aab48379083505d256ff95e AS builder
 
 # Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
