@@ -12,7 +12,7 @@
 #
 # x86_64 only.
 
-ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.316@sha256:e08772229e3d2230b49d761fb27249e7dde61119ea5c263bbabc6d9053fd8af9
+ARG CLAUDE_CODE_BASE_IMAGE=quay.io/aipcc/base-images/agentic/claude-code:2.1.322@sha256:b57b3345198f10272bb6765659eae5d415f1e09158887b7c7fce6c429b787150
 FROM registry.access.redhat.com/hi/nodejs:26-builder@sha256:f2f1497e0a7307875da71a6ce1c0ebda240cdb067aab48379083505d256ff95e AS builder
 
 # Setup shim (images/runner/shared/agentic-ci-sandbox-setup.c), compiled
