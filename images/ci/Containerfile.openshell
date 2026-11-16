@@ -47,10 +47,44 @@ ARG GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f24
 ARG VALE_VERSION=3.26.0
 ARG VALE_SHA256=22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed
 
+# Workaround for a UBI9 AppStream repo skew (breaking builds since
+# 2026-11-11): the repo ships netavark-3:1.17.2-3.el9, which requires
+# aardvark-dns >= 3:1.17, but only carries the epoch-2 build
+# (2:1.17.1-1.el9_8), so "dnf install podman" cannot resolve. Pinning
+# podman or netavark cannot help: every podman build in the repo
+# hard-requires netavark, and 3:1.17.2-3.el9 is the only netavark there.
+# Until the matching aardvark-dns lands in the UBI repos, install the
+# epoch-3 build from the CentOS Stream 9 mirror alongside podman (the
+# exact netavark/aardvark-dns pairing c9s shipped, so a tested
+# combination).
+#
+# The RPM is vendored next to this Containerfile rather than fetched at
+# build time: mirror.stream.centos.org is a rolling tree with bounded
+# retention and would drop this build long before the UBI repos catch
+# up. Provenance: downloaded from
+# https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/aardvark-dns-1.17.1-1.el9.x86_64.rpm
+# (sha256 taken from the repo's repodata), signed by the CentOS Official
+# Signing Key (key ID 05B555B38483C65D, verified 2026-11-16).
+#
+# Drop the vendored RPM, this ARG and the local operand below when the
+# UBI repos carry an epoch-3 aardvark-dns; the "dnf update aardvark-dns"
+# step below then already prefers the UBI build over the vendored one.
+# If an aardvark-dns CVE lands before then, re-pin from the then-current
+# c9s netavark pairing. The same applies if UBI raises netavark's
+# aardvark-dns floor (a newer netavark requiring a newer aardvark-dns
+# while UBI still lacks it re-breaks the install the same way): re-pin
+# the vendored RPM from the c9s build matching the new netavark.
+ARG AARDVARK_DNS_SHA256=27406856d46f0b69787b7b6f8fc61d306a2844aa738296032ddc1cdbc74e541d
+
 # System packages (podman is the OpenShell compute driver; iproute
 # provides `ss` and procps-ng provides `pkill`, both used by the gateway
-# lifecycle management in backends/openshell/gateway.py).
-RUN dnf install -y --nodocs \
+# lifecycle management in backends/openshell/gateway.py). The vendored
+# aardvark-dns RPM is bind-mounted from the build context instead of
+# COPY'd so it never lands in an image layer.
+RUN --mount=type=bind,source=images/ci/aardvark-dns-1.17.1-1.el9.x86_64.rpm,target=/tmp/aardvark-dns.rpm \
+    echo "${AARDVARK_DNS_SHA256}  /tmp/aardvark-dns.rpm" | sha256sum -c - \
+    && dnf install -y --nodocs \
+        /tmp/aardvark-dns.rpm \
         podman \
         fuse-overlayfs \
         python3.12 \
@@ -61,6 +95,7 @@ RUN dnf install -y --nodocs \
         which \
         iproute \
         procps-ng \
+    && dnf update -y --nodocs aardvark-dns \
     && dnf clean all
 
 # UBI9 defaults python3 to 3.9; agentic-ci needs 3.10+, so make 3.12 the
