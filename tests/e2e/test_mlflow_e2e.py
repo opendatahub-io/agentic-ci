@@ -219,6 +219,15 @@ class TestTraceWithRoot:
         assert str(trace.info.status) == "TraceStatus.OK"
         assert len(trace.data.spans) == 2
 
+    def test_missing_experiment_reports_trace_loss(self, mlflow_server, tmp_path):
+        root = {"spanId": "0000000000000001", "name": "claude_code.session"}
+        path = _write_jsonl(tmp_path, [_trace_record([root])])
+
+        result = push_traces(path, mlflow_server, "nonexistent-mlflow-e2e-experiment")
+
+        assert result.ok == 0
+        assert result.err == 1
+
 
 class TestTraceWithoutRoot:
     """Trace with missing root span should be finalized to ERROR."""

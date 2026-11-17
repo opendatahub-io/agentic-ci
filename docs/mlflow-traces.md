@@ -205,3 +205,8 @@ All options can be set via environment variables, so the CI job can be as simple
 ```bash
 agentic-ci mlflow-push claude-otel.jsonl
 ```
+
+When trace payloads are present, the command exits with status 1 if the
+experiment lookup fails, the experiment does not exist, or any payload fails
+to push. A partial push also exits with status 1, so the CI job reports trace
+loss.
