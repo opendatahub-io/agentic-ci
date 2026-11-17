@@ -7,7 +7,7 @@
 #
 # x86_64 only.
 
-FROM registry.access.redhat.com/ubi10/ubi:10.2
+FROM registry.access.redhat.com/ubi10/ubi:10.3
 
 ARG GH_VERSION=2.103.3
 ARG GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
