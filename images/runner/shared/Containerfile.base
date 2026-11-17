@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/ubi-minimal:10.2
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.3
 
 ARG UV_VERSION=0.13.7
 ARG UV_SHA256=287491da03f2a785c70fa75b13e1f849918c2f2b5415fe84876b8214eeb792f9
