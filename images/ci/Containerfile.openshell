@@ -35,8 +35,8 @@ FROM quay.io/opendatahub/odh-openshell-gateway:${OPENSHELL_IMAGE_TAG} AS gateway
 
 FROM registry.access.redhat.com/ubi9/ubi:9.6
 
-ARG GH_VERSION=2.103.3
-ARG GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
+ARG GH_VERSION=2.104.0
+ARG GH_SHA256=98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e
 
 ARG GLAB_VERSION=1.129.0
 ARG GLAB_SHA256=d05b25deef16d1149a0e519dd83e6288d3ec151ec154901b41c68fb2ac5b8267
