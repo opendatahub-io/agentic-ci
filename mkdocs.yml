@@ -55,9 +55,14 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Project Configuration: configuration.md
   - Guides:
       - Local Development with OpenShell: guides/openshell-local.md
       - Write a Sandbox Overlay: guides/sandbox-overlay.md
+  - Telemetry:
+      - OTEL Telemetry Architecture: otel-architecture.md
+      - OTel Configuration by Harness: otel-configuration.md
+      - MLflow Trace Export: mlflow-traces.md
   - Container Images:
       - Overview: image/index.md
       - Build Pipeline: image/build.md
