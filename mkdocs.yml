@@ -55,6 +55,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Configuration: configuration.md
   - Guides:
       - Local Development with OpenShell: guides/openshell-local.md
       - Write a Sandbox Overlay: guides/sandbox-overlay.md
@@ -67,6 +68,10 @@ nav:
       - Podman: backends/podman.md
       - OpenShell: backends/openshell.md
       - Sandbox Profiles: sandbox-profiles.md
+  - Telemetry:
+      - OTEL Architecture: otel-architecture.md
+      - OTel Configuration by Harness: otel-configuration.md
+      - MLflow Trace Export: mlflow-traces.md
   - API Reference:
       - Overview: api/index.md
       - Core:
