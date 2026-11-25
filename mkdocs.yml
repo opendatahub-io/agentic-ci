@@ -96,3 +96,5 @@ nav:
       - Utilities:
           - Logging: api/log.md
           - Skill Metadata: api/skill_metadata.md
+          - Configuration: api/config.md
+          - MLflow Trace Export: api/mlflow.md

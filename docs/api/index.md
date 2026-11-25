@@ -46,3 +46,5 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 |--------|-------------|
 | [Logging](log.md) | Colored CLI output helpers |
 | [Skill Metadata](skill_metadata.md) | YAML frontmatter parser for SKILL.md files |
+| [Configuration](config.md) | Project config loader for `.agentic-ci/config.yml` |
+| [MLflow Trace Export](mlflow.md) | Push OTel traces from a JSONL log to an MLflow OTLP endpoint |
