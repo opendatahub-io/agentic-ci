@@ -96,3 +96,6 @@ nav:
       - Utilities:
           - Logging: api/log.md
           - Skill Metadata: api/skill_metadata.md
+          - Branch Resolution: api/branch.md
+          - Container Detection: api/container.md
+          - Cost Estimation: api/cost.md
