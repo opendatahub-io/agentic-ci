@@ -96,3 +96,6 @@ nav:
       - Utilities:
           - Logging: api/log.md
           - Skill Metadata: api/skill_metadata.md
+          - GCP Credentials: api/gcp.md
+          - Plugins: api/plugins.md
+          - Vertex Token Stub: api/vertex_token_stub.md

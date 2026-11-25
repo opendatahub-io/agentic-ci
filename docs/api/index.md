@@ -46,3 +46,6 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 |--------|-------------|
 | [Logging](log.md) | Colored CLI output helpers |
 | [Skill Metadata](skill_metadata.md) | YAML frontmatter parser for SKILL.md files |
+| [GCP Credentials](gcp.md) | GCP credential resolution for backends |
+| [Plugins](plugins.md) | Plugin and skill installation and runtime filtering |
+| [Vertex Token Stub](vertex_token_stub.md) | Loopback GCP token-exchange stub for OpenCode in OpenShell |
