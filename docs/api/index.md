@@ -46,3 +46,6 @@ Auto-generated reference documentation for all public modules in `agentic-ci`.
 |--------|-------------|
 | [Logging](log.md) | Colored CLI output helpers |
 | [Skill Metadata](skill_metadata.md) | YAML frontmatter parser for SKILL.md files |
+| [Branch Resolution](branch.md) | Target branch resolution for version-aware CI workflows |
+| [Container Storage Configuration](container.md) | Podman storage auto-configuration for nested CI containers |
+| [Model Pricing](cost.md) | Model pricing helpers for telemetry-derived cost estimates |

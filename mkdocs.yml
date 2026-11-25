@@ -96,3 +96,6 @@ nav:
       - Utilities:
           - Logging: api/log.md
           - Skill Metadata: api/skill_metadata.md
+          - Branch Resolution: api/branch.md
+          - Container Storage Configuration: api/container.md
+          - Model Pricing: api/cost.md
