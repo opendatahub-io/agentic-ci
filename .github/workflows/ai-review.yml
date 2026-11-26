@@ -1,0 +1,71 @@
+# AI review of pull requests with the code-review-skills GitHub Action: a standard review on every
+# push, and a deep review while the pull request carries the deep-review label.
+name: AI review
+
+on:
+  pull_request:
+    # labeled starts the deep review. ready_for_review reviews a draft once it is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions: {}
+
+jobs:
+  review:
+    name: AI review
+    # Every label change starts a run, which the standard review ignores. Fork pull requests get
+    # no secrets, so they are not reviewed.
+    if: >-
+      github.event.action != 'labeled' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # A group per job, so the standard and the deep review never cancel each other. A run this
+    # job skips gets a group of its own, so it cannot cancel a review in flight either.
+    concurrency:
+      group: ai-review-${{ github.event.action != 'labeled' && github.event.pull_request.number || format('noop-{0}', github.run_id) }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      # The summary is an issue comment.
+      issues: write
+      # Lets the standard review find a deep review of the same commit and stand down for it.
+      actions: read
+    runs-on: ubuntu-latest
+    # 20 agent minutes by default, plus two image pulls of up to 15 minutes each and the checkout.
+    timeout-minutes: 60
+    env:
+      # The action reads the model key from the job environment.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: opendatahub-io/code-review-skills@74a44c5d51deba74393e6207986cda1da0e2c8ab # main
+        with:
+          recommend_deep_review: 'true'
+          # The label in the deep job's if: below.
+          deep_review_label: deep-review
+
+  deep-review:
+    # The standard review finds this job by its name: keep it equal to deep_review_job.
+    name: deep-review
+    # When the deep-review label is added, and on later pushes while it is set. Never for a draft
+    # (the action fails a deep review of a draft) or a fork (no secrets).
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'deep-review') &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'deep-review')
+    concurrency:
+      group: ai-deep-review-${{ (github.event.action != 'labeled' || github.event.label.name == 'deep-review') && github.event.pull_request.number || format('noop-{0}', github.run_id) }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      # The summary is an issue comment.
+      issues: write
+    runs-on: ubuntu-latest
+    # 75 agent minutes by default in deep mode, plus the image pulls and the checkout.
+    timeout-minutes: 120
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: opendatahub-io/code-review-skills@74a44c5d51deba74393e6207986cda1da0e2c8ab # main
+        with:
+          mode: deep
