@@ -12,11 +12,12 @@ permissions: {}
 jobs:
   review:
     name: AI review
-    # Every label change starts a run, which the standard review ignores. Fork pull requests get
-    # no secrets, so they are not reviewed.
+    # Every label change starts a run, which the standard review ignores. Fork and Dependabot
+    # pull requests get no secrets, so they are not reviewed.
     if: >-
       github.event.action != 'labeled' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     # A group per job, so the standard and the deep review never cancel each other. A run this
     # job skips gets a group of its own, so it cannot cancel a review in flight either.
     concurrency:
@@ -46,11 +47,12 @@ jobs:
     # The standard review finds this job by its name: keep it equal to deep_review_job.
     name: deep-review
     # When the deep-review label is added, and on later pushes while it is set. Never for a draft
-    # (the action fails a deep review of a draft) or a fork (no secrets).
+    # (the action fails a deep review of a draft), a fork or Dependabot (no secrets).
     if: >-
       contains(github.event.pull_request.labels.*.name, 'deep-review') &&
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
       (github.event.action != 'labeled' || github.event.label.name == 'deep-review')
     concurrency:
       group: ai-deep-review-${{ (github.event.action != 'labeled' || github.event.label.name == 'deep-review') && github.event.pull_request.number || format('noop-{0}', github.run_id) }}
