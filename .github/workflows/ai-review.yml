@@ -36,12 +36,17 @@ jobs:
     env:
       # The action reads the model key from the job environment.
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # The review telemetry goes to the Red Hat MLflow through the review-telemetry relay.
+      REVIEW_TELEMETRY_PROJECT: ${{ vars.REVIEW_TELEMETRY_PROJECT }}
+      REVIEW_TELEMETRY_USERNAME: ${{ secrets.REVIEW_TELEMETRY_USERNAME }}
+      REVIEW_TELEMETRY_TOKEN: ${{ secrets.REVIEW_TELEMETRY_TOKEN }}
     steps:
-      - uses: opendatahub-io/code-review-skills@74a44c5d51deba74393e6207986cda1da0e2c8ab # main
+      - uses: opendatahub-io/code-review-skills@2741679148a1ca48f3e4651dbe8bf8c2c0d6b066 # main
         with:
           recommend_deep_review: 'true'
           # The label in the deep job's if: below.
           deep_review_label: deep-review
+          mlflow_experiment_name: ${{ vars.MLFLOW_EXPERIMENT_NAME }}
 
   deep-review:
     # The standard review finds this job by its name: keep it equal to deep_review_job.
@@ -67,7 +72,12 @@ jobs:
     timeout-minutes: 120
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # The review telemetry goes to the Red Hat MLflow through the review-telemetry relay.
+      REVIEW_TELEMETRY_PROJECT: ${{ vars.REVIEW_TELEMETRY_PROJECT }}
+      REVIEW_TELEMETRY_USERNAME: ${{ secrets.REVIEW_TELEMETRY_USERNAME }}
+      REVIEW_TELEMETRY_TOKEN: ${{ secrets.REVIEW_TELEMETRY_TOKEN }}
     steps:
-      - uses: opendatahub-io/code-review-skills@74a44c5d51deba74393e6207986cda1da0e2c8ab # main
+      - uses: opendatahub-io/code-review-skills@2741679148a1ca48f3e4651dbe8bf8c2c0d6b066 # main
         with:
           mode: deep
+          mlflow_experiment_name: ${{ vars.MLFLOW_EXPERIMENT_NAME }}
